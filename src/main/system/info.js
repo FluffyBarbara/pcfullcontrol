@@ -99,18 +99,17 @@ async function disks() {
   }, []);
 }
 
+// В Windows каждый такой запрос запускает PowerShell — поэтому кэшируем
 async function battery() {
-  try {
+  return cached('battery', 60e3, async () => {
     const b = await si.battery();
     if (!b.hasBattery) return null;
     return { percent: Math.round(b.percent), plugged: !!b.acConnected, minutesLeft: b.timeRemaining > 0 ? b.timeRemaining : null };
-  } catch (e) {
-    return null;
-  }
+  }, null);
 }
 
 async function users() {
-  return cached('users', 10e3, async () => {
+  return cached('users', 55e3, async () => {
     const u = await si.users();
     return [...new Set(u.map((x) => x.user).filter(Boolean))];
   }, []);

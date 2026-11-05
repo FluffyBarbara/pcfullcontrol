@@ -149,8 +149,7 @@ class Monitor {
     }
     // Вход пользователей
     if (cfg.notifyLogin) {
-      const list = await si.users().catch(() => []);
-      const users = new Set(list.map((u) => `${u.user}@${u.tty || 'console'}`));
+      const users = new Set(await info.users());
       if (this.prevUsers) {
         for (const u of users) if (!this.prevUsers.has(u)) this.ctx.notifier.notify(`👤 Вход в систему: <b>${E(u)}</b>`, { category: 'login', level: 'warning' });
         for (const u of this.prevUsers) if (!users.has(u)) this.ctx.notifier.notify(`👋 Выход из системы: ${E(u)}`, { category: 'login' });

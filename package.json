@@ -42,7 +42,7 @@
       "runAfterFinish": true,
       "shortcutName": "PC Full Control",
       "include": "build/installer.nsh",
-      "artifactName": "PCFullControl-Setup-${version}.exe",
+      "artifactName": "PCFullControl-Setup.exe",
       "language": "1049"
     }
   }

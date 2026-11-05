@@ -12,9 +12,8 @@
 
 ## Установка
 
-1. Скачайте `PCFullControl-Setup-<версия>.exe`:
-   - **Releases** репозитория (если релиз опубликован), или
-   - **Actions** → последняя успешная сборка «Сборка установщика Windows» → артефакт `PCFullControl-Setup` (zip с `.exe`).
+1. **Скачайте установщик:** [PCFullControl-Setup.exe](https://github.com/FluffyBarbara/pcfullcontrol/releases/latest/download/PCFullControl-Setup.exe)
+   (всегда последняя версия; все версии — на странице [Releases](https://github.com/FluffyBarbara/pcfullcontrol/releases)).
 2. Запустите установщик. Windows спросит разрешение администратора — оно нужно, чтобы приложение могло
    выключать ПК, устанавливать обновления Windows и программ без лишних окон.
 3. После установки откроется окно **PC Full Control** → вкладка **«Телефон»**:
