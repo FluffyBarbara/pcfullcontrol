@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { E } = require('./telegram-api');
+const fastDownload = require('./fast-download');
 
 function cmpVersions(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -101,6 +102,7 @@ class AppUpdater {
       if (!busy) this.setState({ status: 'error', error: humanError(e) });
       throw new Error(humanError(e));
     }
+    this.lastUpdateInfo = (r && r.updateInfo) || null;
     const latest = r && r.updateInfo ? r.updateInfo.version : null;
     const hasUpdate = !!latest && cmpVersions(latest, current) > 0;
     const info = { current, latest, hasUpdate, notes: parseNotes(r && r.updateInfo && r.updateInfo.releaseNotes), checkedAt: Date.now() };
@@ -118,8 +120,57 @@ class AppUpdater {
     if (!c.hasUpdate) return c.latest ? `У вас последняя версия — ${c.current}. Обновлений нет.` : `Обновлений нет (${c.message || 'релизы не найдены'}).`;
     this.setState({ status: 'downloading', latest: c.latest, percent: 0, error: '' });
     this.ctx.notifier.notify(`⬇️ Скачиваю PC Full Control <b>${E(c.latest)}</b>…`, { category: 'update' });
-    this.get().downloadUpdate().catch((e) => this.fail(e));
+    this.download(c.latest).catch((e) => this.fail(e));
     return `Найдена версия ${c.latest} (у вас ${c.current}). Скачиваю — после загрузки программа сама установит обновление и откроется уже новой версией.`;
+  }
+
+  /**
+   * Сначала — быстрая загрузка в 8 соединений прямо в папку, откуда electron-updater берёт готовое обновление
+   * (он сам ещё раз сверит контрольную сумму). Не получилось — обычная загрузка одним соединением.
+   */
+  async download(version) {
+    const u = this.get();
+    try {
+      await this.fastDownload(u, version);
+    } catch (e) {
+      this.log('warn', `быстрая загрузка не удалась: ${e.message} — качаю обычным способом`);
+    }
+    await u.downloadUpdate();
+  }
+
+  async fastDownload(u, version) {
+    const info = this.lastUpdateInfo;
+    const file = info && (info.files || []).find((f) => /\.exe$/i.test(f.url));
+    if (!file || !file.sha512) throw new Error('нет сведений о файле обновления');
+    const helper = await u.getOrCreateDownloadHelper();
+    const dir = helper.cacheDirForPendingUpdate;
+    const name = path.basename(String(file.url).split('?')[0]);
+    let url = file.url;
+    if (!/^https?:/i.test(url)) {
+      const feed = process.env.PCFC_UPDATE_FEED;
+      const cfg = feed ? null : await u.configOnDisk.value;
+      const base = feed ? feed.replace(/\/+$/, '') : `https://github.com/${cfg.owner}/${cfg.repo}/releases/download/v${version}`;
+      url = `${base}/${encodeURIComponent(name)}`;
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, `fast-${name}`);
+    const started = Date.now();
+    this.log('info', `быстрая загрузка ${url} в 8 соединений`);
+    try {
+      const r = await fastDownload.download(url, tmp, {
+        sha512: file.sha512, size: Number(file.size) || 0, connections: 8, log: (m) => this.log('info', m),
+        onProgress: (p) => this.setState({ status: 'downloading', percent: Math.min(99, Math.floor(p.percent)), transferred: p.transferred, total: p.total, speed: p.speed }),
+      });
+      const target = path.join(dir, name);
+      fs.rmSync(target, { force: true });
+      fs.renameSync(tmp, target);
+      fs.writeFileSync(path.join(dir, 'update-info.json'), JSON.stringify({ fileName: name, sha512: file.sha512, isAdminRightsRequired: false }));
+      const sec = (Date.now() - started) / 1000;
+      this.log('info', `скачано ${r.total} байт за ${sec.toFixed(1)} с (${(r.total / sec / 1048576).toFixed(1)} МБ/с), контрольная сумма совпала`);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch (er) { /* ignore */ }
+      throw e;
+    }
   }
 
   async install(version) {

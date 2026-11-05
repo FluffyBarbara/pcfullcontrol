@@ -174,6 +174,7 @@ Write-Host "Новые процессы после обновления: $($fres
 $hello2 = Wait-Hello 90
 Write-Host "Ответ после обновления: $($hello2 | ConvertTo-Json -Compress)"
 if (!$log -or -not (Select-String -Path $log.FullName -Pattern 'quitAndInstall|Install:' -Quiet)) { throw 'В журнале обновления нет установки' }
+if (-not (Select-String -Path $log.FullName -Pattern 'контрольная сумма совпала' -Quiet)) { throw 'Обновление скачалось не быстрым способом (в несколько соединений)' }
 Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
 
 Write-Host '=== 4. Уборка после обновления: старые копии и установщики программы ==='
