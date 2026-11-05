@@ -86,6 +86,12 @@ Write-Host "  через интернет отвечает: $($hello | ConvertTo
 if (-not $hello.remote -or $hello.mac) { throw 'Через интернет не должны показываться MAC и имя ПК' }
 try { Invoke-RestMethod "$base/api/pair" -Method Post -ContentType 'application/json' -Body '{"code":"246810","name":"x"}' | Out-Null; throw 'PAIR-OK' } catch { if ($_.Exception.Message -eq 'PAIR-OK') { throw 'Привязка через интернет должна быть запрещена' } }
 Write-Host '  привязка нового телефона через интернет запрещена'
+# Запросы с паузами по 5 с — ловим обрыв простаивающего соединения (Cloudflare показал бы 502)
+for ($i = 0; $i -lt 5; $i++) {
+  Start-Sleep -Milliseconds 5200
+  try { $null = Invoke-RestMethod "$base/api/hello" -TimeoutSec 20 } catch { throw "Через интернет ответ с ошибкой после паузы: $($_.Exception.Message)" }
+}
+Write-Host '  после пауз по 5 с через интернет отвечает без ошибок'
 $lg = Invoke-RestMethod "$base/api/remote-login" -Method Post -ContentType 'application/json' -Body (@{ code = $code; name = 'E2E' } | ConvertTo-Json)
 $RJ = @{ Authorization = "Bearer $($lg.token)" }
 $inf = Invoke-RestMethod "$base/api/info" -Headers $RJ

@@ -90,7 +90,11 @@ class RemoteAccess {
     this.url = null;
     this.emit();
     const port = this.ctx.config.mobile.port || 8765;
-    const p = spawn(this.binPath, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Журнал туннеля — в папке данных программы (cloudflared.log), чтобы при сбое было видно причину
+    const logFile = path.join(this.ctx.dataDir || process.cwd(), 'cloudflared.log');
+    // Новый запуск — новый журнал (иначе в нём остался бы адрес прошлого запуска); прошлый сохраняем рядом
+    try { fs.renameSync(logFile, logFile.replace(/\.log$/, '.prev.log')); } catch (e) { /* журнала ещё нет */ }
+    const p = spawn(this.binPath, ['tunnel', '--no-autoupdate', '--logfile', logFile, '--loglevel', 'info', '--url', `http://127.0.0.1:${port}`], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     this.proc = p;
     const onData = (d) => {
       const m = URL_RE.exec(String(d));
@@ -117,7 +121,22 @@ class RemoteAccess {
       this.restartTimer = setTimeout(() => this.start().catch(() => {}), Math.min(300000, 5000 * 2 ** Math.min(this.fails, 6)));
     });
     // Ждём адрес до 60 секунд
-    for (let i = 0; i < 120 && this.proc === p && !this.url; i++) await new Promise((r) => setTimeout(r, 500));
+    for (let i = 0; i < 120 && this.proc === p && !this.url; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      // Адрес мог попасть только в журнал — ищем и там
+      if (!this.url && i % 2 === 1) {
+        try {
+          const st = fs.statSync(logFile);
+          const fd = fs.openSync(logFile, 'r');
+          const len = Math.min(st.size, 65536);
+          const buf = Buffer.alloc(len);
+          fs.readSync(fd, buf, 0, len, st.size - len);
+          fs.closeSync(fd);
+          const all = String(buf).match(new RegExp(URL_RE.source, 'gi'));
+          if (all && all.length) onData(all[all.length - 1]);
+        } catch (e) { /* журнала ещё нет */ }
+      }
+    }
     if (!this.url && this.proc === p) { this.error = 'Не удалось открыть туннель — проверьте интернет'; }
     return this.state();
   }

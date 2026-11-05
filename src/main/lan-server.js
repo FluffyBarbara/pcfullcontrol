@@ -75,6 +75,10 @@ class LanServer {
     this.stop();
     if (!this.ctx.config.mobile.enabled) return Promise.resolve();
     this.server = http.createServer((req, res) => this.handle(req, res));
+    // Туннель Cloudflare держит соединение с программой до 90 с. Если программа закроет его раньше,
+    // запрос, пришедший в этот момент, обрывается и Cloudflare показывает «502 Bad gateway».
+    this.server.keepAliveTimeout = 120 * 1000;
+    this.server.headersTimeout = 125 * 1000;
     // Видеопоток экрана через WebSocket (работает и через туннель из интернета)
     this.server.on('upgrade', (req, socket, head) => this.upgrade(req, socket, head));
     this.server.on('error', (e) => {
