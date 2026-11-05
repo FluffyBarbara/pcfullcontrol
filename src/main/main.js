@@ -88,6 +88,12 @@ function trackVersion() {
   // В версии 1.0.0 lastSeenVersion ещё не сохранялась — узнаём её по другим настройкам
   const from = prev || (db.getSetting('autostartInitialized') ? '1.0.0' : null);
   db.setSetting('lastSeenVersion', version);
+  const pending = db.getSetting('updateInProgress');
+  db.setSetting('updateInProgress', null);
+  if (pending && from === version && Date.now() / 1000 - pending.ts < 3600) {
+    ctx.notifier.notify(`⚠️ Обновление до ${E(pending.to)} не установилось — работает версия ${E(version)}.\n`
+      + 'Скачайте установщик вручную: https://github.com/FluffyBarbara/pcfullcontrol/releases/latest', { category: 'update', level: 'warning' });
+  }
   if (!from || from === version) return;
   db.setSetting('pendingWhatsNew', { from, to: version });
   const changes = changesBetween(from, version);

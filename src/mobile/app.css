@@ -225,8 +225,10 @@ main { padding: 14px 16px calc(var(--tab-h) + 30px + env(safe-area-inset-bottom)
 .output { background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin: 12px 0 0; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; max-height: 380px; overflow: auto; }
 
 /* ---------- списки ---------- */
-.sticky-tools { position: sticky; top: calc(64px + env(safe-area-inset-top)); z-index: 5; background: var(--bg); padding-top: 4px; }
+.sticky-tools { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.sticky-tools .seg { margin-bottom: 0; }
 .search { display: flex; align-items: center; gap: 10px; padding: 0 14px; min-height: 48px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); margin-bottom: 10px; color: var(--muted); }
+.sticky-tools .search { margin-bottom: 0; }
 .search input { flex: 1; border: 0; background: none; outline: none; min-height: 46px; color: var(--text); }
 .list { display: flex; flex-direction: column; gap: 8px; }
 .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; min-height: 62px; transition: transform .12s; }
@@ -319,3 +321,5 @@ main { padding: 14px 16px calc(var(--tab-h) + 30px + env(safe-area-inset-bottom)
   .tiles { grid-template-columns: repeat(4, 1fr); }
 }
 .gap-v { height: 10px; }
+.update-card { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--card)), var(--card)); }
+.update-card p { margin: 0 0 4px; font-size: 14px; }

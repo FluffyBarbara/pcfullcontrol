@@ -179,6 +179,11 @@
             <span class="switch"><input type="checkbox" id="notif-toggle"><span></span></span>
           </label>
         </div>
+        <div class="card update-card hidden" id="update-card">
+          <div class="card-title"><i data-ic="sparkles" data-size="18"></i>Доступно обновление</div>
+          <p class="muted" id="update-text"></p>
+          <button class="btn primary big" id="update-btn"><i data-ic="download" data-size="18"></i>Обновить программу на ПК</button>
+        </div>
         <div class="card install-card hidden" id="install-card">
           <div class="card-title"><i data-ic="phone" data-size="18"></i>Установить как приложение</div>
           <p class="muted" id="install-text"></p>
@@ -189,6 +194,7 @@
           <div class="about-row"><span>Версия программы</span><b id="about-version"></b></div>
           <div class="about-row"><span>Этот телефон</span><b id="about-device"></b></div>
         </div>
+        <button class="btn big" id="check-update"><i data-ic="restart" data-size="18"></i>Проверить обновления</button>
         <button class="btn big hidden" id="switch-pc"><i data-ic="monitor" data-size="18"></i>Другой компьютер</button>
         <button class="btn danger big" id="unpair"><i data-ic="logout" data-size="18"></i>Отвязать телефон</button>
       </div>

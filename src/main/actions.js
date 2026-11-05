@@ -51,7 +51,7 @@ class ActionRegistry {
     a('upgrade_all', 'Обновить все программы', 'updates', this._job('upgrade_all', 'Обновление всех программ', updates.upgradeAll), { dangerous: true });
     a('win_update_check', 'Проверить Windows Update', 'updates', this._job('win_update_check', 'Проверка Windows Update', updates.windowsUpdateCheck), { windowsOnly: true });
     a('win_update_install', 'Установить обновления Windows', 'updates', this._job('win_update_install', 'Установка обновлений Windows', updates.windowsUpdateInstall), { dangerous: true, windowsOnly: true });
-    a('app_update', 'Обновить приложение PC Control', 'updates', this._job('app_update', 'Обновление PC Full Control', () => this.ctx.appUpdater.update()), { dangerous: true });
+    a('app_update', 'Обновить PC Full Control', 'updates', () => this.ctx.appUpdater.startUpdate());
     // Система
     a('status_report', 'Отчёт о состоянии в Telegram', 'system', () => this._statusReport());
     a('screenshot', 'Скриншот в Telegram', 'system', () => this._screenshotToTg());

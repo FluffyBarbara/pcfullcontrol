@@ -201,6 +201,7 @@ async function startApp() {
   $('#about-pc').textContent = INFO.pcName;
   $('#about-os').textContent = INFO.os;
   $('#about-version').textContent = INFO.version;
+  renderUpdateCard(INFO.update);
   $('#about-device').textContent = INFO.device.name;
   $('#switch-pc').classList.toggle('hidden', !SHELL);
   $('#terminal-card').classList.toggle('hidden', !INFO.allowShell);
@@ -444,6 +445,7 @@ function tile(name, tone = '') {
     el('span', { class: 'tile-ic' }, ic(Icons.ACTION_ICONS[name] || 'zap', 22)), el('span', { text: SHORT[name] || a.title }));
   t.addEventListener('click', () => {
     if (name === 'shutdown' || name === 'reboot') powerSheet(name);
+    else if (name === 'app_update') updateFlow(t);
     else runAction(name, '', { tileEl: t });
   });
   return t;
@@ -757,6 +759,38 @@ $('#unpair').addEventListener('click', async () => {
 });
 
 $('#switch-pc').addEventListener('click', () => { location.href = 'http://localhost/?list=1'; });
+
+// ===================== обновление программы на ПК =====================
+function renderUpdateCard(u) {
+  const show = !!(u && u.hasUpdate);
+  $('#update-card').classList.toggle('hidden', !show);
+  if (show) $('#update-text').textContent = `Новая версия ${u.latest} (сейчас ${INFO.version}). Программа на ПК скачает её, установит и перезапустится — это 1–2 минуты.`;
+}
+
+async function updateFlow(btn = null) {
+  if (btn) btn.classList.add('busy');
+  let u;
+  try {
+    u = await api('/api/update/check');
+  } catch (e) {
+    toast('Не удалось проверить обновления: ' + e.message, 'err');
+    return;
+  } finally {
+    if (btn) btn.classList.remove('busy');
+  }
+  renderUpdateCard(u);
+  if (!u.hasUpdate) { toast(u.latest ? `У вас последняя версия — ${u.current}` : 'Обновлений нет', 'info'); return; }
+  const ok = await confirmSheet(`Обновить до ${u.latest}?`, `Сейчас установлена ${u.current}. Программа на ПК скачает новую версию, установит её и перезапустится через 1–2 минуты.`, 'Обновить', false, 'download');
+  if (!ok) return;
+  haptic(20);
+  try {
+    const r = await api('/api/action/app_update', { json: { arg: '' } });
+    toast(r.result, r.ok ? 'ok' : 'err');
+    if (r.ok) $('#update-card').classList.add('hidden');
+  } catch (e) { toast(e.message, 'err'); }
+}
+$('#update-btn').addEventListener('click', () => updateFlow());
+$('#check-update').addEventListener('click', () => updateFlow($('#check-update')));
 
 function renderInstallHint() {
   const card = $('#install-card');

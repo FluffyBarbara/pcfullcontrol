@@ -204,7 +204,13 @@ class LanServer {
         telegram: !!(ctx.bot && ctx.bot.status === 'online' && ctx.authorizedIds().length),
         monitors: (await screen.displays().catch(() => [])).length || 1,
         device: { id: device.id, name: device.name },
+        update: ctx.updateInfo ? { hasUpdate: ctx.updateInfo.hasUpdate, latest: ctx.updateInfo.latest } : null,
       };
+    }
+    if (p === '/api/update/check') {
+      let u;
+      try { u = await ctx.appUpdater.check(); } catch (e) { throw new HttpError(502, e.message); }
+      return { current: u.current, latest: u.latest, hasUpdate: u.hasUpdate, message: u.message || '' };
     }
     if (p === '/api/status') {
       const s = await info.getStatus();
