@@ -69,10 +69,20 @@ public static class PccInput {
 }`;
 
 // Помощник читает команды построчно: m x y | r dx dy | d btn | u btn | w dy dx | k vk 1/0 ext | t base64
+// Помощник компилируется один раз в DLL (папка данных программы) — дальше загружается за секунду
 const AGENT_PS = `
-Add-Type -TypeDefinition @'
+$dll = $env:PCFC_AGENT_DLL
+$loaded = $false
+if ($dll -and (Test-Path -LiteralPath $dll)) { try { Add-Type -Path $dll; $loaded = $true } catch {} }
+if (-not $loaded) {
+  $src = @'
 ${AGENT_CS}
 '@
+  if ($dll) {
+    try { New-Item -ItemType Directory -Force -Path (Split-Path $dll) | Out-Null; Add-Type -TypeDefinition $src -OutputAssembly $dll; Add-Type -Path $dll; $loaded = $true } catch {}
+  }
+  if (-not $loaded) { Add-Type -TypeDefinition $src }
+}
 [PccInput]::Init()
 [Console]::Out.WriteLine('ready')
 while ($true) {
@@ -151,14 +161,24 @@ class RemoteControl {
 
   // ---------------- ввод ----------------
   async ensureAgent() {
-    if (this.agent && !this.agent.killed && this.agent.exitCode === null) return this.agentReady;
+    if (this.agent && !this.agent.killed && this.agent.exitCode === null) {
+      // Уже готов — сразу; ещё запускается — ждём тот же запуск
+      if (this.agentIsReady) return undefined;
+      return this.agentReady;
+    }
+    this.agentIsReady = false;
     const encoded = Buffer.from("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n" + AGENT_PS, 'utf16le').toString('base64');
+    const crypto = require('crypto');
+    const path = require('path');
+    const tag = crypto.createHash('sha1').update(AGENT_CS).digest('hex').slice(0, 10);
+    const dll = this.ctx.dataDir ? path.join(this.ctx.dataDir, 'bin', `PccInput-${tag}.dll`) : '';
     const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-      windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PCFC_AGENT_DLL: dll },
     });
     this.agent = p;
     this.agentReady = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Помощник ввода не запустился')), 20000);
+      // На медленном или занятом компьютере первая компиляция может идти долго — ждём до минуты
+      const timer = setTimeout(() => { reject(new Error('Помощник ввода не запустился')); try { p.kill(); } catch (e) { /* ignore */ } }, 60000);
       p.stdout.on('data', (d) => { if (String(d).includes('ready')) { clearTimeout(timer); this.agentIsReady = true; resolve(); } });
       p.on('exit', () => { clearTimeout(timer); reject(new Error('Помощник ввода завершился')); });
       p.on('error', (e) => { clearTimeout(timer); reject(e); });
