@@ -10,10 +10,10 @@ const electron = () => require('electron');
 
 // Режимы качества. bitrate — кбит/с, maxWidth — предельная ширина картинки.
 const PRESETS = {
-  auto: { name: 'Авто', desc: '60 кадр/с, чёткая картинка в исходном разрешении (до 2K)', fps: 60, maxWidth: 2560, bitrate: 25000, degradation: 'balanced', hint: 'detail' },
-  quality: { name: 'Максимум чёткости', desc: 'Исходное разрешение до 4K, 60 кадр/с — для текста и мелких деталей', fps: 60, maxWidth: 3840, bitrate: 50000, degradation: 'maintain-resolution', hint: 'detail' },
-  smooth: { name: 'Плавность 120', desc: 'До 120 кадр/с в Full HD — для видео, игр и быстрой работы', fps: 120, maxWidth: 1920, bitrate: 40000, degradation: 'maintain-framerate', hint: 'motion' },
-  eco: { name: 'Экономия', desc: '30 кадр/с, HD — для слабого Wi-Fi', fps: 30, maxWidth: 1280, bitrate: 4000, degradation: 'balanced', hint: 'detail' },
+  auto: { name: 'Авто', desc: '60 кадр/с, чёткая картинка в исходном разрешении (до 2K)', fps: 60, maxWidth: 2560, bitrate: 25000, wsBitrate: 9000, wsMaxWidth: 1920, degradation: 'balanced', hint: 'detail' },
+  quality: { name: 'Максимум чёткости', desc: 'Исходное разрешение до 4K, 60 кадр/с — для текста и мелких деталей', fps: 60, maxWidth: 3840, bitrate: 50000, wsBitrate: 16000, wsMaxWidth: 2560, degradation: 'maintain-resolution', hint: 'detail' },
+  smooth: { name: 'Плавность 120', desc: 'До 120 кадр/с в Full HD — для видео, игр и быстрой работы', fps: 120, maxWidth: 1920, bitrate: 40000, wsBitrate: 12000, wsMaxWidth: 1920, degradation: 'maintain-framerate', hint: 'motion' },
+  eco: { name: 'Экономия', desc: '30 кадр/с, HD — для слабого Wi-Fi', fps: 30, maxWidth: 1280, bitrate: 4000, wsBitrate: 2500, wsMaxWidth: 1280, degradation: 'balanced', hint: 'detail' },
 };
 
 const IDLE_CLOSE_MS = 5 * 60 * 1000;
@@ -60,6 +60,8 @@ class ScreenStream {
       if (s) s.monitor = Number(m.index) || s.monitor;
     });
     ipcMain.on('stream:log', (e, m) => { if (mine(e)) console.log('[stream]', m); });
+    ipcMain.on('stream:chunk', (e, m) => { if (mine(e)) this.onChunk(m); });
+    ipcMain.on('stream:wsinfo', (e, m) => { if (mine(e)) this.wsSend(m.sid, m.info); });
     ipcMain.handle('stream:source', (e, monitor) => {
       if (!mine(e)) throw new Error('forbidden');
       return this.sourceFor(monitor);
@@ -134,6 +136,75 @@ class ScreenStream {
     return { sid, sdp: offer.sdp, monitor: source.index, preset: name, audio: offer.audio };
   }
 
+  /**
+   * Поток экрана по WebSocket: ПК кодирует H.264 (WebCodecs, видеокарта), телефон декодирует сам.
+   * Проходит через туннель из интернета и любые сети, где не получается прямое соединение WebRTC.
+   */
+  async attachWs(ws, device, { monitor = 1, preset = 'auto', remote = false } = {}) {
+    clearTimeout(this.idleTimer);
+    await this.ensureWindow();
+    const source = await this.sourceFor(monitor);
+    const sid = crypto.randomBytes(12).toString('hex');
+    const name = PRESETS[preset] ? preset : 'auto';
+    const s = { kind: 'ws', ws, deviceId: device.id, device: device.name, monitor: source.index, started: Date.now(), scale: 1, congested: 0, sent: 0, dropped: 0, lastAdapt: Date.now(), needKey: true };
+    this.sessions.set(sid, s);
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      let m;
+      try { m = JSON.parse(String(data)); } catch (e) { return; }
+      if (m.type === 'input') this.onInput(sid, m.cmd);
+      else if (m.type === 'ping') this.wsSend(sid, { type: 'pong', t: m.t });
+      else if (m.type === 'keyframe') this.post('wsKey', { sid });
+      else if (m.type === 'preset' && PRESETS[m.name]) this.post('wsPreset', { sid, name: m.name });
+      else if (m.type === 'monitor') this.post('wsMonitor', { sid, index: Number(m.index) || 1 });
+    });
+    ws.on('close', () => { this.post('stop', { sid }); this.onClosed(sid); });
+    ws.on('error', () => {});
+    try {
+      await this.call('startEnc', { sid, source, preset: name, presets: PRESETS, remote });
+    } catch (e) {
+      this.onClosed(sid);
+      throw e;
+    }
+    this.ctx.remote.noteSession(device.name + (remote ? ' (через интернет)' : ''));
+    this.ctx.remote.warm();
+    this.startCursor();
+    this.wsSend(sid, { type: 'hello', sid, preset: name, monitor: source.index, remote });
+    return sid;
+  }
+
+  wsSend(sid, obj) {
+    const s = this.sessions.get(sid);
+    if (s && s.ws && s.ws.readyState === 1) { try { s.ws.send(JSON.stringify(obj)); } catch (e) { /* закрывается */ } }
+  }
+
+  /**
+   * Кадр от кодировщика → телефону. Заголовок 13 байт: флаги (1 — опорный кадр), ширина, высота (по 2 байта),
+   * метка времени (8 байт, мкс). Если канал не успевает — неопорные кадры пропускаем, просим опорный
+   * и снижаем битрейт; когда канал свободен — постепенно возвращаем качество.
+   */
+  onChunk(m) {
+    const s = this.sessions.get(m.sid);
+    if (!s || s.kind !== 'ws' || s.ws.readyState !== 1) return;
+    const backlog = s.ws.bufferedAmount;
+    const now = Date.now();
+    if (!m.key && (s.needKey || backlog > 1.5 * 1024 * 1024)) {
+      s.dropped++;
+      if (!s.needKey) { s.needKey = true; this.post('wsKey', { sid: m.sid }); }
+      if (now - s.lastAdapt > 1500 && s.scale > 0.25) { s.scale = Math.max(0.25, s.scale * 0.7); s.lastAdapt = now; this.post('wsRate', { sid: m.sid, scale: s.scale }); }
+      return;
+    }
+    if (m.key) s.needKey = false;
+    if (backlog < 200 * 1024 && s.scale < 1 && now - s.lastAdapt > 4000) { s.scale = Math.min(1, s.scale * 1.25); s.lastAdapt = now; this.post('wsRate', { sid: m.sid, scale: s.scale }); }
+    const data = Buffer.from(m.data);
+    const head = Buffer.alloc(13);
+    head.writeUInt8(m.key ? 1 : 0, 0);
+    head.writeUInt16LE(m.w || 0, 1);
+    head.writeUInt16LE(m.h || 0, 3);
+    head.writeDoubleLE(m.ts || 0, 5);
+    try { s.ws.send(Buffer.concat([head, data]), { binary: true }); s.sent += data.length; } catch (e) { /* закрывается */ }
+  }
+
   own(sid, device) {
     const s = this.sessions.get(String(sid || ''));
     if (!s || s.deviceId !== device.id) throw new Error('Сеанс трансляции не найден');
@@ -168,6 +239,8 @@ class ScreenStream {
   }
 
   onClosed(sid) {
+    const sess = this.sessions.get(sid);
+    if (sess && sess.ws && sess.ws.readyState <= 1) { try { sess.ws.close(); } catch (e) { /* ignore */ } }
     if (!this.sessions.delete(sid)) return;
     if (!this.sessions.size) {
       this.stopCursor();
@@ -198,7 +271,12 @@ class ScreenStream {
       if (key === this.lastCursor && Date.now() - this.lastCursorAt < 1000) return;
       this.lastCursor = key;
       this.lastCursorAt = Date.now();
-      this.post('cursor', { cursors: out });
+      const viaHost = {};
+      for (const [sid, p] of Object.entries(out)) {
+        const s = this.sessions.get(sid);
+        if (s && s.kind === 'ws') this.wsSend(sid, { type: 'cursor', p }); else viaHost[sid] = p;
+      }
+      if (Object.keys(viaHost).length) this.post('cursor', { cursors: viaHost });
     }, 33);
   }
 

@@ -75,6 +75,8 @@ class LanServer {
     this.stop();
     if (!this.ctx.config.mobile.enabled) return Promise.resolve();
     this.server = http.createServer((req, res) => this.handle(req, res));
+    // Видеопоток экрана через WebSocket (работает и через туннель из интернета)
+    this.server.on('upgrade', (req, socket, head) => this.upgrade(req, socket, head));
     this.server.on('error', (e) => {
       this.status = 'error';
       this.error = e.code === 'EADDRINUSE' ? `Порт ${this.port} занят другой программой` : e.message;
@@ -95,6 +97,31 @@ class LanServer {
     if (this.server) this.server.close();
     this.server = null;
     this.status = 'stopped';
+  }
+
+  /** WebSocket /api/remote/ws?token=… — поток H.264 для телефона (WebCodecs) и команды мыши/клавиатуры. */
+  upgrade(req, socket, head) {
+    const url = new URL(req.url, 'http://x');
+    const reject = (code, text) => { try { socket.end(`HTTP/1.1 ${code} ${text}\r\n\r\n`); } catch (e) { /* ignore */ } };
+    if (url.pathname !== '/api/remote/ws') return reject(404, 'Not Found');
+    let device;
+    try {
+      req.headers.authorization = 'Bearer ' + (url.searchParams.get('token') || '');
+      device = this.auth(req);
+    } catch (e) { return reject(401, 'Unauthorized'); }
+    if (!this.ctx.remote.enabled) return reject(403, 'Forbidden');
+    if (!this.wss) {
+      const { WebSocketServer } = require('ws');
+      this.wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 1024 * 1024 });
+    }
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      this.ctx.stream.attachWs(ws, device, {
+        monitor: Number(url.searchParams.get('monitor')) || 1,
+        preset: String(url.searchParams.get('preset') || 'auto'),
+        remote: viaTunnel(req),
+      }).catch((e) => { try { ws.close(1011, String(e.message).slice(0, 100)); } catch (er) { /* ignore */ } });
+    });
+    return undefined;
   }
 
   // ---------------- привязка ----------------

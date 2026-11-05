@@ -371,7 +371,7 @@ body.rc-open { overflow: hidden; }
 .rc-btn { flex: none; min-width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2); color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; font-weight: 600; font-size: 13px; }
 .rc-stage { position: relative; flex: 1; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .rc-canvas { position: absolute; transform-origin: 0 0; will-change: transform; }
-.rc-canvas img, .rc-canvas video { width: 100%; height: 100%; display: block; pointer-events: none; -webkit-user-drag: none; object-fit: fill; background: #000; }
+.rc-canvas img, .rc-canvas video, .rc-canvas canvas { width: 100%; height: 100%; display: block; pointer-events: none; -webkit-user-drag: none; object-fit: fill; background: #000; }
 .rc-cursor { position: absolute; width: 14px; height: 14px; margin: -2px 0 0 -2px; border-radius: 50%; background: #fff; border: 2px solid #6d7cff; box-shadow: 0 0 8px rgba(0, 0, 0, .6); pointer-events: none; transition: left .08s linear, top .08s linear; transform-origin: 2px 2px; }
 .rc-cursor.ring { width: 30px; height: 30px; margin: -15px 0 0 -15px; background: rgba(109, 124, 255, .18); border: 2px solid rgba(255, 255, 255, .9); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 0 12px rgba(109, 124, 255, .7); transition: none; transform-origin: 50% 50%; }
 .rc-tap { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .85); pointer-events: none; animation: tapfx .45s ease-out forwards; }

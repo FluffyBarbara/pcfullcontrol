@@ -203,6 +203,7 @@ textarea.input { padding: 10px 12px; min-height: 80px; resize: vertical; }
 .kv:last-child { border-bottom: 0; }
 .kv > span { color: var(--muted); flex: none; white-space: nowrap; }
 .kv > b { min-width: 0; font-weight: 600; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.kv > b.plain { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .kv .more { flex: none; font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 1px 7px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); }
 
 /* ---------- плитки ---------- */

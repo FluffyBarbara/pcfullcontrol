@@ -252,6 +252,12 @@ function ringCard(key, icon, label, percent, value, sub, display) {
     el('div', { class: 'g-info' }, el('div', { class: 'g-label' }, ic(icon, 15), label), el('div', { class: 'g-value', text: value }), el('div', { class: 'g-sub', text: sub || '' })));
 }
 
+/** «AMD Ryzen 5 3600 6-Core Processor» → «AMD Ryzen 5 3600», «Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz» → «Intel Core i7-9700K». */
+function cpuName(model) {
+  return String(model || '').replace(/\((R|TM|tm|r)\)/g, '').replace(/\bCPU\b|\bProcessor\b|\d+-Core|with Radeon.*$|@\s*[\d.]+\s*GHz/gi, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
 async function loadStatus() {
   let s;
   try { s = await api('get-status'); } catch (e) { return; }
@@ -275,10 +281,10 @@ async function loadStatus() {
       el('div', { class: 'disk-top' }, el('b', { text: d.mount }), el('span', { class: 'muted', text: `${fmtBytes(d.free)} свободно из ${fmtBytes(d.total)}` })),
       el('div', { class: 'bar ' + (d.percent >= 90 ? 'hot' : d.percent >= 75 ? 'mid' : '') }, fill));
   }));
-  const kv = (k, v, key, extra) => el('div', { class: 'kv' }, el('span', { text: k }), key ? el('b', {}, secret(v, key), extra || null) : el('b', { text: v, title: v }));
+  const kv = (k, v, key, extra) => el('div', { class: 'kv' }, el('span', { text: k }), key ? el('b', {}, secret(v, key), extra || null) : el('b', { class: 'plain', text: v, title: v }));
   // Основной адрес — в капсуле, остальные — счётчиком «+N», чтобы строка не переносилась
   const ipMore = s.ips.length > 1 ? el('span', { class: 'more', text: '+' + (s.ips.length - 1), 'data-tip': 'Ещё адреса компьютера — полный список в разделе «Телефон»' }) : null;
-  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips[0] || '—', 'ip', ipMore), kv('Пользователь', s.users.join(', ') || '—', 'user'), kv('Включён', fmtTime(s.bootTime))];
+  const rows = [kv('Имя', s.hostname), kv('Процессор', cpuName(s.cpu.model) || '—'), kv('IP-адрес', s.ips[0] || '—', 'ip', ipMore), kv('Пользователь', s.users.join(', ') || '—', 'user'), kv('Включён', fmtTime(s.bootTime))];
   for (const g of s.gpus || []) rows.push(kv('Видеокарта', `${g.name} · ${Math.round(g.util)}%`));
   if (s.battery) rows.push(kv('Батарея', `${s.battery.percent}% ${s.battery.plugged ? '· заряжается' : ''}`));
   $('#sysinfo').replaceChildren(...rows);

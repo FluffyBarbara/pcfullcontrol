@@ -92,5 +92,8 @@ $inf = Invoke-RestMethod "$base/api/info" -Headers $RJ
 if (-not $inf.viaInternet) { throw 'Сервер не понял, что вход через интернет' }
 try { Invoke-RestMethod "$base/api/remote-login" -Method Post -ContentType 'application/json' -Body (@{ code = $code; name = 'E2E' } | ConvertTo-Json) | Out-Null; throw 'REUSE' } catch { if ($_.Exception.Message -eq 'REUSE') { throw 'Одноразовую ссылку можно использовать повторно!' } }
 Write-Host '  вход по одноразовой ссылке работает, повторно — нет'
+$link2 = Invoke-RestMethod "$B/api/internet/link" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
+node scripts/e2e-ws.js (Join-Path (Join-Path $env:RUNNER_TEMP 'pw') 'node_modules\playwright-core') $link2.url
+if ($LASTEXITCODE -ne 0) { throw 'Экран через интернет (поток H.264) не работает' }
 Invoke-RestMethod "$B/api/internet" -Method Post -Headers $J -ContentType 'application/json' -Body '{"enabled":false}' | Out-Null
 Write-Host 'Проверки версии 1.7 пройдены'
