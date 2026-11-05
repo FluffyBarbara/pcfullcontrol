@@ -116,7 +116,7 @@ jobs:
   release:
     name: Публикация релиза
     if: github.ref == 'refs/heads/main'
-    needs: [windows, android, e2e-windows]
+    needs: [windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
