@@ -111,8 +111,9 @@ async function init() {
   ctx.lan = new LanServer(ctx);
   ctx.lan.start();
   ctx.net.start();
-  ctx.activity.start();
-  ctx.intruder.start().catch(() => {});
+  // Фоновые помощники — чуть позже, чтобы не нагружать компьютер в первые секунды после входа
+  setTimeout(() => ctx.activity.start(), 30000);
+  setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
   if (ctx.config.remote && ctx.config.remote.enabled) ctx.tunnel.start().catch(() => {});
   startWeeklyReports();
   startBot();

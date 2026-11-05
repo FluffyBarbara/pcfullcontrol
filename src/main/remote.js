@@ -159,11 +159,11 @@ class RemoteControl {
     this.agent = p;
     this.agentReady = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Помощник ввода не запустился')), 20000);
-      p.stdout.on('data', (d) => { if (String(d).includes('ready')) { clearTimeout(timer); resolve(); } });
+      p.stdout.on('data', (d) => { if (String(d).includes('ready')) { clearTimeout(timer); this.agentIsReady = true; resolve(); } });
       p.on('exit', () => { clearTimeout(timer); reject(new Error('Помощник ввода завершился')); });
       p.on('error', (e) => { clearTimeout(timer); reject(e); });
     });
-    p.on('exit', () => { if (this.agent === p) this.agent = null; });
+    p.on('exit', () => { if (this.agent === p) { this.agent = null; this.agentIsReady = false; } });
     p.stderr.on('data', () => {});
     return this.agentReady;
   }
@@ -174,6 +174,9 @@ class RemoteControl {
     await this.ensureAgent();
     this.agent.stdin.write(lines.join('\n') + '\n');
   }
+
+  /** Готов ли помощник ввода (первое касание пройдёт без задержки). */
+  get inputReady() { return !IS_WIN || !!(this.agent && this.agentIsReady); }
 
   /** Заранее запускает помощник ввода, чтобы первое касание на телефоне не ждало его старта. */
   warm() {

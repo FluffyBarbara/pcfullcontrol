@@ -363,6 +363,7 @@ class LanServer {
       ctx.remote.warm();
       return {
         enabled: ctx.remote.enabled,
+        inputReady: ctx.remote.inputReady,
         rtc: true,
         presets: ScreenStream.presets(),
         displays: ctx.remote.displays().map((d) => ({ index: d.index, width: d.phys.width, height: d.phys.height, primary: d.primary })),
