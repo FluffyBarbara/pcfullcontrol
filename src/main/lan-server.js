@@ -13,6 +13,7 @@ const screen = require('./system/screen');
 const media = require('./system/media');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { E } = require('./telegram-api');
+const { ScreenStream } = require('./stream');
 
 const MOBILE_DIR = path.join(__dirname, '..', 'mobile');
 const SHARED_DIR = path.join(__dirname, '..', 'shared');
@@ -277,6 +278,8 @@ class LanServer {
       ctx.remote.warm();
       return {
         enabled: ctx.remote.enabled,
+        rtc: true,
+        presets: ScreenStream.presets(),
         displays: ctx.remote.displays().map((d) => ({ index: d.index, width: d.phys.width, height: d.phys.height, primary: d.primary })),
       };
     }
@@ -290,6 +293,19 @@ class LanServer {
       });
       res.end(fr.jpeg);
       return undefined;
+    }
+    if (p === '/api/remote/rtc/start' && m === 'POST') {
+      const body = await readJson(req);
+      try { return await ctx.stream.start(device, { monitor: Number(body.monitor) || 1, preset: String(body.preset || 'auto'), audio: body.audio !== false }); }
+      catch (e) { throw new HttpError(400, e.message); }
+    }
+    if (p === '/api/remote/rtc/answer' && m === 'POST') {
+      const body = await readJson(req);
+      try { return await ctx.stream.answer(device, body.sid, body.sdp); } catch (e) { throw new HttpError(400, e.message); }
+    }
+    if (p === '/api/remote/rtc/stop' && m === 'POST') {
+      const body = await readJson(req);
+      return ctx.stream.stop(device, body.sid);
     }
     if (p === '/api/remote/input' && m === 'POST') {
       const body = await readJson(req);

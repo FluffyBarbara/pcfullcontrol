@@ -55,6 +55,12 @@ if ([math]::Abs($pos.X - $ex) -gt 20 -or [math]::Abs($pos.Y - $ey) -gt 20) { thr
 Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"key","keys":"shift"}' | Out-Null
 Write-Host 'Удалённое управление работает'
 
+Write-Host '=== 2в. Видео по WebRTC (до 120 кадр/с) и курсор через канал данных ==='
+$pw = Join-Path $env:RUNNER_TEMP 'pw'
+npm install --prefix $pw playwright-core@1.63.0 --no-audit --no-fund | Out-Host
+node scripts/e2e-rtc.js (Join-Path $pw 'node_modules\playwright-core') $pair.token
+if ($LASTEXITCODE -ne 0) { throw 'Трансляция экрана по WebRTC не работает' }
+
 Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
 $res = Join-Path (Split-Path $exe) 'resources\app-update.yml'
 if (!(Test-Path $res)) { throw 'В установленной программе нет app-update.yml — обновление не найдёт релизы' }

@@ -37,6 +37,8 @@ public static class PccInput {
   [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public UNION u; }
   [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int size);
   [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
   [DllImport("user32.dll")] static extern bool SetThreadDesktop(IntPtr desk);
@@ -45,6 +47,7 @@ public static class PccInput {
   static INPUT Mouse(uint flags, uint data) { var i = new INPUT(); i.type = 0; i.u.mi.dwFlags = flags; i.u.mi.mouseData = data; return i; }
   static INPUT Key(ushort vk, ushort scan, uint flags) { var i = new INPUT(); i.type = 1; i.u.ki.wVk = vk; i.u.ki.wScan = scan; i.u.ki.dwFlags = flags; return i; }
   public static void Move(int x, int y) { SetCursorPos(x, y); }
+  public static void MoveBy(int dx, int dy) { POINT p; if (GetCursorPos(out p)) SetCursorPos(p.X + dx, p.Y + dy); }
   public static void Button(string b, bool down) {
     uint f = b == "right" ? (down ? 0x0008u : 0x0010u) : b == "middle" ? (down ? 0x0020u : 0x0040u) : (down ? 0x0002u : 0x0004u);
     Send(Mouse(f, 0));
@@ -65,7 +68,7 @@ public static class PccInput {
   }
 }`;
 
-// Помощник читает команды построчно: m x y | d btn | u btn | w dy dx | k vk 1/0 ext | t base64
+// Помощник читает команды построчно: m x y | r dx dy | d btn | u btn | w dy dx | k vk 1/0 ext | t base64
 const AGENT_PS = `
 Add-Type -TypeDefinition @'
 ${AGENT_CS}
@@ -79,6 +82,7 @@ while ($true) {
   try {
     switch ($p[0]) {
       'm' { [PccInput]::Move([int]$p[1], [int]$p[2]) }
+      'r' { [PccInput]::MoveBy([int]$p[1], [int]$p[2]) }
       'd' { [PccInput]::Button($p[1], $true) }
       'u' { [PccInput]::Button($p[1], $false) }
       'w' { [PccInput]::Wheel([int]$p[1], [int]$p[2]) }
@@ -203,6 +207,7 @@ class RemoteControl {
   /**
    * Команда с телефона:
    *  { type: 'move'|'click'|'down'|'up', x, y, button, double }   — координаты 0..1 на выбранном экране
+   *  { type: 'rel', dx, dy }  — сдвиг курсора в пикселях (режим тачпада)
    *  { type: 'wheel', dy, dx }  { type: 'key', keys: 'ctrl+c' }  { type: 'text', text }
    */
   async input(cmd, index = 1) {
@@ -216,6 +221,12 @@ class RemoteControl {
     }
     switch (cmd.type) {
       case 'move': break;
+      case 'rel': {
+        const dx = Math.max(-4000, Math.min(4000, Math.round(Number(cmd.dx) || 0)));
+        const dy = Math.max(-4000, Math.min(4000, Math.round(Number(cmd.dy) || 0)));
+        if (dx || dy) lines.push(`r ${dx} ${dy}`);
+        break;
+      }
       case 'click':
         for (let i = 0; i < (cmd.double ? 2 : 1); i++) lines.push(`d ${btn}`, `u ${btn}`);
         break;
@@ -247,7 +258,8 @@ class RemoteControl {
       args.push('mousemove', String(p.x), String(p.y));
     }
     const b = { left: '1', middle: '2', right: '3' }[cmd.button] || '1';
-    if (cmd.type === 'click') args.push('click', '--repeat', cmd.double ? '2' : '1', b);
+    if (cmd.type === 'rel') args.push('mousemove_relative', '--', String(Math.round(Number(cmd.dx) || 0)), String(Math.round(Number(cmd.dy) || 0)));
+    else if (cmd.type === 'click') args.push('click', '--repeat', cmd.double ? '2' : '1', b);
     else if (cmd.type === 'down') args.push('mousedown', b);
     else if (cmd.type === 'up') args.push('mouseup', b);
     else if (cmd.type === 'wheel') {

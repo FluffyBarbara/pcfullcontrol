@@ -240,17 +240,37 @@
 <section id="remote" class="remote hidden">
   <div class="rc-top">
     <button class="rc-btn" id="rc-close" aria-label="Закрыть"><i data-ic="x" data-size="20"></i></button>
-    <div class="rc-status"><span class="dot" id="rc-dot"></span><span id="rc-fps">подключение…</span></div>
+    <button class="rc-status" id="rc-status" aria-label="Качество"><span class="dot" id="rc-dot"></span><span id="rc-fps">подключение…</span></button>
     <button class="rc-btn hidden" id="rc-zoom" aria-label="Сбросить масштаб"><i data-ic="zoomOut" data-size="18"></i></button>
-    <button class="rc-btn wide hidden" id="rc-monitor"><i data-ic="monitor" data-size="16"></i><span id="rc-monitor-num">1</span></button>
-    <button class="rc-btn wide" id="rc-quality">Норм</button>
+    <button class="rc-btn wide hidden" id="rc-monitor" aria-label="Экран"><i data-ic="monitor" data-size="16"></i><span id="rc-monitor-num">1</span></button>
+    <button class="rc-btn hidden" id="rc-sound" aria-label="Звук"><i data-ic="mute" data-size="18"></i></button>
+    <button class="rc-btn" id="rc-full" aria-label="Во весь экран"><i data-ic="expand" data-size="18"></i></button>
+    <button class="rc-btn" id="rc-settings" aria-label="Настройки"><i data-ic="sliders" data-size="18"></i></button>
   </div>
   <div class="rc-stage" id="rc-stage">
-    <div class="rc-canvas" id="rc-canvas"><img id="rc-img" alt=""><div class="rc-cursor hidden" id="rc-cursor"></div></div>
+    <div class="rc-canvas" id="rc-canvas"><video id="rc-video" playsinline autoplay muted disablepictureinpicture></video><img id="rc-img" class="hidden" alt=""><div class="rc-cursor hidden" id="rc-cursor"></div></div>
     <div class="rc-error hidden" id="rc-error"></div>
+    <div class="rc-hint hidden" id="rc-hint"></div>
+    <button class="rc-restore hidden" id="rc-restore" aria-label="Показать панели"><i data-ic="shrink" data-size="18"></i></button>
+  </div>
+  <div class="rc-mods hidden" id="rc-mods">
+    <button class="rc-mod" data-mod="ctrl">Ctrl</button>
+    <button class="rc-mod" data-mod="alt">Alt</button>
+    <button class="rc-mod" data-mod="shift">Shift</button>
+    <button class="rc-mod" data-mod="win">Win</button>
+    <button class="rc-mod" data-rckey="esc">Esc</button>
+    <button class="rc-mod" data-rckey="tab">Tab</button>
+    <button class="rc-mod" data-rckey="left">←</button>
+    <button class="rc-mod" data-rckey="up">↑</button>
+    <button class="rc-mod" data-rckey="down">↓</button>
+    <button class="rc-mod" data-rckey="right">→</button>
+    <button class="rc-mod" data-rckey="delete">Del</button>
+    <button class="rc-mod" data-rckey="home">Home</button>
+    <button class="rc-mod" data-rckey="end">End</button>
   </div>
   <div class="rc-bar">
     <button class="rc-tool" id="rc-kb"><i data-ic="keyboard" data-size="20"></i><span>Клав.</span></button>
+    <button class="rc-tool" id="rc-input"><i data-ic="touch" data-size="20" id="rc-input-ic"></i><span id="rc-input-label">Касание</span></button>
     <button class="rc-tool" id="rc-mode"><i data-ic="mouse" data-size="20"></i><span id="rc-mode-label">Листать</span></button>
     <button class="rc-tool" id="rc-right"><i data-ic="mouse" data-size="20"></i><span>ПКМ</span></button>
     <button class="rc-tool" data-rckey="esc"><b>Esc</b><span>выход</span></button>

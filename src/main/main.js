@@ -28,6 +28,10 @@ let mainWindow = null;
 let tray = null;
 let quitting = false;
 
+// Трансляция экрана на телефон: настоящие адреса в локальной сети (без маскировки mDNS),
+// иначе телефон в той же сети Wi-Fi может не найти компьютер.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -175,6 +179,7 @@ function prepareForUpdate() {
     ctx.bot && ctx.bot.stop();
     ctx.lan && ctx.lan.stop();
     ctx.remote && ctx.remote.stopAgent();
+    ctx.stream && ctx.stream.stopAll();
     ctx.db.save();
   } catch (e) { /* ignore */ }
 }
@@ -279,6 +284,7 @@ async function quit() {
       ctx.bot && ctx.bot.stop();
       ctx.lan && ctx.lan.stop();
       ctx.remote && ctx.remote.stopAgent();
+      ctx.stream && ctx.stream.stopAll();
       await ctx.notifier.flush(3000);
       ctx.db.close();
     }
