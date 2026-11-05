@@ -5,7 +5,8 @@ $B = 'http://127.0.0.1:8765'
 
 Write-Host '=== 2е. Здоровье дисков и видеокарта ==='
 $hw = Invoke-RestMethod "$B/api/hw?force=1" -Headers $J -TimeoutSec 120
-$hw.disks | ForEach-Object { Write-Host "  диск: $($_.model) · $($_.media) $($_.bus) · $([math]::Round($_.size / 1GB)) ГБ · $($_.health) → $($_.level) · темп. $($_.temp) · износ $($_.wear)" }
+$hw.disks | ForEach-Object { Write-Host "  диск: $($_.model) · $($_.kindText) $($_.bus) · $([math]::Round($_.size / 1GB)) ГБ · SMART: $($_.smart) · $($_.level) · темп. $($_.temp) · ресурс $($_.life) · атрибутов $(@($_.attrs).Count)" }
+if (-not (@($hw.disks) | Where-Object { $_.smart })) { Write-Warning 'smartctl не прочитал SMART (на виртуальной машине это нормально)' }
 if (-not $hw.disks -or $hw.disks.Count -lt 1 -or -not $hw.disks[0].level) { throw 'Нет данных о здоровье дисков' }
 Write-Host "  видеокарт: $(@($hw.gpu.gpus).Count), счётчик кадров доступен: $($hw.gpu.fpsAvailable)"
 if (-not $hw.gpu.fpsAvailable) { Write-Warning 'PresentMon не попал в установщик — счётчик кадров недоступен' }

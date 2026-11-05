@@ -307,12 +307,13 @@
     <!-- ================= ЖЕЛЕЗО ================= -->
     <section class="page hidden" id="page-hardware">
       <div class="page-head">
-        <div><h1>Железо</h1><p>Видеокарта, кадры в секунду в играх и здоровье дисков.</p></div>
+        <div><h1>Железо</h1><p>Видеокарта, кадры в секунду в играх и здоровье дисков (SMART).</p></div>
         <button class="btn" id="hw-refresh"><i data-ic="restart" data-size="16"></i>Обновить</button>
       </div>
       <div id="hw-gpus"></div>
-      <div class="section-label mt22">Диски</div>
-      <div class="grid g2" id="hw-disks"></div>
+      <div class="dh-summary mt22"><div class="section-label">Диски</div><div class="row wrap" id="hw-disk-summary"></div></div>
+      <div class="grid g2 dh-grid" id="hw-disks"></div>
+      <p class="muted small mt6">Данные SMART читает встроенный модуль smartmontools — так же, как CrystalDiskInfo. Только чтение, на дисках ничего не меняется.</p>
     </section>
 
     <!-- ================= СЕТЬ ================= -->

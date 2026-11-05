@@ -46,28 +46,113 @@ const Extras = (() => {
     }));
   }
 
+  // ---------------- диски (как в CrystalDiskInfo) ----------------
+  const DISK_LEVEL = { ok: ['ok', 'Хорошо', 'check'], warn: ['warn', 'Тревога', 'alert'], bad: ['err', 'Плохо', 'alert'] };
+  const KIND_IC = { hdd: 'hdd', ssd: 'ssd', nvme: 'nvme', usb: 'disk', virtual: 'disk' };
+  const fmtNum = (n) => Math.round(n).toLocaleString('ru-RU');
+  function fmtHours(h) {
+    if (h == null) return '—';
+    const d = Math.floor(h / 24);
+    if (d >= 365) { const y = Math.floor(d / 365); const m = Math.floor((d % 365) / 30.4); return `${y} г.${m ? ` ${m} мес.` : ''}`; }
+    return d >= 1 ? `${d} дн.` : `${Math.round(h)} ч`;
+  }
+  const fmtTB = (b) => (b == null ? null : b >= 1e12 ? `${(b / 1e12).toFixed(2)} ТБ` : `${(b / 1e9).toFixed(1)} ГБ`);
+  const fmtSize = (b) => (!b ? '—' : b >= 1e12 ? `${(b / 1e12).toFixed(b >= 1e13 ? 0 : 1)} ТБ` : `${Math.round(b / 1e9)} ГБ`);
+  const tempTone = (d) => (d.temp == null ? '' : d.temp >= ((d.kind === 'hdd') ? 55 : 70) ? 'hot' : d.temp >= ((d.kind === 'hdd') ? 46 : 60) ? 'mid' : 'cool');
+
+  function diskSub(d) {
+    return [d.kindText, d.rpm ? `${fmtNum(d.rpm)} об/мин` : null, d.bus && !/^nvme$/i.test(d.bus) ? d.bus : null, d.link ? d.link.replace('Gb/s', 'Гбит/с') : null, fmtSize(d.size)]
+      .filter(Boolean).join(' · ');
+  }
+
+  function healthRing(d, tone) {
+    const hasLife = d.life != null;
+    const ring = el('div', { class: 'dh-ring ' + tone + (hasLife ? '' : ' word'), 'data-tip': hasLife ? 'Оставшийся ресурс SSD: сколько ещё можно записать до износа ячеек' : 'Общая оценка состояния по данным SMART' },
+      el('div', { class: 'dh-ring-in' }, el('b', { text: hasLife ? `${d.life}%` : DISK_LEVEL[d.level][1] }), el('span', { text: hasLife ? DISK_LEVEL[d.level][1] : 'состояние' })));
+    ring.style.setProperty('--p', hasLife ? d.life : 100);
+    return ring;
+  }
+
+  function tile(icon, label, value, tone = '', tip = '') {
+    return el('div', { class: 'dh-tile ' + tone, 'data-tip': tip || null }, el('div', { class: 'dh-tile-top' }, ic(icon, 14), el('span', { text: label })), el('b', { text: value }));
+  }
+
+  function smartTable(d) {
+    const nvme = d.attrs.length && d.attrs[0].value === undefined;
+    const head = nvme ? ['', 'ID', 'Параметр', 'Значение'] : ['', 'ID', 'Атрибут', 'Текущее', 'Худшее', 'Порог', 'Raw'];
+    const rows = d.attrs.map((a) => el('tr', { class: a.status },
+      el('td', {}, el('span', { class: 'dh-dot ' + a.status })), el('td', { class: 'mono', text: a.id }),
+      el('td', { title: a.en || '' , text: a.name }),
+      ...(nvme ? [el('td', { class: 'mono', text: a.raw })] : [el('td', { text: a.value ?? '' }), el('td', { text: a.worst ?? '' }), el('td', { text: a.thresh ?? '' }), el('td', { class: 'mono', text: a.raw })])));
+    openModal([
+      el('div', { class: 'row' }, el('h3', { text: d.model }), el('span', { class: 'spacer' }), el('span', { class: 'pill ' + DISK_LEVEL[d.level][0], text: DISK_LEVEL[d.level][1] })),
+      el('p', { class: 'muted small', text: `${diskSub(d)}${d.serial ? ' · S/N ' + d.serial : ''}${d.firmware ? ' · прошивка ' + d.firmware : ''}` }),
+      el('div', { class: 'dh-table-wrap' }, el('table', { class: 'dh-table' }, el('thead', {}, el('tr', {}, head.map((h) => el('th', { text: h })))), el('tbody', {}, rows))),
+      el('p', { class: 'muted small mt6', text: nvme ? 'Журнал здоровья NVMe. Красная точка — проблема, жёлтая — стоит присмотреться.' : '«Текущее» и «Худшее» — оценка диска (чем больше, тем лучше), «Порог» — ниже него атрибут считается отказавшим. Raw — исходное значение счётчика.' }),
+      el('div', { class: 'row end mt' }, el('button', { class: 'btn primary', onclick: () => closeModal() }, 'Закрыть')),
+    ], 'wide xwide');
+  }
+
   function renderDisks(disks) {
     const box = $('#hw-disks');
-    if (!disks || disks.error) { box.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', text: disks && disks.error ? disks.error : 'Загрузка…' }))); return; }
-    if (!disks.length) { box.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', text: 'Данные о здоровье дисков доступны в Windows 10 и 11.' }))); return; }
+    const sum = $('#hw-disk-summary');
+    if (!disks || disks.error) { sum.textContent = ''; box.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', text: disks && disks.error ? disks.error : 'Читаю SMART дисков…' }))); return; }
+    if (!disks.length) { sum.textContent = ''; box.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted', text: 'Данные о здоровье дисков доступны в Windows 10 и 11.' }))); return; }
+    const kinds = {};
+    for (const d of disks) kinds[d.media || 'Диск'] = (kinds[d.media || 'Диск'] || 0) + 1;
+    const worst = disks.some((d) => d.level === 'bad') ? 'bad' : disks.some((d) => d.level === 'warn') ? 'warn' : 'ok';
+    sum.replaceChildren(
+      ...Object.entries(kinds).map(([k, n]) => el('span', { class: 'chip', text: `${n} × ${k}` })),
+      el('span', { class: 'chip', text: 'всего ' + fmtSize(disks.reduce((a, d) => a + (d.size || 0), 0)) }),
+      el('span', { class: 'pill ' + DISK_LEVEL[worst][0] }, ic(DISK_LEVEL[worst][2], 13), worst === 'ok' ? 'Все диски в порядке' : worst === 'warn' ? 'Есть предупреждения' : 'Нужно внимание'));
+    const noSmart = disks.every((d) => !d.smart);
     box.replaceChildren(...disks.map((d) => {
-      const [tone, label, icon] = LEVEL[d.level] || LEVEL.ok;
-      const rows = [
-        ['Тип', [d.media, d.bus].filter(Boolean).join(' · ') || '—'],
-        ['Объём', fmtBytes(d.size)],
-        ['Температура', d.temp != null ? `${d.temp}°C${d.tempMax ? ` (макс. ${d.tempMax}°C)` : ''}` : null],
-        ['Наработка', d.hours != null ? `${Math.round(d.hours).toLocaleString('ru-RU')} ч (${Math.round(d.hours / 24)} дн.)` : null],
-        ['Ошибки чтения/записи', d.readErrors != null || d.writeErrors != null ? String((d.readErrors || 0) + (d.writeErrors || 0)) : null],
-        ['Состояние Windows', d.health || null],
-      ].filter((x) => x[1]);
+      const [tone, label, icon] = DISK_LEVEL[d.level] || DISK_LEVEL.ok;
+      const tiles = [
+        tile('temp', 'Температура', d.temp != null ? `${d.temp}°C` : '—', tempTone(d), d.tempMax ? `Максимум за всё время: ${d.tempMax}°C` : ''),
+        tile('clock', 'Наработка', fmtHours(d.hours), '', d.hours != null ? `${fmtNum(d.hours)} часов работы` : ''),
+        tile('power', 'Включений', d.powerCycles != null ? fmtNum(d.powerCycles) : '—'),
+        tile('download', 'Записано', fmtTB(d.written) || '—', '', d.read != null ? `Прочитано: ${fmtTB(d.read)}` : ''),
+      ];
+      const issue = (v) => (v > 0 ? 'warn' : '');
+      const kv = [
+        d.kind === 'hdd' || d.reallocated != null ? ['Переназначенные сектора', d.reallocated, issue(d.reallocated)] : null,
+        d.pending != null ? ['Нестабильные сектора', d.pending, issue(d.pending)] : null,
+        d.uncorrectable != null ? ['Неисправимые сектора', d.uncorrectable, issue(d.uncorrectable)] : null,
+        d.crcErrors != null ? ['Ошибки кабеля (CRC)', d.crcErrors, issue(d.crcErrors)] : null,
+        d.mediaErrors != null ? ['Ошибки носителя', d.mediaErrors, issue(d.mediaErrors)] : null,
+        d.spare != null ? ['Свободный резерв', `${d.spare}%`] : null,
+        d.unsafeShutdowns != null ? ['Внезапные отключения', fmtNum(d.unsafeShutdowns)] : null,
+        d.read != null ? ['Прочитано всего', fmtTB(d.read)] : null,
+        d.family ? ['Семейство', d.family] : null,
+        d.formFactor ? ['Форм-фактор', d.formFactor.replace('inches', 'дюйма')] : null,
+        d.firmware ? ['Прошивка', d.firmware] : null,
+        d.serial ? ['Серийный номер', d.serial] : null,
+        d.trim != null ? ['TRIM', d.trim ? 'поддерживается' : 'нет'] : null,
+        d.readErrors != null && !d.smart ? ['Ошибки чтения/записи', (d.readErrors || 0) + (d.writeErrors || 0)] : null,
+      ].filter((x) => x && x[1] != null && x[1] !== '');
+      const parts = d.parts.length ? el('div', { class: 'dh-parts' }, d.parts.map((p) => {
+        const used = p.size && p.free != null ? Math.round(((p.size - p.free) / p.size) * 100) : null;
+        const fill = el('i');
+        fill.style.width = (used || 0) + '%';
+        return el('div', { class: 'dh-part' },
+          el('div', { class: 'dh-part-top' }, el('b', { text: p.letter }), el('span', { class: 'muted', text: p.label || '' }), el('span', { class: 'spacer' }),
+            el('span', { class: 'muted small', text: p.free != null ? `${fmtBytes(p.free)} свободно из ${fmtBytes(p.size)}` : fmtBytes(p.size) })),
+          el('div', { class: 'bar ' + (used >= 90 ? 'hot' : used >= 75 ? 'mid' : '') }, fill));
+      })) : null;
+      const lifeBar = d.life != null ? gauge(`Ресурс SSD · износ ${100 - d.life}%`, d.life, 100, `осталось ${d.life}%`, d.life <= 30 ? 'hot' : '') : null;
       return el('div', { class: 'card disk-card ' + tone },
-        el('div', { class: 'gpu-head' }, el('div', { class: 'disk-ic ' + tone }, ic('disk', 22)),
-          el('div', { class: 'spacer' }, el('h3', { text: d.model }), el('p', { class: 'muted small', text: d.volumes ? 'Разделы: ' + d.volumes : '' })),
+        el('div', { class: 'gpu-head' }, el('div', { class: 'disk-ic ' + tone }, ic(KIND_IC[d.kind] || 'disk', 24)),
+          el('div', { class: 'spacer dh-title' }, el('h3', { text: d.model, title: d.model }), el('p', { class: 'muted small', text: diskSub(d) })),
           el('span', { class: 'pill ' + tone }, ic(icon, 14), label)),
-        d.wear != null ? gauge('Износ SSD', d.wear, 100, `${d.wear}%`, d.wear >= 70 ? 'hot' : '') : null,
-        el('div', {}, rows.map(([k, v]) => el('div', { class: 'kv' }, el('span', { text: k }), el('b', { text: v })))),
-        d.reasons.length ? el('div', { class: 'disk-reasons' }, d.reasons.map((r) => el('div', {}, ic('alert', 14), el('span', { text: r })))) : null);
-    }));
+        el('div', { class: 'dh-hero' }, healthRing(d, tone), el('div', { class: 'dh-tiles' }, tiles)),
+        lifeBar,
+        parts,
+        kv.length ? el('div', { class: 'dh-kv' }, kv.map(([k, v, t]) => el('div', { class: 'kv' }, el('span', { text: k }), el('b', { class: 'plain ' + (t || ''), text: String(v), title: String(v) })))) : null,
+        d.reasons.length ? el('div', { class: 'disk-reasons' }, d.reasons.map((r) => el('div', {}, ic('alert', 14), el('span', { text: r })))) : null,
+        d.notes && d.notes.length ? el('div', { class: 'disk-notes' }, d.notes.map((r) => el('div', {}, ic('info', 14), el('span', { text: r })))) : null,
+        d.attrs.length ? el('button', { class: 'btn ghost dh-attrs', 'data-tip': 'Полная таблица SMART, как в CrystalDiskInfo', onclick: () => smartTable(d) }, ic('list', 15), `Все атрибуты SMART (${d.attrs.length})`) : null);
+    }), ...(noSmart ? [el('div', { class: 'card muted small', text: 'Подробные данные SMART недоступны: программе нужны права администратора (запустите её через ярлык — права выдаются автоматически). Сейчас показаны сведения Windows.' })] : []));
   }
 
   let hwBusy = false;
@@ -75,14 +160,16 @@ const Extras = (() => {
     if (hwBusy) return;
     hwBusy = true;
     try {
-      const r = await api('hw-info', { force });
-      renderGpu(r.gpu);
+      if (force) renderDisks(null);
+      const g = api('hw-info', { only: 'gpu' }).then((r) => renderGpu(r.gpu)).catch(() => {});
+      const r = await api('hw-info', { force, only: 'disks' });
       renderDisks(r.disks);
+      await g;
     } catch (e) { toast(e.message, 'err'); } finally { hwBusy = false; }
   }
   async function gpuOnly() {
     if (hwBusy) return;
-    try { const r = await api('hw-info', {}); renderGpu(r.gpu); } catch (e) { /* ignore */ }
+    try { const r = await api('hw-info', { only: 'gpu' }); renderGpu(r.gpu); } catch (e) { /* ignore */ }
   }
 
   // ---------------- сеть ----------------

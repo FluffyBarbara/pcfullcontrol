@@ -454,15 +454,22 @@ class TelegramBot {
     const disks = await this.ctx.diskHealth(true);
     if (!disks.length) return this.send(chatId, '💽 Данные о дисках недоступны (нужна Windows 10/11).');
     const icon = { ok: '✅', warn: '⚠️', bad: '🚨' };
-    const L = ['💽 <b>Здоровье дисков</b>', ''];
+    const word = { ok: 'Хорошо', warn: 'Тревога', bad: 'Плохо' };
+    const kindIc = { hdd: '💿', ssd: '💾', nvme: '⚡' };
+    const tb = (b) => (b >= 1e12 ? `${(b / 1e12).toFixed(2)} ТБ` : `${(b / 1e9).toFixed(1)} ГБ`);
+    const size = (b) => (b >= 1e12 ? `${(b / 1e12).toFixed(1)} ТБ` : `${Math.round(b / 1e9)} ГБ`);
+    const L = ['💽 <b>Здоровье дисков (SMART)</b>', ''];
     for (const d of disks) {
-      L.push(`${icon[d.level]} <b>${E(d.model)}</b>${d.volumes ? ` (${E(d.volumes)})` : ''} — ${LEVEL_TEXT[d.level]}`);
-      const parts = [`${d.media || d.bus || 'диск'}, ${info.fmtBytes(d.size)}`];
-      if (d.temp != null) parts.push(`${d.temp}°C`);
-      if (d.wear != null) parts.push(`износ ${d.wear}%`);
-      if (d.hours != null) parts.push(`наработка ${Math.round(d.hours / 24)} дн.`);
-      L.push(E(parts.join(' · ')));
+      L.push(`${kindIc[d.kind] || '💽'} <b>${E(d.model)}</b>${d.volumes ? ` (${E(d.volumes)})` : ''}`);
+      L.push(E([d.kindText, d.rpm ? `${d.rpm} об/мин` : null, d.size ? size(d.size) : null].filter(Boolean).join(' · ')));
+      L.push(`${icon[d.level]} <b>${word[d.level]}</b>${d.life != null ? ` · ресурс <b>${d.life}%</b>` : ''}${d.temp != null ? ` · 🌡 ${d.temp}°C` : ''}`);
+      const parts = [];
+      if (d.hours != null) parts.push(`наработка ${Math.round(d.hours).toLocaleString('ru-RU')} ч`);
+      if (d.powerCycles != null) parts.push(`включений ${d.powerCycles.toLocaleString('ru-RU')}`);
+      if (d.written != null) parts.push(`записано ${tb(d.written)}`);
+      if (parts.length) L.push(E(parts.join(' · ')));
       for (const r of d.reasons) L.push(`  • ${E(r)}`);
+      for (const r of d.notes || []) L.push(`  ℹ️ ${E(r)}`);
       L.push('');
     }
     return this.send(chatId, L.join('\n'));

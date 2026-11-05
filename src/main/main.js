@@ -593,7 +593,10 @@ function registerIpc() {
   handle('apps-remove-leftovers', ({ id, tokens }) => ctx.apps.removeLeftovers(id, tokens));
   handle('cleanup-report', () => ctx.db.getSetting('lastCleanup'));
   // Железо: видеокарта (с кадрами в игре) и здоровье дисков
-  handle('hw-info', async ({ force }) => ({ gpu: await ctx.gpu().catch(() => ({ gpus: [] })), disks: await ctx.diskHealth(!!force).catch((e) => ({ error: e.message })) }));
+  handle('hw-info', async ({ force, only } = {}) => ({
+    gpu: only === 'disks' ? undefined : await ctx.gpu().catch(() => ({ gpus: [] })),
+    disks: only === 'gpu' ? undefined : await ctx.diskHealth(!!force).catch((e) => ({ error: e.message })),
+  }));
   // Сеть
   handle('net-status', () => ctx.net.status());
   handle('net-speedtest', () => ctx.net.speedTest());

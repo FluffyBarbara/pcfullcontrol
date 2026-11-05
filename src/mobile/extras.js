@@ -33,36 +33,82 @@ const MExtras = (() => {
     }));
   }
 
+  // ---------------- диски (как в CrystalDiskInfo) ----------------
+  const DISK_LEVEL = { ok: ['ok', 'Хорошо'], warn: ['warn', 'Тревога'], bad: ['err', 'Плохо'] };
+  const KIND_IC = { hdd: 'hdd', ssd: 'ssd', nvme: 'nvme' };
+  const fmtNum = (n) => Math.round(n).toLocaleString('ru-RU');
+  function fmtHours(h) {
+    if (h == null) return '—';
+    const d = Math.floor(h / 24);
+    if (d >= 365) { const y = Math.floor(d / 365); const m = Math.floor((d % 365) / 30.4); return `${y} г.${m ? ` ${m} мес.` : ''}`; }
+    return d >= 1 ? `${d} дн.` : `${Math.round(h)} ч`;
+  }
+  const fmtTB = (b) => (b == null ? '—' : b >= 1e12 ? `${(b / 1e12).toFixed(2)} ТБ` : `${(b / 1e9).toFixed(1)} ГБ`);
+  const fmtSize = (b) => (!b ? '' : b >= 1e12 ? `${(b / 1e12).toFixed(b >= 1e13 ? 0 : 1)} ТБ` : `${Math.round(b / 1e9)} ГБ`);
+
+  function smartSheet(d) {
+    const nvme = d.attrs.length && d.attrs[0].value === undefined;
+    openSheet('SMART: ' + d.model, [
+      el('p', { class: 'muted small', text: nvme ? 'Журнал здоровья NVMe.' : 'Текущее / худшее / порог — оценка диска (больше — лучше). Raw — исходное значение.' }),
+      el('div', { class: 'm-smart' }, d.attrs.map((a) => el('div', { class: 'm-smart-row ' + a.status },
+        el('span', { class: 'm-smart-dot ' + a.status }),
+        el('div', { class: 'm-smart-main' }, el('b', { text: `${a.id} · ${a.name}` }),
+          nvme ? null : el('small', { text: `текущее ${a.value ?? '—'} · худшее ${a.worst ?? '—'} · порог ${a.thresh ?? '—'}` })),
+        el('code', { text: a.raw })))),
+    ]);
+  }
+
   function renderDisks(disks) {
     const box = $('#m-disks');
-    if (!disks || disks.error || !disks.length) { box.replaceChildren(el('div', { class: 'card muted', text: disks && disks.error ? disks.error : 'Данные о дисках доступны в Windows 10 и 11.' })); return; }
+    if (!disks) { box.replaceChildren(el('div', { class: 'card muted', text: 'Читаю SMART дисков…' })); return; }
+    if (disks.error || !disks.length) { box.replaceChildren(el('div', { class: 'card muted', text: disks.error ? disks.error : 'Данные о дисках доступны в Windows 10 и 11.' })); return; }
     box.replaceChildren(...disks.map((d) => {
-      const [tone, label] = LEVEL[d.level] || LEVEL.ok;
-      return el('div', { class: 'card' },
-        el('div', { class: 'm-gpu-head' }, el('div', { class: 'item-ic disk-' + tone }, ic('disk', 20)),
-          el('div', { class: 'item-main' }, el('div', { class: 'item-title wrap', text: d.model }), el('div', { class: 'item-sub', text: [d.volumes, d.media, fmtBytes(d.size)].filter(Boolean).join(' · ') })),
+      const [tone, label] = DISK_LEVEL[d.level] || DISK_LEVEL.ok;
+      const ring = el('div', { class: 'm-dh-ring ' + tone + (d.life != null ? '' : ' word') }, el('div', {}, el('b', { text: d.life != null ? `${d.life}%` : label }), el('span', { text: d.life != null ? label : 'состояние' })));
+      ring.style.setProperty('--p', d.life != null ? d.life : 100);
+      const hot = d.temp != null && d.temp >= (d.kind === 'hdd' ? 55 : 70);
+      const tiles = el('div', { class: 'm-dh-tiles' },
+        [['Температура', d.temp != null ? `${d.temp}°C` : '—', hot ? 'hot' : ''], ['Наработка', fmtHours(d.hours)],
+          ['Включений', d.powerCycles != null ? fmtNum(d.powerCycles) : '—'], ['Записано', fmtTB(d.written)]]
+          .map(([k, v, t]) => el('div', { class: 'm-dh-tile ' + (t || '') }, el('span', { text: k }), el('b', { text: v }))));
+      const kv = [
+        d.reallocated != null ? ['Переназначенные сектора', d.reallocated] : null,
+        d.pending != null ? ['Нестабильные сектора', d.pending] : null,
+        d.uncorrectable != null ? ['Неисправимые сектора', d.uncorrectable] : null,
+        d.mediaErrors != null ? ['Ошибки носителя', d.mediaErrors] : null,
+        d.spare != null ? ['Свободный резерв', d.spare + '%'] : null,
+        d.unsafeShutdowns != null ? ['Внезапные отключения', fmtNum(d.unsafeShutdowns)] : null,
+        d.read != null ? ['Прочитано всего', fmtTB(d.read)] : null,
+        d.firmware ? ['Прошивка', d.firmware] : null,
+      ].filter(Boolean);
+      return el('div', { class: 'card m-disk ' + tone },
+        el('div', { class: 'm-gpu-head' }, el('div', { class: 'item-ic disk-' + tone }, ic(KIND_IC[d.kind] || 'disk', 20)),
+          el('div', { class: 'item-main' }, el('div', { class: 'item-title wrap', text: d.model }),
+            el('div', { class: 'item-sub', text: [d.kindText, d.rpm ? `${fmtNum(d.rpm)} об/мин` : null, fmtSize(d.size)].filter(Boolean).join(' · ') })),
           el('span', { class: 'pill ' + tone, text: label })),
-        d.wear != null ? meter('Износ SSD', d.wear, 100, d.wear + '%', d.wear >= 70) : null,
-        el('div', { class: 'm-kv' }, [
-          d.temp != null ? ['Температура', `${d.temp}°C`] : null,
-          d.hours != null ? ['Наработка', `${Math.round(d.hours / 24)} дн.`] : null,
-          (d.readErrors || d.writeErrors) ? ['Ошибки', String((d.readErrors || 0) + (d.writeErrors || 0))] : null,
-        ].filter(Boolean).map(([k, v]) => el('div', { class: 'about-row' }, el('span', { text: k }), el('b', { text: v })))),
-        d.reasons.length ? el('div', { class: 'm-reasons' }, d.reasons.map((r) => el('div', { text: '• ' + r }))) : null);
+        el('div', { class: 'm-dh-hero' }, ring, tiles),
+        d.life != null ? meter(`Ресурс SSD · износ ${100 - d.life}%`, d.life, 100, `осталось ${d.life}%`, d.life <= 30) : null,
+        d.parts.length ? el('div', { class: 'm-dh-parts' }, d.parts.map((p) => meter(`${p.letter} ${p.label || ''}`, p.size - (p.free || 0), p.size || 1,
+          p.free != null ? `${fmtBytes(p.free)} свободно из ${fmtBytes(p.size)}` : fmtBytes(p.size), p.free != null && p.free / p.size < 0.1))) : null,
+        kv.length ? el('div', { class: 'm-kv' }, kv.map(([k, v]) => el('div', { class: 'about-row' }, el('span', { text: k }), el('b', { class: Number(v) > 0 && /сектора|носителя/.test(k) ? 'warn-text' : '', text: String(v) })))) : null,
+        d.reasons.length ? el('div', { class: 'm-reasons' }, d.reasons.map((r) => el('div', { text: '• ' + r }))) : null,
+        d.notes && d.notes.length ? el('div', { class: 'm-notes' }, d.notes.map((r) => el('div', { text: 'ℹ️ ' + r }))) : null,
+        d.attrs.length ? el('button', { class: 'btn m-dh-attrs', onclick: () => smartSheet(d) }, ic('list', 18), `Все атрибуты SMART (${d.attrs.length})`) : null);
     }));
   }
 
   async function hardware() {
     $('#m-gpu').replaceChildren(el('div', { class: 'card muted', text: 'Загрузка…' }));
     try {
-      const r = await api('/api/hw');
+      const r = await api('/api/hw?only=gpu');
       renderGpu(r.gpu);
-      renderDisks(r.disks);
     } catch (e) { toast(e.message, 'err'); }
+    if (!$('#m-disks').children.length) renderDisks(null);
+    api('/api/hw?only=disks').then((r) => renderDisks(r.disks)).catch((e) => toast(e.message, 'err'));
     clearInterval(gpuTimer);
     gpuTimer = setInterval(async () => {
       if (morePane !== 'hardware' || tab !== 'more' || document.hidden) { if (morePane !== 'hardware') clearInterval(gpuTimer); return; }
-      try { renderGpu((await api('/api/hw')).gpu); } catch (e) { /* ignore */ }
+      try { renderGpu((await api('/api/hw?only=gpu')).gpu); } catch (e) { /* ignore */ }
     }, 3000);
   }
 

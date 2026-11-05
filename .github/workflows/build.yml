@@ -42,6 +42,19 @@ jobs:
             Write-Host "PresentMon: $($asset.name) ($($rel.tag_name))"
           } else { Write-Warning 'PresentMon не найден — счётчик кадров будет недоступен' }
 
+      - name: Чтение SMART дисков — smartmontools (GPL-2.0)
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/smartmontools/smartmontools/releases/download/RELEASE_7_4/smartmontools-7.4-1.win32-setup.exe'
+          $sha = '76880E7303403667739066782B1C458EDE2B4462A8EBD6AEACF97EFECD4BDDE7'
+          New-Item -ItemType Directory -Force build/bin, $env:RUNNER_TEMP/smt | Out-Null
+          Invoke-WebRequest $url -OutFile $env:RUNNER_TEMP/smt/setup.exe
+          if ((Get-FileHash $env:RUNNER_TEMP/smt/setup.exe -Algorithm SHA256).Hash -ne $sha) { throw 'Контрольная сумма smartmontools не совпала' }
+          7z x $env:RUNNER_TEMP/smt/setup.exe -o"$env:RUNNER_TEMP/smt/x" bin/smartctl.exe bin/drivedb.h doc/COPYING.txt -y | Out-Null
+          Copy-Item $env:RUNNER_TEMP/smt/x/bin/smartctl.exe, $env:RUNNER_TEMP/smt/x/bin/drivedb.h build/bin/
+          Copy-Item $env:RUNNER_TEMP/smt/x/doc/COPYING.txt build/bin/smartmontools-LICENSE.txt
+          & build/bin/smartctl.exe --version | Select-Object -First 1
+
       - name: Сборка установщика
         run: npm run dist
         env:

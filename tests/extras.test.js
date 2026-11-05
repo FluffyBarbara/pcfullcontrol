@@ -51,14 +51,67 @@ test('видеокарта: разбор nvidia-smi и заголовка Presen
 });
 
 test('диски: оценка здоровья', () => {
-  assert.equal(assess({ health: 'Healthy', wear: 5, temp: 40 }).level, 'ok');
+  assert.equal(assess({ health: 'Healthy', wear: 5, temp: 40, media: 'SSD' }).level, 'ok');
   assert.equal(assess({ health: 'Healthy', wear: 75, media: 'SSD' }).level, 'warn');
   assert.equal(assess({ health: 'Unhealthy' }).level, 'bad');
   assert.equal(assess({ predictFailure: true }).level, 'bad');
   assert.equal(assess({ media: 'HDD', temp: 58 }).level, 'warn');
+  assert.equal(assess({ kind: 'hdd', reallocated: 8 }).level, 'warn', 'переназначенные сектора — «Тревога», как в CrystalDiskInfo');
+  assert.equal(assess({ kind: 'hdd', crcErrors: 3 }).level, 'ok', 'ошибки кабеля — только замечание');
   const n = normalize([{ id: '0', model: 'Samsung SSD 970', media: 'SSD', bus: 'NVMe', size: 500e9, health: 'Healthy', wear: '3', temp: 41, hours: 8000 }]);
   assert.equal(n[0].level, 'ok');
   assert.equal(n[0].wear, 3);
+  assert.equal(n[0].kind, 'nvme');
+  // Жёсткий диск, который Windows называет «Unspecified»: тип — по скорости вращения, износа у HDD нет
+  const h = normalize([{ id: '2', model: 'ST1000DM010-2EP102', media: 'Unspecified', bus: 'SATA', spindle: 7200, size: 1e12, health: 'Healthy', wear: 0 }]);
+  assert.equal(h[0].kind, 'hdd');
+  assert.equal(h[0].media, 'HDD');
+  assert.equal(h[0].rpm, 7200);
+  assert.equal(h[0].wear, null);
+});
+
+const { SMART_HDD, SMART_SSD, SMART_NVME } = require('./fixtures/smart-samples');
+
+test('диски: разбор SMART (smartctl) — HDD, SATA SSD и NVMe, как в CrystalDiskInfo', () => {
+  const { parseSmart, merge, fromWindows, sdIndex } = require('../src/main/system/disk-health');
+  const hdd = parseSmart(SMART_HDD);
+  assert.equal(hdd.kind, 'hdd');
+  assert.equal(hdd.rpm, 7200);
+  assert.equal(hdd.life, null, 'у жёсткого диска нет «ресурса»');
+  assert.equal(hdd.pending, 16);
+  assert.equal(hdd.written, 20000000000 * 512);
+  assert.equal(hdd.attrs.find((a) => a.id === 'C5').status, 'warn');
+  assert.equal(hdd.attrs.find((a) => a.id === '05').name, 'Переназначенные сектора');
+  const ssd = parseSmart(SMART_SSD);
+  assert.equal(ssd.kind, 'ssd');
+  assert.equal(ssd.life, 94, 'ресурс — из статистики устройства (100 − 6)');
+  assert.equal(ssd.trim, true);
+  assert.equal(ssd.written, 46875000000 * 512);
+  const nv = parseSmart(SMART_NVME);
+  assert.equal(nv.kind, 'nvme');
+  assert.equal(nv.life, 96);
+  assert.equal(nv.written, 50000000 * 512000);
+  assert.equal(nv.unsafeShutdowns, 77);
+  assert.ok(nv.attrs.some((a) => a.name === 'Использовано ресурса' && a.raw === '4%'));
+  assert.equal(sdIndex('/dev/sdc'), 2);
+  assert.equal(sdIndex('/dev/sdaa'), 26);
+  // Windows путает типы и серийные номера: сопоставляем по номеру, серийнику и модели
+  const win = [
+    { id: '0', model: 'Samsung SSD 860 EVO 500GB', serial: 'S3Z1NB0K123456X', media: 'SSD', bus: 'SATA', size: 500107862016, health: 'Healthy', parts: [{ letter: 'C:', label: '', size: 499e9, free: 120e9 }] },
+    { id: '1', model: 'Samsung SSD 970 EVO Plus 1TB', serial: '0025_3880_91B2_1234.', media: 'SSD', bus: 'NVMe', size: 1000204886016, health: 'Healthy', parts: { letter: 'D:', label: 'Игры', size: 1e12, free: 3e11 } },
+    { id: '2', model: 'ST1000DM010-2EP102', serial: 'Z9A1B2C3', media: 'SSD', bus: 'SATA', size: 1000204886016, health: 'Healthy', wear: 0, parts: [] },
+  ].map(fromWindows);
+  const all = merge(win, [hdd, ssd, nv]);
+  assert.equal(all.length, 3);
+  assert.deepEqual(all.map((d) => d.kind), ['ssd', 'nvme', 'hdd'], 'жёсткий диск определён как HDD, хотя Windows назвала его SSD');
+  assert.equal(all[2].media, 'HDD');
+  assert.equal(all[2].level, 'warn');
+  assert.match(all[2].reasons.join(' '), /нестабильные сектора: 16/);
+  assert.equal(all[0].life, 94);
+  assert.equal(all[0].volumes, 'C:');
+  assert.equal(all[1].parts[0].label, 'Игры');
+  assert.equal(all[1].level, 'ok');
+  assert.equal(all[1].hours, 9000);
 });
 
 test('безопасность: разбор неудачных входов (событие 4625)', () => {

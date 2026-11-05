@@ -369,7 +369,13 @@ class LanServer {
       return res2;
     }
     // --- железо ---
-    if (p === '/api/hw') return { gpu: await ctx.gpu().catch(() => ({ gpus: [] })), disks: await ctx.diskHealth(q('force') === '1').catch((e) => ({ error: e.message })) };
+    if (p === '/api/hw') {
+      const only = q('only');
+      return {
+        gpu: only === 'disks' ? undefined : await ctx.gpu().catch(() => ({ gpus: [] })),
+        disks: only === 'gpu' ? undefined : await ctx.diskHealth(q('force') === '1').catch((e) => ({ error: e.message })),
+      };
+    }
     // --- сеть ---
     if (p === '/api/net') return ctx.net.status();
     if (p === '/api/net/speedtest' && m === 'POST') { try { return await ctx.net.speedTest(); } catch (e) { throw new HttpError(400, e.message); } }

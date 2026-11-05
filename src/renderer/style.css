@@ -426,6 +426,7 @@ input:focus-visible + .check { outline: 2px solid var(--accent); outline-offset:
 .item-ic.sm { width: 30px; height: 30px; border-radius: 9px; }
 .mono-path { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; word-break: break-all; font-weight: 500 !important; }
 .modal-card.wide { width: 640px; }
+.modal-card.xwide { width: min(880px, 92vw); }
 .wait-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
 .wait-hero h3 { margin: 0 !important; }
 .spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--card-3); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
@@ -462,6 +463,65 @@ input:focus-visible + .check { outline: 2px solid var(--accent); outline-offset:
 .disk-reasons div { display: flex; gap: 8px; align-items: flex-start; }
 .disk-reasons svg { color: var(--warn); flex: none; margin-top: 2px; }
 .empty-card { display: flex; align-items: center; gap: 14px; color: var(--muted); }
+/* диски — в духе CrystalDiskInfo */
+.dh-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 22px 2px 10px; }
+.dh-summary .section-label { margin: 0; }
+.dh-summary .row { gap: 8px; flex-wrap: wrap; }
+.dh-summary .chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); color: var(--muted); }
+.dh-summary .pill { display: inline-flex; align-items: center; gap: 5px; }
+.dh-grid { align-items: start; }
+.disk-card { display: flex; flex-direction: column; gap: 14px; }
+.disk-card .gpu-head { margin-bottom: 0; }
+.dh-title { min-width: 0; }
+.dh-title h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.disk-card.ok { border-color: rgba(52, 211, 153, .16); }
+.disk-card.warn { border-color: rgba(255, 181, 71, .32); }
+.disk-card.err { border-color: rgba(255, 93, 108, .4); }
+.dh-hero { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; }
+.dh-ring { --p: 100; --c: var(--ok); width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--c) calc(var(--p) * 1%), rgba(255, 255, 255, .07) 0); }
+.dh-ring.warn { --c: var(--warn); }
+.dh-ring.err { --c: var(--danger); }
+.dh-ring-in { width: 90px; height: 90px; border-radius: 50%; background: var(--card); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.dh-ring-in b { font-size: 22px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dh-ring.ok .dh-ring-in b { color: var(--ok); }
+.dh-ring.warn .dh-ring-in b { color: var(--warn); }
+.dh-ring.err .dh-ring-in b { color: var(--danger); }
+.dh-ring.word .dh-ring-in b { font-size: 16px; }
+.dh-ring-in span { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.dh-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.dh-tile { padding: 9px 11px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); min-width: 0; }
+.dh-tile-top { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
+.dh-tile b { display: block; font-size: 16px; font-weight: 700; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.dh-tile.cool b { color: var(--accent-2); }
+.dh-tile.mid b { color: var(--warn); }
+.dh-tile.hot b { color: var(--danger); }
+.disk-card .hw-gauge { margin-bottom: 0; }
+.dh-parts { display: flex; flex-direction: column; gap: 9px; }
+.dh-part-top { display: flex; align-items: baseline; gap: 8px; font-size: 13px; margin-bottom: 5px; }
+.dh-part-top .spacer { flex: 1; }
+.dh-part .bar i { background: var(--grad); }
+.dh-kv { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+.dh-kv .kv { padding: 7px 0; font-size: 12.5px; }
+.dh-kv .kv > span { white-space: normal; flex: 1; }
+.dh-kv .kv > b.plain { text-align: right; }
+.dh-kv b.warn { color: var(--warn); }
+.disk-notes { padding: 9px 12px; border-radius: 12px; background: rgba(109, 124, 255, .07); border: 1px solid rgba(109, 124, 255, .2); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+.disk-notes div { display: flex; gap: 8px; align-items: flex-start; }
+.disk-notes svg { color: var(--accent); flex: none; margin-top: 2px; }
+.disk-card .disk-reasons { margin-top: 0; }
+.dh-attrs { align-self: flex-start; }
+.dh-table-wrap { max-height: 56vh; overflow: auto; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); }
+.dh-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.dh-table th { position: sticky; top: 0; background: var(--card-2); text-align: left; font-weight: 600; color: var(--muted); padding: 8px 10px; }
+.dh-table td { padding: 7px 10px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.dh-table td.mono { font-family: ui-monospace, Consolas, monospace; }
+.dh-table tr.warn td { background: rgba(255, 181, 71, .06); }
+.dh-table tr.bad td { background: rgba(255, 93, 108, .08); }
+.dh-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+.dh-dot.warn { background: var(--warn); }
+.dh-dot.bad { background: var(--danger); }
+@media (max-width: 1240px) { .dh-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1100px) { .gpu-body { grid-template-columns: 1fr; } }
 
 /* ===== сеть ===== */

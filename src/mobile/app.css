@@ -485,7 +485,8 @@ input:checked + .check { background: var(--grad); border-color: transparent; col
 .m-meter { margin-bottom: 10px; }
 .m-meter-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
 .m-meter-top span { color: var(--muted); }
-.m-meter .bar i { background: var(--grad); }
+.m-meter .bar { height: 7px; border-radius: 4px; background: var(--line-2); overflow: hidden; }
+.m-meter .bar i { display: block; height: 100%; width: 0; background: var(--grad); transition: width .3s; }
 .m-meter.hot .bar i { background: linear-gradient(90deg, #ffb547, #ff5d6c); }
 .m-reasons { margin-top: 8px; padding: 10px 12px; border-radius: 12px; font-size: 13px; background: rgba(255, 181, 71, .1); border: 1px solid rgba(255, 181, 71, .25); }
 .item-ic.disk-ok { color: var(--ok); }
@@ -569,3 +570,40 @@ body {
 .toast { backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 .view:not(.hidden) { animation: fadeUp .32s cubic-bezier(.2, .8, .2, 1); }
 .more-pane:not(.hidden) { animation: fadeUp .28s cubic-bezier(.2, .8, .2, 1); }
+
+/* диски — в духе CrystalDiskInfo */
+.m-disk { display: flex; flex-direction: column; gap: 12px; }
+.m-disk .m-gpu-head { margin-bottom: 0; }
+.m-disk.warn { border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.m-disk.err { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.m-dh-hero { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; }
+.m-dh-ring { --p: 100; --c: var(--ok); width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--c) calc(var(--p) * 1%), color-mix(in srgb, var(--text) 9%, transparent) 0); }
+.m-dh-ring.warn { --c: var(--warn); }
+.m-dh-ring.err { --c: var(--danger); }
+.m-dh-ring > div { width: 76px; height: 76px; border-radius: 50%; background: var(--card); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.m-dh-ring b { font-size: 19px; font-weight: 800; color: var(--c); line-height: 1.1; }
+.m-dh-ring span { font-size: 10.5px; color: var(--muted); }
+.m-dh-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; min-width: 0; }
+.m-dh-tile { padding: 7px 9px; border-radius: 11px; background: color-mix(in srgb, var(--text) 4%, transparent); border: 1px solid var(--line); min-width: 0; }
+.m-dh-tile span { display: block; font-size: 11px; color: var(--muted); }
+.m-dh-tile b { display: block; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.m-dh-tile.hot b { color: var(--danger); }
+.m-dh-parts { display: flex; flex-direction: column; gap: 8px; }
+.m-disk .m-meter { margin: 0; }
+.warn-text { color: var(--warn); }
+.m-notes { padding: 10px 12px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, var(--accent) 9%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+.m-dh-attrs { width: 100%; justify-content: center; }
+.m-smart { display: flex; flex-direction: column; }
+.m-smart-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.m-smart-row:last-child { border-bottom: 0; }
+.m-smart-main { flex: 1; min-width: 0; }
+.m-smart-main b { display: block; font-size: 13.5px; font-weight: 600; }
+.m-smart-main small { color: var(--muted); font-size: 11.5px; }
+.m-smart-row code { font-size: 12px; max-width: 40%; overflow-wrap: anywhere; text-align: right; }
+.m-smart-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+.m-smart-dot.warn { background: var(--warn); }
+.m-smart-dot.bad { background: var(--danger); }
+.m-smart-row.bad b { color: var(--danger); }
+.m-dh-ring.word b { font-size: 14px; }
+.m-disk .item-sub { white-space: normal; }
