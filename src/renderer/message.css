@@ -1,0 +1,9 @@
+html, body { margin: 0; height: 100%; background: #191d24; color: #e8ebf0;
+  font: 15px/1.45 "Segoe UI", -apple-system, Roboto, Arial, sans-serif; -webkit-app-region: drag; user-select: none; }
+.box { box-sizing: border-box; height: 100%; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px;
+  border: 1px solid #4f8cff; }
+.head { color: #8b93a1; font-size: 13px; }
+.text { flex: 1; font-size: 18px; overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text; }
+button { -webkit-app-region: no-drag; align-self: flex-end; min-width: 110px; padding: 10px 18px; border: 0;
+  border-radius: 10px; background: #4f8cff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

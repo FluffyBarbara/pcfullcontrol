@@ -1,0 +1,338 @@
+'use strict';
+// PC Full Control — главный процесс Electron: окно, значок в трее, автозапуск, службы.
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, session, dialog, powerMonitor } = require('electron');
+const path = require('path');
+const QRCode = require('qrcode');
+const { Database } = require('./db');
+const { AppContext } = require('./context');
+const { Monitor } = require('./monitor');
+const { TelegramBot } = require('./bot');
+const { TelegramAPI } = require('./telegram-api');
+const info = require('./system/info');
+const { run, IS_WIN } = require('./system/exec');
+
+const TASK_NAME = 'PCFullControl';
+const ICON = path.join(__dirname, '..', '..', 'build', 'icon.png');
+const RENDERER = path.join(__dirname, '..', 'renderer');
+
+let ctx = null;
+let mainWindow = null;
+let tray = null;
+let quitting = false;
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => showWindow());
+  app.whenReady().then(init).catch((e) => {
+    dialog.showErrorBox('PC Full Control', `Не удалось запустить приложение:\n${e.stack || e}`);
+    app.exit(1);
+  });
+}
+
+// Закрытие окна не завершает приложение — оно продолжает работать в трее
+app.on('window-all-closed', () => {});
+app.on('before-quit', () => {
+  quitting = true;
+  try { ctx && ctx.db.save(); } catch (e) { /* ignore */ }
+});
+
+async function init() {
+  app.setAppUserModelId('com.pcfullcontrol.app');
+  // Доступ к веб-камере только для собственных окон приложения
+  session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'media'));
+  session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'media');
+
+  const db = await Database.open(path.join(app.getPath('userData'), 'pcontrol.sqlite'));
+  ctx = new AppContext(db, {
+    version: app.getVersion(),
+    quitApp: quit,
+    restartApp: () => {
+      quitting = true;
+      ctx.db.save();
+      app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--hidden').concat('--hidden') });
+      app.exit(0);
+    },
+  });
+  ctx.monitor = new Monitor(ctx);
+  ctx.monitor.start();
+  ctx.scheduler.start();
+  startBot();
+  createTray();
+  registerIpc();
+  watchPower();
+  await ensureAutostartOnFirstRun();
+
+  ctx.on('event', () => send('refresh'));
+  ctx.on('bot-status', () => { send('refresh'); updateTray(); });
+  ctx.on('metrics', (m) => send('metrics', m));
+
+  if (!process.argv.includes('--hidden')) showWindow();
+}
+
+function startBot() {
+  if (ctx.bot) ctx.bot.stop();
+  ctx.bot = null;
+  if (!ctx.tg) return;
+  ctx.bot = new TelegramBot(ctx);
+  ctx.bot.start();
+}
+
+function send(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data);
+}
+
+// ================= Окно и трей =================
+function showWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+  mainWindow = new BrowserWindow({
+    width: 1100, height: 760, minWidth: 820, minHeight: 560,
+    title: 'PC Full Control', icon: ICON, backgroundColor: '#101318', show: false, autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
+  });
+  mainWindow.removeMenu();
+  mainWindow.loadFile(path.join(RENDERER, 'index.html'));
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    mainWindow.hide();
+    if (tray && IS_WIN && !ctx.db.getSetting('trayHintShown')) {
+      ctx.db.setSetting('trayHintShown', true);
+      tray.displayBalloon({ title: 'PC Full Control', content: 'Приложение продолжает работать в трее и принимать команды с телефона.' });
+    }
+  });
+}
+
+function createTray() {
+  let img = nativeImage.createFromPath(ICON);
+  if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 });
+  tray = new Tray(img);
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
+  updateTray();
+}
+
+function botStatusText() {
+  if (!ctx.tg) return 'Telegram не подключён';
+  const b = ctx.bot;
+  if (!b) return 'Бот остановлен';
+  return { online: `Бот @${b.username} на связи`, connecting: 'Подключение к Telegram…', error: `Ошибка: ${b.lastError}` }[b.status] || 'Бот остановлен';
+}
+
+function updateTray() {
+  if (!tray) return;
+  tray.setToolTip(`PC Full Control — ${botStatusText()}`);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Открыть PC Full Control', click: showWindow },
+    { label: botStatusText(), enabled: false },
+    { type: 'separator' },
+    {
+      label: 'Уведомления в Telegram', type: 'checkbox', checked: !ctx.notifier.muted,
+      click: (item) => { ctx.notifier.setMuted(!item.checked); send('refresh'); },
+    },
+    { type: 'separator' },
+    { label: 'Выход', click: quit },
+  ]));
+}
+
+async function quit() {
+  quitting = true;
+  try {
+    if (ctx) {
+      ctx.monitor && ctx.monitor.stop();
+      ctx.scheduler.stop();
+      ctx.bot && ctx.bot.stop();
+      await ctx.notifier.flush(3000);
+      ctx.db.close();
+    }
+  } catch (e) { /* ignore */ }
+  app.quit();
+}
+
+// ================= Сон, блокировка =================
+function watchPower() {
+  powerMonitor.on('suspend', () => {
+    ctx.notifier.notify('💤 Компьютер уходит в спящий режим', { category: 'power' });
+    ctx.db.save();
+  });
+  powerMonitor.on('resume', () => ctx.notifier.notify('☀️ Компьютер вышел из спящего режима', { category: 'power' }));
+  powerMonitor.on('unlock-screen', () => {
+    if (ctx.config.monitor.notifyLogin) ctx.notifier.notify('🔓 Компьютер разблокирован', { category: 'login', level: 'warning' });
+  });
+  powerMonitor.on('shutdown', () => ctx.db.save());
+}
+
+// ================= Автозапуск =================
+// Установщик создаёт задачу Планировщика Windows (с правами администратора, при входе в систему).
+// Если её нет (например, запуск без установки), используем обычный автозапуск Electron.
+async function getAutostart() {
+  if (IS_WIN && app.isPackaged) {
+    const r = await run('schtasks.exe', ['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/NH'], { timeout: 15000 });
+    if (r.code === 0) return { mode: 'task', enabled: !/Disabled|Отключено/i.test(r.out) };
+  }
+  const s = app.getLoginItemSettings({ args: ['--hidden'] });
+  return { mode: 'login', enabled: !!s.openAtLogin };
+}
+
+async function setAutostart(on) {
+  const a = await getAutostart();
+  if (a.mode === 'task') {
+    const r = await run('schtasks.exe', ['/Change', '/TN', TASK_NAME, on ? '/ENABLE' : '/DISABLE'], { timeout: 15000 });
+    if (r.code !== 0) throw new Error(r.out || 'не удалось изменить автозапуск');
+  } else {
+    app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] });
+  }
+  return getAutostart();
+}
+
+async function ensureAutostartOnFirstRun() {
+  if (ctx.db.getSetting('autostartInitialized')) return;
+  ctx.db.setSetting('autostartInitialized', true);
+  if (!app.isPackaged) return;
+  const a = await getAutostart();
+  if (a.mode === 'login' && !a.enabled) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
+}
+
+// ================= Связь с окном (IPC) =================
+async function pairingInfo() {
+  const code = ctx.pairingCode();
+  const username = ctx.bot && ctx.bot.username;
+  if (!username) return { code, link: null, qr: null };
+  const link = `https://t.me/${username}?start=pair_${code}`;
+  const qr = await QRCode.toDataURL(link, { margin: 1, width: 240, color: { dark: '#101318', light: '#ffffff' } });
+  return { code, link, qr };
+}
+
+function taskView(t) {
+  return { ...t, description: ctx.scheduler.describe(t) };
+}
+
+function registerIpc() {
+  const handle = (ch, fn) => ipcMain.handle(ch, async (event, data) => {
+    try {
+      return { ok: true, data: await fn(data || {}) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  handle('get-state', async () => ({
+    version: app.getVersion(),
+    pcName: ctx.pcName,
+    hostname: require('os').hostname(),
+    isWin: IS_WIN,
+    config: ctx.config,
+    bot: {
+      configured: !!ctx.tg,
+      status: ctx.bot ? ctx.bot.status : 'stopped',
+      username: ctx.bot ? ctx.bot.username : '',
+      error: ctx.bot ? ctx.bot.lastError : '',
+    },
+    users: ctx.db.listTgUsers(),
+    pairing: await pairingInfo(),
+    muted: ctx.notifier.muted,
+    autostart: await getAutostart(),
+    actions: ctx.actions.available().map((a) => ctx.actions.toJSON(a)),
+    dataDir: app.getPath('userData'),
+  }));
+
+  handle('get-status', () => info.getStatus());
+  handle('get-metrics', ({ hours = 1 }) => {
+    const rows = ctx.db.metricsSince(Date.now() / 1000 - Math.min(Math.max(hours, 0.1), 168) * 3600);
+    const step = Math.max(1, Math.floor(rows.length / 400));
+    return rows.filter((_, i) => i % step === 0);
+  });
+
+  handle('set-token', async ({ token }) => {
+    token = String(token || '').trim();
+    if (!token) {
+      ctx.updateConfig({ telegram: { token: '' } });
+      ctx.setTelegram(null);
+      startBot();
+      updateTray();
+      return { username: '' };
+    }
+    if (!/^\d+:[\w-]{20,}$/.test(token)) throw new Error('Это не похоже на токен бота. Он выглядит так: 123456789:AAH…');
+    const api = new TelegramAPI(token);
+    let me;
+    try {
+      me = await api.getMe();
+    } catch (e) {
+      throw new Error(e.code === 401 ? 'Telegram отклонил токен — проверьте, что скопировали его полностью' : `Не удалось связаться с Telegram: ${e.message}`);
+    }
+    ctx.updateConfig({ telegram: { token } });
+    ctx.setTelegram(api);
+    startBot();
+    ctx.db.addEvent('info', 'telegram', `Подключён бот @${me.username}`);
+    updateTray();
+    return { username: me.username };
+  });
+
+  handle('regen-pair', () => { ctx.pairingCode(true); return pairingInfo(); });
+  handle('remove-user', ({ userId }) => {
+    ctx.db.removeTgUser(userId);
+    ctx.db.addEvent('warning', 'security', `Телефон отвязан: ${userId}`);
+    return true;
+  });
+  handle('test-notify', () => {
+    if (!ctx.authorizedIds().length) throw new Error('Сначала привяжите телефон');
+    ctx.notifier.notify('🔔 Тестовое уведомление. Всё работает!', { category: 'test', level: 'warning' });
+    return true;
+  });
+
+  handle('save-config', (patch) => {
+    const before = ctx.config.monitor.intervalSec;
+    const cfg = ctx.updateConfig(patch);
+    if (cfg.monitor.intervalSec !== before) { ctx.monitor.stop(); ctx.monitor.start(); }
+    updateTray();
+    return cfg;
+  });
+  handle('set-muted', ({ muted }) => { ctx.notifier.setMuted(muted); updateTray(); return true; });
+  handle('set-autostart', ({ enabled }) => setAutostart(!!enabled));
+
+  handle('run-action', ({ name, arg }) => ctx.actions.run(name, arg || '', 'app', 'ПК'));
+  handle('get-tasks', () => ctx.db.listTasks().map(taskView));
+  handle('add-task', (t) => {
+    let id;
+    if (t.kind === 'in') {
+      const mins = Number(t.delayMinutes);
+      if (!(mins > 0)) throw new Error('Укажите, через сколько минут');
+      id = ctx.scheduler.addOnce(t.action, t.arg, Date.now() / 1000 + mins * 60);
+    } else if (t.kind === 'at') {
+      const ts = new Date(t.runAt).getTime() / 1000;
+      if (!ts || ts <= Date.now() / 1000) throw new Error('Укажите время в будущем');
+      id = ctx.scheduler.addOnce(t.action, t.arg, ts);
+    } else {
+      id = ctx.scheduler.addDaily(t.action, t.arg, t.timeOfDay, t.weekdays);
+    }
+    return taskView(ctx.db.getTask(id));
+  });
+  handle('toggle-task', ({ id }) => {
+    const t = ctx.db.getTask(id);
+    if (t) ctx.db.setTaskEnabled(id, !t.enabled);
+    return true;
+  });
+  handle('delete-task', ({ id }) => ctx.db.deleteTask(id));
+  handle('get-log', ({ mode = 'events', limit = 150 }) => {
+    if (mode === 'commands') return ctx.db.recentCommands(limit);
+    if (mode === 'jobs') return ctx.db.recentJobs(30);
+    return ctx.db.recentEvents(limit);
+  });
+  handle('check-app-update', () => ctx.appUpdater.check());
+  handle('open-external', ({ url }) => {
+    if (!/^https:\/\/(t\.me|telegram\.me|github\.com)\//.test(url)) throw new Error('Ссылка не разрешена');
+    return shell.openExternal(url);
+  });
+  handle('open-data-dir', () => shell.openPath(app.getPath('userData')));
+  handle('quit', () => quit());
+}

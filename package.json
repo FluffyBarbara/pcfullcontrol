@@ -1,0 +1,49 @@
+{
+  "name": "pc-full-control",
+  "productName": "PC Full Control",
+  "version": "1.0.0",
+  "description": "Управление компьютером с телефона через Telegram",
+  "main": "src/main/main.js",
+  "author": "PC Full Control",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"tests/*.test.js\"",
+    "dist": "electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "sql.js": "1.14.2",
+    "systeminformation": "5.33.16"
+  },
+  "devDependencies": {
+    "electron": "44.9.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.pcfullcontrol.app",
+    "productName": "PC Full Control",
+    "executableName": "PCFullControl",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "build/icon.png", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "PC Full Control",
+      "include": "build/installer.nsh",
+      "artifactName": "PCFullControl-Setup-${version}.exe",
+      "language": "1049"
+    }
+  }
+}

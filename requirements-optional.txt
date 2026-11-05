@@ -1,5 +1,0 @@
-# Необязательные модули
-opencv-python>=4.8   # фото с веб-камеры (/webcam)
-PySocks>=1.7         # SOCKS-прокси для Telegram (telegram.proxy: socks5://...)
-pytest>=8.0          # тесты
-httpx>=0.27          # нужен для тестов веб-API

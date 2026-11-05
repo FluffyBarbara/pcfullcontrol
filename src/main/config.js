@@ -1,0 +1,66 @@
+'use strict';
+// Настройки приложения. Хранятся в локальной базе (таблица settings, ключ "config").
+
+const DEFAULTS = {
+  pcName: '',
+  telegram: {
+    token: '',
+    confirmDangerous: true,
+  },
+  security: {
+    allowShell: false,           // разрешить /cmd (выполнение команд)
+  },
+  files: {
+    allowedRoots: [],            // ограничить файловый менеджер папками; пусто = весь диск
+    uploadDir: '',               // куда сохранять файлы с телефона (пусто = Загрузки\PCControl)
+  },
+  apps: [
+    { name: 'Блокнот', cmd: 'notepad.exe' },
+    { name: 'Диспетчер задач', cmd: 'taskmgr.exe' },
+  ],
+  monitor: {
+    intervalSec: 30,
+    retentionDays: 7,
+    cpuPercent: 90,
+    cpuChecks: 4,
+    ramPercent: 90,
+    diskFreePercent: 10,
+    tempCelsius: 85,
+    batteryLowPercent: 20,
+    cooldownMin: 30,
+    notifyStart: true,
+    notifyLogin: true,
+    notifyIp: true,
+    notifyPower: true,
+    watchProcesses: [],
+  },
+  updates: {
+    dailyCheckTime: '12:00',
+  },
+  appUpdate: {
+    repo: 'FluffyBarbara/pcfullcontrol', // GitHub-репозиторий с релизами установщика
+  },
+};
+
+function isObj(v) {
+  return v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function deepMerge(base, over) {
+  const out = Array.isArray(base) ? [...base] : { ...base };
+  for (const [k, v] of Object.entries(over || {})) {
+    out[k] = isObj(v) && isObj(base[k]) ? deepMerge(base[k], v) : v;
+  }
+  return out;
+}
+
+function loadConfig(db) {
+  return deepMerge(DEFAULTS, db.getSetting('config', {}) || {});
+}
+
+function saveConfig(db, cfg) {
+  db.setSetting('config', cfg);
+  return cfg;
+}
+
+module.exports = { DEFAULTS, deepMerge, loadConfig, saveConfig };
