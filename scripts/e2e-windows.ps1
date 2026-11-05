@@ -2,7 +2,6 @@
 # и обновление поверх работающей программы тем же способом, что и кнопка «Обновить PC Full Control».
 $ErrorActionPreference = 'Stop'
 $inst = (Resolve-Path 'out\windows\PCFullControl-Setup.exe').Path
-$exe = Join-Path $env:ProgramFiles 'PC Full Control\PCFullControl.exe'
 
 function Wait-Hello([int]$seconds) {
   for ($i = 0; $i -lt $seconds; $i++) {
@@ -14,9 +13,13 @@ function App-Pids { @(Get-Process PCFullControl -ErrorAction SilentlyContinue | 
 
 Write-Host '=== 1. Тихая установка ==='
 Start-Process $inst -ArgumentList '/S' -Wait
+$task = Get-ScheduledTask -TaskName PCFullControl -ErrorAction SilentlyContinue
+if (!$task) { throw 'Задача автозапуска не создана' }
+$exe = $task.Actions[0].Execute.Trim('"')
+Write-Host "Задача автозапуска: $exe $($task.Actions[0].Arguments) (права: $($task.Principal.RunLevel))"
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName -like 'PC Full Control*' } | ForEach-Object { Write-Host "Установлено: $($_.DisplayName) $($_.DisplayVersion) → $($_.InstallLocation)" }
 if (!(Test-Path $exe)) { throw "Программа не установилась: нет $exe" }
-schtasks /Query /TN PCFullControl
-if ($LASTEXITCODE -ne 0) { throw 'Задача автозапуска не создана' }
 netsh advfirewall firewall show rule name="PC Full Control"
 if ($LASTEXITCODE -ne 0) { throw 'Правило брандмауэра не создано' }
 
