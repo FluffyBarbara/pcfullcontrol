@@ -135,7 +135,7 @@ function measure(root, { minAgeMs = 0, match = null, deadline = Infinity } = {})
     if (st.isSymbolicLink()) continue;
     if (st.isDirectory()) {
       for (const n of safeList(p)) stack.push(path.join(p, n));
-    } else if (now - st.mtimeMs >= minAgeMs) {
+    } else if (!(minAgeMs > 0 && now - st.mtimeMs < minAgeMs)) {
       size += st.size;
       count++;
     }
@@ -161,7 +161,7 @@ function wipe(root, { minAgeMs = 0, match = null } = {}) {
       try { fs.rmdirSync(p); } catch (e) { /* не пустая — там остались занятые или свежие файлы */ }
       return;
     }
-    if (now - st.mtimeMs < minAgeMs) { res.skipped++; return; }
+    if (minAgeMs > 0 && now - st.mtimeMs < minAgeMs) { res.skipped++; return; }
     try {
       fs.unlinkSync(p);
       res.freed += st.size;
