@@ -65,6 +65,14 @@ if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}
   "$BT/apksigner" verify "$OUT"
 else
   echo "Секреты подписи не заданы — собираю debug-версию"
+  # Стандартный отладочный ключ Android (общеизвестные параметры). Хранится в кэше GitHub Actions,
+  # чтобы все сборки были подписаны одинаково и обновления ставились поверх.
+  mkdir -p "$HOME/.android"
+  if [ ! -f "$HOME/.android/debug.keystore" ]; then
+    keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey \
+      -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 30000 \
+      -dname "CN=Android Debug,O=Android,C=US"
+  fi
   (cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace)
   cp android/app/build/outputs/apk/debug/app-debug.apk "$OUT"
 fi
