@@ -171,6 +171,14 @@ class RemoteControl {
     this.agent.stdin.write(lines.join('\n') + '\n');
   }
 
+  /** Заранее запускает помощник ввода, чтобы первое касание на телефоне не ждало его старта. */
+  warm() {
+    if (!IS_WIN || !this.enabled) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.stopAgent(), 10 * 60 * 1000);
+    this.ensureAgent().catch(() => {});
+  }
+
   stopAgent() {
     if (this.agent) { try { this.agent.kill(); } catch (e) { /* ignore */ } }
     this.agent = null;

@@ -41,7 +41,11 @@ $frame = Invoke-WebRequest 'http://127.0.0.1:8765/api/remote/frame?w=960&q=50' -
 Write-Host "Кадр: $($frame.RawContentLength) байт, курсор: $($frame.Headers['X-Cursor'])"
 if ($frame.RawContentLength -lt 1000) { throw 'Кадр экрана слишком маленький' }
 $d = $rinfo.displays | Where-Object { $_.primary } | Select-Object -First 1
+Start-Sleep 12  # помощник ввода запускается заранее при открытии экрана
+$sw = [Diagnostics.Stopwatch]::StartNew()
 Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"move","x":0.25,"y":0.5,"monitor":1}' | Out-Null
+Write-Host "Первое касание обработано за $($sw.ElapsedMilliseconds) мс"
+if ($sw.ElapsedMilliseconds -gt 3000) { throw 'Первое касание слишком долгое — помощник ввода не запущен заранее' }
 Start-Sleep 2
 Add-Type -AssemblyName System.Windows.Forms
 $pos = [System.Windows.Forms.Cursor]::Position

@@ -274,6 +274,7 @@ class LanServer {
     }
     // --- удалённое управление ---
     if (p === '/api/remote/info') {
+      ctx.remote.warm();
       return {
         enabled: ctx.remote.enabled,
         displays: ctx.remote.displays().map((d) => ({ index: d.index, width: d.phys.width, height: d.phys.height, primary: d.primary })),
