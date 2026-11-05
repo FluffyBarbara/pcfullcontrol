@@ -290,6 +290,7 @@
         <div class="card">
           <h3 class="card-title mb6"><i data-ic="phone" data-size="18"></i>Приложение на телефоне</h3>
           <div class="set-row"><span class="set-ic"><i data-ic="wifi" data-size="17"></i></span><span class="set-text"><b>Разрешить подключение по Wi-Fi</b><small>Только для привязанных телефонов</small></span><label class="switch"><input type="checkbox" data-cfg="mobile.enabled"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="cast" data-size="17"></i></span><span class="set-text"><b>Удалённое управление экраном</b><small>Мышь и клавиатура с телефона. О каждом подключении придёт уведомление</small></span><label class="switch"><input type="checkbox" data-cfg="mobile.remoteControl"><span></span></label></div>
           <label class="field mt">Порт <input class="input" type="number" min="1024" max="65535" data-cfg="mobile.port" data-num></label>
         </div>
       </div>
@@ -326,6 +327,34 @@
           <label class="field mt">Папка для файлов с телефона <input class="input" data-cfg="files.uploadDir" placeholder="по умолчанию — Загрузки\PCControl"></label>
           <label class="field mt">Доступ только к папкам (по одной в строке; пусто — весь диск)
             <textarea class="input" rows="3" data-cfg="files.allowedRoots" data-lines placeholder="C:\Users\Имя\Documents"></textarea></label>
+        </div>
+      </div>
+
+      <div class="card mt" id="wol-card">
+        <h3 class="card-title mb6"><i data-ic="wake" data-size="18"></i>Включение компьютера с телефона</h3>
+        <p class="muted small mt6">Выключенный компьютер можно включить кнопкой «Включить» в Android-приложении — оно отправляет в домашнюю сеть «волшебный пакет» (Wake-on-LAN).
+          Нужно: подключение по кабелю, пункт «Wake on LAN» / «Power On By PCI-E» в BIOS и настройка Windows кнопкой ниже.</p>
+        <div class="grid g2 mt">
+          <div>
+            <div class="kv"><span>Сетевой адаптер</span><b id="wol-iface">—</b></div>
+            <div class="kv"><span>MAC-адрес</span><b id="wol-mac">—</b></div>
+            <div class="kv"><span>Подключение</span><b id="wol-type">—</b></div>
+            <div class="row mt"><button class="btn" type="button" id="wol-setup"><i data-ic="sliders" data-size="16"></i>Настроить Windows для включения по сети</button></div>
+          </div>
+          <div>
+            <div class="set-row"><span class="set-ic"><i data-ic="key" data-size="17"></i></span>
+              <span class="set-text"><b>Вход без пароля, если ПК включили с телефона</b>
+              <small>Windows войдёт автоматически, а если ПК включили кнопкой — программа сразу заблокирует экран. Нужен пароль от учётной записи (не PIN). Пароль хранится только в защищённом хранилище Windows.</small></span></div>
+            <div class="row mt" id="al-off">
+              <input class="input" type="password" id="al-password" placeholder="Пароль от учётной записи Windows" autocomplete="off">
+              <button class="btn primary" type="button" id="al-enable">Включить</button>
+            </div>
+            <div class="row mt hidden" id="al-on">
+              <span class="pill ok"><i data-ic="check" data-size="14"></i><span id="al-user">включено</span></span>
+              <button class="btn danger sm" type="button" id="al-disable">Выключить</button>
+            </div>
+            <p class="error" id="al-error"></p>
+          </div>
         </div>
       </div>
 

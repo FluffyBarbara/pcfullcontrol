@@ -78,6 +78,15 @@
     wand: '<path d="m15 4 5 5M4 20 16 8M14 2v2M20 8h2M18 4l1-1M10 6l-1-1"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     maximize: '<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
+    music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    video: '<rect x="2" y="5" width="15" height="14" rx="2"/><path d="m22 8-5 4 5 4z"/>',
+    mouse: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/>',
+    keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+    cast: '<path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 20h.01"/>',
+    zoomIn: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>',
+    zoomOut: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>',
+    wake: '<path d="M12 2v6M18.36 6.64a9 9 0 1 1-12.73 0"/><path d="m9 5 3-3 3 3"/>',
+    key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
   };
   const FILLED = {
     telegram: '<path d="M21.94 4.66 18.7 19.4c-.22 1-.86 1.27-1.75.79l-4.83-3.56-2.33 2.24c-.26.26-.48.48-.98.48l.35-4.92 8.96-8.1c.39-.35-.08-.54-.6-.19L6.44 13.1l-4.77-1.49c-1.04-.33-1.06-1.04.22-1.54L20.56 3c.87-.32 1.63.2 1.38 1.66Z"/>',

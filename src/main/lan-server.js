@@ -7,6 +7,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const info = require('./system/info');
+const poweron = require('./system/poweron');
 const processes = require('./system/processes');
 const screen = require('./system/screen');
 const media = require('./system/media');
@@ -24,7 +25,9 @@ const MIME = {
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.txt': 'text/plain; charset=utf-8',
-  '.pdf': 'application/pdf', '.mp3': 'audio/mpeg',
+  '.pdf': 'application/pdf', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.webm': 'video/webm',
+  '.m4v': 'video/mp4', '.mov': 'video/quicktime',
 };
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -57,6 +60,7 @@ class LanServer {
     this.code = null;
     this.codeExpires = 0;
     this.failed = new Map();   // ip -> [время неудачных попыток]
+    this.tickets = new Map();  // одноразовые ссылки для плеера: ticket -> { path, expires }
   }
 
   get port() {
@@ -94,6 +98,8 @@ class LanServer {
 
   // ---------------- привязка ----------------
   pairCode(regenerate = false) {
+    // Только для автоматических проверок: фиксированный код из переменной окружения
+    if (process.env.PCFC_TEST_PAIR_CODE) return { code: process.env.PCFC_TEST_PAIR_CODE, expires: Date.now() + CODE_TTL_MS };
     if (regenerate || !this.code || Date.now() > this.codeExpires) {
       this.code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
       this.codeExpires = Date.now() + CODE_TTL_MS;
@@ -152,7 +158,7 @@ class LanServer {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     try {
-      if (!url.pathname.startsWith('/api/')) return this.serveStatic(url.pathname, res);
+      if (!url.pathname.startsWith('/api/')) return this.serveStatic(url.pathname, req, res);
       res.setHeader('Cache-Control', 'no-store');
       const result = await this.route(req, res, url);
       if (result === undefined || res.headersSent) return undefined;
@@ -163,17 +169,30 @@ class LanServer {
     }
   }
 
-  serveStatic(pathname, res) {
+  serveStatic(pathname, req, res) {
     let rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
     if (rel.includes('..')) rel = 'index.html';
     let file = rel.startsWith('shared/') ? path.join(SHARED_DIR, rel.slice(7)) : path.join(MOBILE_DIR, rel);
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(MOBILE_DIR, 'index.html');
-    const data = fs.readFileSync(file);
-    res.writeHead(200, {
-      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': /\.(html|webmanifest)$/.test(file) || file.endsWith('sw.js') ? 'no-cache' : 'max-age=3600',
+    const ext = path.extname(file).toLowerCase();
+    const v = this.ctx.version;
+    // ETag зависит от версии программы: после обновления телефон гарантированно получит новые файлы
+    const etag = `"${v}-${fs.statSync(file).size}"`;
+    const headers = {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+      ETag: etag,
       'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'",
-    });
+    };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return; }
+    let data = fs.readFileSync(file);
+    if (ext === '.html') {
+      // Адреса скриптов и стилей с версией — iPhone не возьмёт старые из кэша
+      data = Buffer.from(data.toString('utf8')
+        .replace(/(href|src)="((?:shared\/)?[\w.-]+\.(?:js|css|webmanifest))"/g, `$1="$2?v=${v}"`)
+        .replace('<head>', `<head>\n  <meta name="pcfc-version" content="${v}">`), 'utf8');
+    }
+    res.writeHead(200, headers);
     res.end(data);
   }
 
@@ -188,9 +207,19 @@ class LanServer {
     if (p === '/api/hello') {
       // Открыто для Android-приложения: проверка, что по адресу отвечает именно PC Full Control
       res.setHeader('Access-Control-Allow-Origin', '*');
-      return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version };
+      const nic = poweron.primaryInterface();
+      return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
     if (p === '/api/pair' && m === 'POST') return this.pair(await readJson(req), ip);
+
+    // Потоковое воспроизведение (аудио/видео на телефоне): плеер не умеет передавать токен в заголовке,
+    // поэтому доступ — по временной ссылке, выданной привязанному телефону.
+    let mm0 = p.match(/^\/api\/media\/([\w-]+)\//);
+    if (mm0) {
+      const t = this.tickets.get(mm0[1]);
+      if (!t || t.expires < Date.now()) throw new HttpError(403, 'Ссылка устарела');
+      return this.streamFile(req, res, t.path);
+    }
 
     const device = this.auth(req);
 
@@ -205,6 +234,9 @@ class LanServer {
         monitors: (await screen.displays().catch(() => [])).length || 1,
         device: { id: device.id, name: device.name },
         update: ctx.updateInfo ? { hasUpdate: ctx.updateInfo.hasUpdate, latest: ctx.updateInfo.latest } : null,
+        remote: ctx.remote.enabled,
+        wol: (() => { const n = poweron.primaryInterface(); return n ? { mac: n.mac, broadcast: n.broadcast, wifi: n.wifi } : null; })(),
+        autologon: !!ctx.db.getSetting('autologonEnabled'),
       };
     }
     if (p === '/api/update/state') return ctx.appUpdater.state;
@@ -240,6 +272,28 @@ class LanServer {
     if (p === '/api/processes') {
       return processes.listProcesses({ sort: q('sort', 'cpu'), query: q('q'), limit: Math.min(Number(q('limit', '80')) || 80, 400) });
     }
+    // --- удалённое управление ---
+    if (p === '/api/remote/info') {
+      return {
+        enabled: ctx.remote.enabled,
+        displays: ctx.remote.displays().map((d) => ({ index: d.index, width: d.phys.width, height: d.phys.height, primary: d.primary })),
+      };
+    }
+    if (p === '/api/remote/frame') {
+      let fr;
+      try { fr = await ctx.remote.frame(Number(q('monitor', '1')), Number(q('w', '1280')), Number(q('q', '60')), device.name); }
+      catch (e) { throw new HttpError(400, e.message); }
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg', 'Content-Length': fr.jpeg.length, 'Cache-Control': 'no-store',
+        'X-Cursor': fr.cursor ? `${fr.cursor.x.toFixed(4)},${fr.cursor.y.toFixed(4)}` : '',
+      });
+      res.end(fr.jpeg);
+      return undefined;
+    }
+    if (p === '/api/remote/input' && m === 'POST') {
+      const body = await readJson(req);
+      try { return await ctx.remote.input(body, Number(body.monitor) || 1); } catch (e) { throw new HttpError(400, e.message); }
+    }
     if (p === '/api/screenshot') {
       const img = await screen.screenshot(Number(q('monitor', '1')) || 1, 75);
       return sendBinary(res, img, 'image/jpeg');
@@ -251,6 +305,7 @@ class LanServer {
     }
     if (p === '/api/files') return this.listFiles(q('path'));
     if (p === '/api/files/download') return this.download(q('path'), res, device);
+    if (p === '/api/files/ticket' && m === 'POST') return this.mediaTicket((await readJson(req)).path);
     if (p === '/api/files/upload' && m === 'PUT') return this.upload(req, q('name'), q('dir'), device);
     if (p === '/api/files/telegram' && m === 'POST') return this.fileToTelegram((await readJson(req)).path, device);
 
@@ -305,6 +360,46 @@ class LanServer {
     });
     fs.createReadStream(f.path).pipe(res);
     this.ctx.db.logCommand('mobile', device.name, 'download', f.path, true, info.fmtBytes(f.size));
+    return undefined;
+  }
+
+  mediaTicket(p) {
+    let f;
+    try { f = this.ctx.files.fileForDownload(p); } catch (e) { throw new HttpError(400, e.message); }
+    const now = Date.now();
+    for (const [k, v] of this.tickets) if (v.expires < now) this.tickets.delete(k);
+    const ticket = crypto.randomBytes(18).toString('base64url');
+    this.tickets.set(ticket, { path: f.path, expires: now + 3 * 3600 * 1000 });
+    return { url: `/api/media/${ticket}/${encodeURIComponent(f.name)}`, size: f.size };
+  }
+
+  /** Отдача файла с поддержкой Range (перемотка; без неё iPhone не воспроизводит аудио и видео). */
+  streamFile(req, res, filePath) {
+    let st;
+    try { st = fs.statSync(filePath); } catch (e) { throw new HttpError(404, 'Файл не найден'); }
+    const total = st.size;
+    const type = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (range && (range[1] !== '' || range[2] !== '')) {
+      let start; let end;
+      if (range[1] === '') { start = Math.max(0, total - Number(range[2])); end = total - 1; }
+      else { start = Number(range[1]); end = range[2] === '' ? total - 1 : Math.min(Number(range[2]), total - 1); }
+      if (start > end || start >= total) {
+        res.writeHead(416, { 'Content-Range': `bytes */${total}` });
+        res.end();
+        return undefined;
+      }
+      res.writeHead(206, {
+        'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1,
+        'Content-Range': `bytes ${start}-${end}/${total}`, 'Cache-Control': 'no-store',
+      });
+      if (req.method === 'HEAD') { res.end(); return undefined; }
+      fs.createReadStream(filePath, { start, end }).pipe(res);
+      return undefined;
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': total, 'Cache-Control': 'no-store' });
+    if (req.method === 'HEAD') { res.end(); return undefined; }
+    fs.createReadStream(filePath).pipe(res);
     return undefined;
   }
 

@@ -46,6 +46,22 @@ function ago(ts) {
   return fmtTime(ts);
 }
 
+// Скрытые данные (IP, пользователь): размыты, по клику видны 10 секунд
+const revealedUntil = {};
+function secret(text, key) {
+  const n = el('span', { class: 'secret', text, title: 'Нажмите, чтобы показать на 10 секунд', 'data-key': key });
+  if ((revealedUntil[key] || 0) > Date.now()) n.classList.add('revealed');
+  n.addEventListener('click', (e) => {
+    e.stopPropagation();
+    revealedUntil[key] = Date.now() + 10000;
+    document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.add('revealed'));
+    setTimeout(() => {
+      if ((revealedUntil[key] || 0) <= Date.now()) document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.remove('revealed'));
+    }, 10050);
+  });
+  return n;
+}
+
 function toast(text, kind = 'ok') {
   const t = el('div', { class: 'toast ' + kind }, ic(kind === 'err' ? 'alert' : kind === 'info' ? 'info' : 'check', 18), el('span', { text }));
   $('#toasts').append(t);
@@ -235,8 +251,8 @@ async function loadStatus() {
       el('div', { class: 'disk-top' }, el('b', { text: d.mount }), el('span', { class: 'muted', text: `${fmtBytes(d.free)} свободно из ${fmtBytes(d.total)}` })),
       el('div', { class: 'bar ' + (d.percent >= 90 ? 'hot' : d.percent >= 75 ? 'mid' : '') }, fill));
   }));
-  const kv = (k, v) => el('div', { class: 'kv' }, el('span', { text: k }), el('b', { text: v }));
-  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips.join(', ') || '—'), kv('Пользователь', s.users.join(', ') || '—'), kv('Включён', fmtTime(s.bootTime))];
+  const kv = (k, v, key) => el('div', { class: 'kv' }, el('span', { text: k }), key ? el('b', {}, secret(v, key)) : el('b', { text: v }));
+  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips.join(', ') || '—', 'ip'), kv('Пользователь', s.users.join(', ') || '—', 'user'), kv('Включён', fmtTime(s.bootTime))];
   for (const g of s.gpus || []) rows.push(kv('Видеокарта', `${g.name} · ${Math.round(g.util)}%`));
   if (s.battery) rows.push(kv('Батарея', `${s.battery.percent}% ${s.battery.plugged ? '· заряжается' : ''}`));
   $('#sysinfo').replaceChildren(...rows);
@@ -416,7 +432,7 @@ async function loadMobile() {
   }
   const left = Math.max(0, Math.round((m.expires - Date.now()) / 1000));
   $('#m-code-meta').textContent = `Код действует ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-  $('#m-addrs').replaceChildren(...(m.addresses.length ? m.addresses : ['нет сети']).map((a) => el('div', { class: 'addr' }, ic('wifi', 16), el('code', { text: a.replace(/^http:\/\//, '') }))));
+  $('#m-addrs').replaceChildren(...(m.addresses.length ? m.addresses : ['нет сети']).map((a) => el('div', { class: 'addr' }, ic('wifi', 16), el('code', {}, secret(a.replace(/^http:\/\//, ''), 'ip')))));
   $('#m-step3').classList.toggle('done', m.devices.length > 0);
   const box = $('#m-devices');
   if (!m.devices.length) box.replaceChildren(el('div', { class: 'empty' }, ic('phone', 28), 'Пока ни один телефон не привязан'));
@@ -424,7 +440,7 @@ async function loadMobile() {
     box.replaceChildren(...m.devices.map((d) => el('div', { class: 'item' },
       el('div', { class: 'item-ic' }, ic(d.platform === 'ios' ? 'apple' : d.platform === 'android' ? 'android' : 'phone', 18)),
       el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: d.name }),
-        el('div', { class: 'item-sub', text: `в сети ${ago(d.last_seen)} · ${d.ip || ''} · привязан ${fmtTime(d.created)}` })),
+        el('div', { class: 'item-sub' }, `в сети ${ago(d.last_seen)} · `, secret(d.ip || '—', 'ip'), ` · привязан ${fmtTime(d.created)}`)),
       el('button', { class: 'btn sm danger', onclick: async () => {
         if (!(await confirmModal('Отвязать телефон?', `«${d.name}» больше не сможет управлять компьютером.`, 'Отвязать'))) return;
         await api('remove-device', { id: d.id });
@@ -627,7 +643,46 @@ function appRow(a = { name: '', cmd: '' }) {
     el('button', { class: 'btn sm ghost', type: 'button', onclick: (e) => e.target.closest('.app-row').remove() }, ic('x', 15)));
 }
 $('#add-app').addEventListener('click', () => $('#apps').append(appRow()));
+async function loadWol() {
+  let w;
+  try { w = await api('wol-info'); } catch (e) { return; }
+  $('#wol-card').classList.toggle('hidden', !w.isWin && !w.iface);
+  $('#wol-iface').textContent = w.iface ? w.iface.name : 'не найден';
+  $('#wol-mac').replaceChildren(w.iface ? secret(w.iface.mac, 'mac') : document.createTextNode('—'));
+  $('#wol-type').textContent = w.iface ? (w.iface.wifi ? 'Wi-Fi — включение по сети может не работать' : 'по кабелю') : '—';
+  const al = w.autologon || {};
+  $('#al-off').classList.toggle('hidden', !!al.enabled || !al.supported);
+  $('#al-on').classList.toggle('hidden', !al.enabled);
+  $('#al-user').textContent = al.enabled ? `включено для «${al.user}»` : '';
+  if (!al.supported) $('#al-error').textContent = 'Доступно только в Windows';
+}
+$('#wol-setup').addEventListener('click', async (e) => {
+  e.currentTarget.disabled = true;
+  try {
+    const out = await api('wol-setup');
+    openModal([el('h3', { text: 'Настройка включения по сети' }), el('pre', { class: 'output', text: out }),
+      el('div', { class: 'row end mt' }, el('button', { class: 'btn primary', onclick: () => closeModal() }, 'Понятно'))]);
+  } catch (err) { toast(err.message, 'err'); }
+  e.currentTarget.disabled = false;
+});
+$('#al-enable').addEventListener('click', async () => {
+  $('#al-error').textContent = '';
+  const pw = $('#al-password').value;
+  if (!pw) { $('#al-error').textContent = 'Введите пароль'; return; }
+  if (!(await confirmModal('Включить вход без пароля?', 'Если компьютер включат с телефона, Windows войдёт сама. Если включат кнопкой — программа сразу заблокирует экран, но рабочий стол может мелькнуть на 1–3 секунды.', 'Включить', false))) return;
+  $('#al-enable').disabled = true;
+  try { await api('autologon-enable', { password: pw }); $('#al-password').value = ''; toast('Вход без пароля включён'); }
+  catch (e) { $('#al-error').textContent = e.message; }
+  $('#al-enable').disabled = false;
+  loadWol();
+});
+$('#al-disable').addEventListener('click', async () => {
+  try { await api('autologon-disable'); toast('Вход без пароля выключен'); } catch (e) { toast(e.message, 'err'); }
+  loadWol();
+});
+
 function fillSettings() {
+  loadWol();
   $$('[data-cfg]').forEach((inp) => {
     const v = getPath(STATE.config, inp.dataset.cfg);
     if (inp.type === 'checkbox') inp.checked = !!v;

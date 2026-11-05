@@ -66,6 +66,11 @@
     <!-- ГЛАВНАЯ -->
     <section class="view" data-view="home">
       <div class="gauges" id="gauges"></div>
+      <button class="remote-card" data-open-remote>
+        <span class="rcard-ic"><i data-ic="cast" data-size="26"></i></span>
+        <span class="rcard-text"><b>Управление экраном</b><small>Мышь, клавиатура и экран ПК на телефоне</small></span>
+        <i data-ic="chevronRight" data-size="20"></i>
+      </button>
       <div class="chips" id="chips"></div>
 
       <div class="card">
@@ -116,6 +121,11 @@
     <!-- ПУЛЬТ -->
     <section class="view hidden" data-view="control">
       <h2 class="view-title">Пульт</h2>
+      <button class="remote-card" data-open-remote>
+        <span class="rcard-ic"><i data-ic="cast" data-size="26"></i></span>
+        <span class="rcard-text"><b>Управление экраном</b><small>Мышь, клавиатура и экран ПК на телефоне</small></span>
+        <i data-ic="chevronRight" data-size="20"></i>
+      </button>
       <div id="control-sections"></div>
       <div class="card hidden" id="terminal-card">
         <div class="card-title"><i data-ic="terminal" data-size="18"></i>Терминал</div>
@@ -185,6 +195,13 @@
           <div class="upd-progress hidden" id="upd-progress"><div class="bar"><i id="upd-bar"></i></div><span id="upd-text"></span></div>
           <button class="btn primary big" id="update-btn"><i data-ic="download" data-size="18"></i>Обновить программу на ПК</button>
         </div>
+        <div class="card hidden" id="wol-card">
+          <div class="card-title"><i data-ic="wake" data-size="18"></i>Включение ПК с телефона</div>
+          <p class="muted wol-text" id="wol-text"></p>
+          <div class="about-row"><span>MAC-адрес</span><b id="wol-mac"></b></div>
+          <div class="about-row"><span>Сеть</span><b id="wol-bc"></b></div>
+          <div class="about-row"><span>Вход без пароля</span><b id="wol-al"></b></div>
+        </div>
         <div class="card install-card hidden" id="install-card">
           <div class="card-title"><i data-ic="phone" data-size="18"></i>Установить как приложение</div>
           <p class="muted" id="install-text"></p>
@@ -219,10 +236,38 @@
   <div class="sheet-body" id="sheet-body"></div>
 </div>
 
+<!-- Удалённое управление -->
+<section id="remote" class="remote hidden">
+  <div class="rc-top">
+    <button class="rc-btn" id="rc-close" aria-label="Закрыть"><i data-ic="x" data-size="20"></i></button>
+    <div class="rc-status"><span class="dot" id="rc-dot"></span><span id="rc-fps">подключение…</span></div>
+    <button class="rc-btn hidden" id="rc-zoom" aria-label="Сбросить масштаб"><i data-ic="zoomOut" data-size="18"></i></button>
+    <button class="rc-btn wide hidden" id="rc-monitor"><i data-ic="monitor" data-size="16"></i><span id="rc-monitor-num">1</span></button>
+    <button class="rc-btn wide" id="rc-quality">Норм</button>
+  </div>
+  <div class="rc-stage" id="rc-stage">
+    <div class="rc-canvas" id="rc-canvas"><img id="rc-img" alt=""><div class="rc-cursor hidden" id="rc-cursor"></div></div>
+    <div class="rc-error hidden" id="rc-error"></div>
+  </div>
+  <div class="rc-bar">
+    <button class="rc-tool" id="rc-kb"><i data-ic="keyboard" data-size="20"></i><span>Клав.</span></button>
+    <button class="rc-tool" id="rc-mode"><i data-ic="mouse" data-size="20"></i><span id="rc-mode-label">Листать</span></button>
+    <button class="rc-tool" id="rc-right"><i data-ic="mouse" data-size="20"></i><span>ПКМ</span></button>
+    <button class="rc-tool" data-rckey="esc"><b>Esc</b><span>выход</span></button>
+    <button class="rc-tool" data-rckey="win"><i data-ic="windows" data-size="20"></i><span>Пуск</span></button>
+    <button class="rc-tool" data-rckey="alt+tab"><b>⇆</b><span>Alt+Tab</span></button>
+    <button class="rc-tool" data-rckey="enter"><b>↵</b><span>Enter</span></button>
+    <button class="rc-tool" data-rckey="backspace"><b>⌫</b><span>Стереть</span></button>
+    <button class="rc-tool" id="rc-more"><i data-ic="grid" data-size="20"></i><span>Ещё</span></button>
+  </div>
+  <textarea id="rc-kbd" class="rc-kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Клавиатура"></textarea>
+</section>
+
 <div class="viewer hidden" id="viewer"><img id="viewer-img" alt=""><button class="icon-btn viewer-close" id="viewer-close" aria-label="Закрыть"><i data-ic="x"></i></button></div>
 <div class="toast hidden" id="toast"></div>
 
 <script src="shared/icons.js"></script>
 <script src="app.js"></script>
+<script src="remote.js"></script>
 </body>
 </html>

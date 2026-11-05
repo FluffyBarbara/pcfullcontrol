@@ -10,12 +10,14 @@ const { Monitor } = require('./monitor');
 const { TelegramBot } = require('./bot');
 const { TelegramAPI } = require('./telegram-api');
 const { LanServer } = require('./lan-server');
+const poweron = require('./system/poweron');
+const { lock: lockScreen } = require('./system/power');
 const info = require('./system/info');
 const processes = require('./system/processes');
 const media = require('./system/media');
 const { between: changesBetween } = require('../shared/changelog');
 const { E } = require('./telegram-api');
-const { run, IS_WIN, spawnDetached } = require('./system/exec');
+const { run, IS_WIN } = require('./system/exec');
 
 const TASK_NAME = 'PCFullControl';
 const ICON = path.join(__dirname, '..', '..', 'build', 'icon.png');
@@ -65,9 +67,14 @@ async function relaunchElevated() {
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
   fs.writeFileSync(userFile('elevate-attempt'), String(Date.now()));
   if (!process.argv.includes('--hidden')) fs.writeFileSync(userFile('show-window.flag'), '1');
-  // Задачу запускаем с небольшой задержкой, чтобы этот экземпляр успел закрыться
-  spawnDetached('cmd.exe', ['/d', '/s', '/c', `"ping -n 3 127.0.0.1 >nul & schtasks /Run /TN ${TASK_NAME}"`],
-    { windowsHide: true, windowsVerbatimArguments: true });
+  // Освобождаем «единственный экземпляр» и запускаем задачу напрямую — без консолей и окон UAC
+  app.releaseSingleInstanceLock();
+  const r = await run('schtasks.exe', ['/Run', '/TN', TASK_NAME], { timeout: 15000 });
+  if (r.code !== 0) {
+    try { fs.rmSync(userFile('show-window.flag')); } catch (e) { /* ignore */ }
+    app.requestSingleInstanceLock();
+    return false;
+  }
   app.exit(0);
   return true;
 }
@@ -107,6 +114,7 @@ async function init() {
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
   ctx.on('update-state', (st) => { send('update-state', st); updateTray(); });
+  guardAutologon(true);
 
   let showFlag = false;
   try { fs.rmSync(userFile('show-window.flag')); showFlag = true; } catch (e) { /* флага нет */ }
@@ -142,6 +150,22 @@ function trackVersion() {
   ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
 }
 
+// ================= Вход без пароля, если ПК включили с телефона =================
+// Windows входит автоматически (автовход). Сразу после входа или выхода из сна программа проверяет,
+// чем разбудили ПК: если не сетевой картой (с телефона), а кнопкой — экран тут же блокируется.
+async function guardAutologon(afterLogon) {
+  if (!IS_WIN || !ctx.db.getSetting('autologonEnabled')) return;
+  let src;
+  try { src = await poweron.wakeSource(afterLogon); } catch (e) { src = 'other'; }
+  if (src === 'skip') return;
+  if (src === 'network') {
+    ctx.notifier.notify('🔓 Компьютер включили с телефона — вход выполнен без пароля', { category: 'security', level: 'warning' });
+  } else {
+    await lockScreen().catch(() => {});
+    ctx.notifier.notify('🔒 Компьютер включили не с телефона — экран заблокирован', { category: 'security', level: 'warning' });
+  }
+}
+
 /** Перед установкой обновления: останавливаем службы, сохраняем базу; выход сделает electron-updater. */
 function prepareForUpdate() {
   quitting = true;
@@ -150,6 +174,7 @@ function prepareForUpdate() {
     ctx.scheduler.stop();
     ctx.bot && ctx.bot.stop();
     ctx.lan && ctx.lan.stop();
+    ctx.remote && ctx.remote.stopAgent();
     ctx.db.save();
   } catch (e) { /* ignore */ }
 }
@@ -253,6 +278,7 @@ async function quit() {
       ctx.scheduler.stop();
       ctx.bot && ctx.bot.stop();
       ctx.lan && ctx.lan.stop();
+      ctx.remote && ctx.remote.stopAgent();
       await ctx.notifier.flush(3000);
       ctx.db.close();
     }
@@ -266,7 +292,10 @@ function watchPower() {
     ctx.notifier.notify('💤 Компьютер уходит в спящий режим', { category: 'power' });
     ctx.db.save();
   });
-  powerMonitor.on('resume', () => ctx.notifier.notify('☀️ Компьютер вышел из спящего режима', { category: 'power' }));
+  powerMonitor.on('resume', () => {
+    ctx.notifier.notify('☀️ Компьютер вышел из спящего режима', { category: 'power' });
+    guardAutologon(false);
+  });
   powerMonitor.on('unlock-screen', () => {
     if (ctx.config.monitor.notifyLogin) ctx.notifier.notify('🔓 Компьютер разблокирован', { category: 'login', level: 'warning' });
   });
@@ -458,6 +487,21 @@ function registerIpc() {
   });
   handle('check-app-update', async () => { ctx.updateInfo = await ctx.appUpdater.check(); return ctx.updateInfo; });
   handle('update-state', () => ctx.appUpdater.state);
+
+  // --- включение с телефона ---
+  handle('wol-info', async () => ({ iface: poweron.primaryInterface(), autologon: await poweron.autologonState(), isWin: IS_WIN }));
+  handle('wol-setup', () => poweron.setupWindows());
+  handle('autologon-enable', async ({ password }) => {
+    const r = await poweron.enableAutologon(password);
+    ctx.db.setSetting('autologonEnabled', true);
+    ctx.notifier.notify('🔑 Включён вход без пароля при включении ПК с телефона', { category: 'security', level: 'warning' });
+    return r;
+  });
+  handle('autologon-disable', async () => {
+    const r = await poweron.disableAutologon();
+    ctx.db.setSetting('autologonEnabled', false);
+    return r;
+  });
   handle('update-start', () => ctx.appUpdater.startUpdate());
   handle('open-external', ({ url }) => {
     if (!/^https:\/\/(t\.me|telegram\.me|github\.com)\//.test(url)) throw new Error('Ссылка не разрешена');

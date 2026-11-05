@@ -92,3 +92,45 @@ test('задачи и файлы через API', async () => {
     assert.equal((await call('/api/files/download?path=' + encodeURIComponent(path.join(dir, 'nope')), { token })).status, 400);
   } finally { lan.stop(); }
 });
+
+test('плеер: временная ссылка и перемотка (Range)', async () => {
+  const { lan, call, dir } = await setup();
+  try {
+    const { token } = await (await call('/api/pair', { json: { code: lan.pairCode().code } })).json();
+    const file = path.join(dir, 'song.mp3');
+    fs.writeFileSync(file, Buffer.from('0123456789abcdefghij'));
+    const t = await (await call('/api/files/ticket', { token, json: { path: file } })).json();
+    assert.match(t.url, /^\/api\/media\/[\w-]+\/song\.mp3$/);
+    // без токена, только по ссылке
+    let r = await call(t.url);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('content-type'), 'audio/mpeg');
+    assert.equal(r.headers.get('accept-ranges'), 'bytes');
+    r = await fetch(`http://127.0.0.1:${lan.port}${t.url}`, { headers: { Range: 'bytes=5-9' } });
+    assert.equal(r.status, 206);
+    assert.equal(r.headers.get('content-range'), 'bytes 5-9/20');
+    assert.equal(await r.text(), '56789');
+    r = await fetch(`http://127.0.0.1:${lan.port}${t.url}`, { headers: { Range: 'bytes=-3' } });
+    assert.equal(await r.text(), 'hij');
+    r = await fetch(`http://127.0.0.1:${lan.port}${t.url}`, { headers: { Range: 'bytes=50-' } });
+    assert.equal(r.status, 416);
+    assert.equal((await call('/api/media/nonexistent/x.mp3')).status, 403);
+  } finally { lan.stop(); }
+});
+
+test('страница приложения с версией в адресах файлов и проверкой кэша', async () => {
+  const { lan, call } = await setup();
+  try {
+    const r = await call('/');
+    const html = await r.text();
+    assert.match(html, /<meta name="pcfc-version" content="1\.0\.0">/);
+    assert.match(html, /src="app\.js\?v=1\.0\.0"/);
+    assert.match(html, /src="shared\/icons\.js\?v=1\.0\.0"/);
+    const etag = r.headers.get('etag');
+    assert.ok(etag);
+    const again = await fetch(`http://127.0.0.1:${lan.port}/`, { headers: { 'If-None-Match': etag } });
+    assert.equal(again.status, 304);
+    const hello = await (await call('/api/hello')).json();
+    assert.ok('mac' in hello && 'broadcast' in hello);
+  } finally { lan.stop(); }
+});

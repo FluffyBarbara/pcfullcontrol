@@ -24,12 +24,32 @@ netsh advfirewall firewall show rule name="PC Full Control"
 if ($LASTEXITCODE -ne 0) { throw 'Правило брандмауэра не создано' }
 
 Write-Host '=== 2. Запуск ==='
+$env:PCFC_TEST_PAIR_CODE = '246810'
 Start-Process $exe
 $hello = Wait-Hello 90
 Write-Host "Ответ: $($hello | ConvertTo-Json -Compress)"
 if ($hello.app -ne 'pc-full-control') { throw 'Неожиданный ответ сервера' }
 $before = App-Pids
 Write-Host "Процессы до обновления: $($before -join ', ')"
+
+Write-Host '=== 2б. Удалённое управление (кадр экрана и мышь) ==='
+$pair = Invoke-RestMethod 'http://127.0.0.1:8765/api/pair' -Method Post -ContentType 'application/json' -Body '{"code":"246810","name":"CI","platform":"android"}'
+$H = @{ Authorization = "Bearer $($pair.token)" }
+$rinfo = Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/info' -Headers $H
+Write-Host "Экраны: $($rinfo | ConvertTo-Json -Compress -Depth 4)"
+$frame = Invoke-WebRequest 'http://127.0.0.1:8765/api/remote/frame?w=960&q=50' -Headers $H
+Write-Host "Кадр: $($frame.RawContentLength) байт, курсор: $($frame.Headers['X-Cursor'])"
+if ($frame.RawContentLength -lt 1000) { throw 'Кадр экрана слишком маленький' }
+$d = $rinfo.displays | Where-Object { $_.primary } | Select-Object -First 1
+Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"move","x":0.25,"y":0.5,"monitor":1}' | Out-Null
+Start-Sleep 2
+Add-Type -AssemblyName System.Windows.Forms
+$pos = [System.Windows.Forms.Cursor]::Position
+$ex = [int]($d.width * 0.25); $ey = [int]($d.height * 0.5)
+Write-Host "Курсор: $($pos.X),$($pos.Y), ожидалось около $ex,$ey"
+if ([math]::Abs($pos.X - $ex) -gt 20 -or [math]::Abs($pos.Y - $ey) -gt 20) { throw 'Курсор не переместился туда, куда указал телефон' }
+Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"key","keys":"shift"}' | Out-Null
+Write-Host 'Удалённое управление работает'
 
 Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
 $res = Join-Path (Split-Path $exe) 'resources\app-update.yml'

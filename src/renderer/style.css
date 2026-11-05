@@ -366,3 +366,9 @@ pre.output { background: var(--bg); border: 1px solid var(--line); border-radius
 .upd-progress.indeterminate .bar i { width: 35% !important; animation: indet 1.2s ease-in-out infinite; }
 @keyframes indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 .t-pill { cursor: pointer; }
+
+.secret { filter: blur(6px); cursor: pointer; user-select: none; transition: filter .25s; }
+.secret.revealed { filter: none; user-select: text; }
+
+.apps-list .row { flex-wrap: nowrap; }
+.apps-list .row .input { min-width: 0; }

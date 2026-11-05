@@ -11,6 +11,7 @@ const { ActionRegistry } = require('./actions');
 const { FileManager } = require('./system/files');
 const { Scheduler } = require('./scheduler');
 const { AppUpdater } = require('./app-updater');
+const { RemoteControl } = require('./remote');
 
 class AppContext extends EventEmitter {
   constructor(db, { version = '0.0.0', quitApp = () => {}, restartApp = () => {}, dataDir = null, prepareForUpdate = () => {} } = {}) {
@@ -31,6 +32,7 @@ class AppContext extends EventEmitter {
     this.actions = new ActionRegistry(this);
     this.scheduler = new Scheduler(this);
     this.appUpdater = new AppUpdater(this);
+    this.remote = new RemoteControl(this);
     this.monitor = null;
     this.bot = null;
   }

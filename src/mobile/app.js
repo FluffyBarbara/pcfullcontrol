@@ -111,6 +111,7 @@ function openSheet(title, body) {
   return new Promise((res) => { sheetResolve = res; });
 }
 function closeSheet(value = null) {
+  stopMedia();
   $('#sheet').classList.remove('open');
   $('#sheet-backdrop').classList.add('hidden');
   if (sheetResolve) { const r = sheetResolve; sheetResolve = null; r(value); }
@@ -202,9 +203,11 @@ async function startApp() {
   $('#about-os').textContent = INFO.os;
   $('#about-version').textContent = INFO.version;
   renderUpdateCard(INFO.update);
+  renderWol();
   $('#about-device').textContent = INFO.device.name;
   $('#switch-pc').classList.toggle('hidden', !SHELL);
   $('#terminal-card').classList.toggle('hidden', !INFO.allowShell);
+  document.querySelectorAll('[data-open-remote]').forEach((b) => b.classList.toggle('hidden', INFO.remote === false));
   renderControl();
   renderMonitors();
   renderInstallHint();
@@ -308,9 +311,26 @@ function ring(label, percent, sub, color) {
     el('div', { class: 'gauge-sub', text: sub || '' }));
 }
 
-function chip(icon, label, value) {
+// Скрытые данные (IP, пользователь): размыты, по нажатию видны 10 секунд
+const revealedUntil = {};
+function secret(text, key) {
+  const n = el('span', { class: 'secret', text, title: 'Нажмите, чтобы показать на 10 секунд', 'data-key': key });
+  if ((revealedUntil[key] || 0) > Date.now()) n.classList.add('revealed');
+  n.addEventListener('click', (e) => {
+    e.stopPropagation();
+    revealedUntil[key] = Date.now() + 10000;
+    document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.add('revealed'));
+    setTimeout(() => {
+      if ((revealedUntil[key] || 0) <= Date.now()) document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.remove('revealed'));
+    }, 10050);
+  });
+  return n;
+}
+
+function chip(icon, label, value, secretKey = null) {
   return el('div', { class: 'chip' }, el('div', { class: 'chip-ic' }, ic(icon, 18)),
-    el('div', { class: 'chip-text' }, el('div', { class: 'chip-label', text: label }), el('div', { class: 'chip-val', text: value })));
+    el('div', { class: 'chip-text' }, el('div', { class: 'chip-label', text: label }),
+      secretKey ? el('div', { class: 'chip-val' }, secret(value, secretKey)) : el('div', { class: 'chip-val', text: value })));
 }
 
 let volDragging = false;
@@ -328,8 +348,8 @@ async function loadStatus() {
   if (s.temp !== null && s.temp !== undefined) chips.push(chip('temp', 'Температура', Math.round(s.temp) + '°C'));
   for (const g of s.gpus || []) chips.push(chip('gpu', 'Видеокарта', `${Math.round(g.util)}%${g.temp !== null ? ' · ' + Math.round(g.temp) + '°C' : ''}`));
   if (s.battery) chips.push(chip('battery', 'Батарея', `${s.battery.percent}%${s.battery.plugged ? ' · заряжается' : ''}`));
-  chips.push(chip('wifi', 'IP-адрес', s.ips[0] || '—'));
-  if (s.users && s.users.length) chips.push(chip('user', 'Пользователь', s.users.join(', ')));
+  chips.push(chip('wifi', 'IP-адрес', s.ips[0] || '—', 'ip'));
+  if (s.users && s.users.length) chips.push(chip('user', 'Пользователь', s.users.join(', '), 'user'));
   $('#chips').replaceChildren(...chips);
   if (s.volume && !volDragging) setVolumeUi(s.volume.level, s.volume.muted);
   $('#notif-toggle').checked = !s.muted;
@@ -535,6 +555,34 @@ $('#files-up').addEventListener('click', () => loadFiles(filesParent || ''));
 $('#files-root').addEventListener('click', () => loadFiles(''));
 
 const IMG_EXT = /\.(jpe?g|png|gif|webp|bmp)$/i;
+const AUDIO_EXT = /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac)$/i;
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm)$/i;
+let currentMedia = null;
+function stopMedia() {
+  if (currentMedia) { try { currentMedia.pause(); currentMedia.removeAttribute('src'); currentMedia.load(); } catch (e) { /* ignore */ } }
+  currentMedia = null;
+}
+
+/** Плеер для аудио и видео прямо в телефоне (файл не копируется — воспроизводится с ПК). */
+function mediaPlayer(f) {
+  const isVideo = VIDEO_EXT.test(f.name);
+  const box = el('div', { class: 'player' + (isVideo ? ' video' : '') });
+  const media = el(isVideo ? 'video' : 'audio', { controls: true, preload: 'metadata', playsinline: true });
+  if (!isVideo) box.append(el('div', { class: 'player-head' }, el('div', { class: 'player-ic' }, ic('music', 22)),
+    el('div', { class: 'player-name', text: f.name })));
+  box.append(media);
+  const status = el('div', { class: 'player-status', text: 'Загружаю…' });
+  box.append(status);
+  api('/api/files/ticket', { json: { path: f.path } }).then((t) => {
+    media.src = t.url;
+    currentMedia = media;
+    status.textContent = '';
+  }).catch((e) => { status.textContent = e.message; });
+  media.addEventListener('error', () => {
+    status.textContent = 'Телефон не умеет проигрывать этот формат. Попробуйте MP3, M4A или WAV.';
+  });
+  return box;
+}
 async function loadFiles(p) {
   let res;
   try { res = await api('/api/files?path=' + encodeURIComponent(p || '')); } catch (e) { toast(e.message, 'err'); return; }
@@ -545,7 +593,7 @@ async function loadFiles(p) {
   const list = $('#files-list');
   if (!res.entries.length) { list.replaceChildren(el('div', { class: 'empty' }, ic('folder', 30), 'Папка пуста')); return; }
   list.replaceChildren(...res.entries.slice(0, 500).map((f) => el('div', { class: 'item tap', onclick: () => (f.isDir ? loadFiles(f.path) : fileSheet(f)) },
-    el('div', { class: 'item-ic' + (f.isDir ? ' folder' : '') }, ic(f.isDir ? (res.path ? 'folder' : 'disk') : IMG_EXT.test(f.name) ? 'image' : 'file', 18)),
+    el('div', { class: 'item-ic' + (f.isDir ? ' folder' : '') }, ic(f.isDir ? (res.path ? 'folder' : 'disk') : IMG_EXT.test(f.name) ? 'image' : AUDIO_EXT.test(f.name) ? 'music' : VIDEO_EXT.test(f.name) ? 'video' : 'file', 18)),
     el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: f.name }),
       f.isDir ? null : el('div', { class: 'item-sub', text: fmtBytes(f.size) + (f.mtime ? ' · ' + fmtTime(f.mtime) : '') })),
     f.isDir ? ic('chevronRight', 18) : null)));
@@ -564,6 +612,7 @@ async function fileSheet(f) {
     fileBlob(f).then((b) => { img.src = URL.createObjectURL(b); }).catch(() => img.remove());
     body.unshift(img);
   }
+  if (AUDIO_EXT.test(f.name) || VIDEO_EXT.test(f.name)) body.unshift(mediaPlayer(f));
   const opts = el('div', { class: 'sheet-options' });
   if (!SHELL) opts.append(el('button', { class: 'btn', onclick: () => closeSheet('download') }, ic('download', 18), 'Скачать на телефон'));
   if (INFO.telegram) opts.append(el('button', { class: 'btn', onclick: () => closeSheet('telegram') }, ic('telegram', 18), 'Отправить в Telegram'));
@@ -760,6 +809,22 @@ $('#unpair').addEventListener('click', async () => {
 
 $('#switch-pc').addEventListener('click', () => { location.href = 'http://localhost/?list=1'; });
 
+// ===================== включение ПК с телефона =====================
+function renderWol() {
+  const w = INFO.wol;
+  $('#wol-card').classList.toggle('hidden', !w);
+  if (!w) return;
+  $('#wol-mac').replaceChildren(secret(w.mac, 'mac'));
+  $('#wol-bc').replaceChildren(secret(w.broadcast, 'ip'));
+  $('#wol-al').textContent = INFO.autologon ? 'включён' : 'выключен (настраивается на ПК)';
+  $('#wol-text').textContent = (SHELL
+    ? 'Когда компьютер выключен, откройте список компьютеров («Другой компьютер») и нажмите зелёную кнопку питания.'
+    : IS_IOS
+      ? 'iPhone не разрешает веб-приложениям отправлять сигнал включения. Включайте ПК через приложение роутера (функция Wake-on-LAN) или бесплатное приложение «Wake On LAN» из App Store — укажите MAC-адрес ниже.'
+      : 'Включать выключенный ПК умеет Android-приложение PC Control (кнопка питания в списке компьютеров).')
+    + (w.wifi ? ' Компьютер подключён по Wi-Fi — включение по сети обычно работает только по кабелю.' : '');
+}
+
 // ===================== обновление программы на ПК =====================
 function renderUpdateCard(u) {
   const show = !!(u && u.hasUpdate);
@@ -825,6 +890,7 @@ function watchUpdate(target, from) {
         card.classList.add('hidden');
         $('#about-version').textContent = INFO.version;
         toast(INFO.version === from ? `Программа перезапустилась, но версия осталась ${from}` : `Готово! На ПК теперь версия ${INFO.version}`, INFO.version === from ? 'err' : 'ok');
+        if (INFO.version !== from) setTimeout(() => location.reload(), 2500);
       } catch (e) { /* ещё запускается */ }
       return;
     }
@@ -845,7 +911,23 @@ function renderInstallHint() {
     : 'В меню браузера (⋮) выберите «Добавить на главный экран» — или установите Android-приложение со страницы релизов.';
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden && token && tab === 'home') loadStatus(); });
+// ===================== новая версия программы на ПК → перезагрузка страницы =====================
+const PAGE_VERSION = (document.querySelector('meta[name="pcfc-version"]') || {}).content || '';
+async function checkPageVersion() {
+  if (!token || !PAGE_VERSION) return;
+  try {
+    const r = await fetch('/api/hello', { cache: 'no-store' });
+    const h = await r.json();
+    if (h.version && h.version !== PAGE_VERSION) location.reload();
+  } catch (e) { /* ПК недоступен */ }
+}
+setInterval(checkPageVersion, 60000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !token) return;
+  checkPageVersion();
+  if (tab === 'home') loadStatus();
+});
 
 // ===================== старт =====================
 Icons.hydrate();

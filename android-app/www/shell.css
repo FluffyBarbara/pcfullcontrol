@@ -60,3 +60,5 @@ button, input { font: inherit; color: inherit; }
 .sheet p.muted { text-align: center; margin: 0 0 14px; font-size: 14px; }
 
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 30; padding: 14px 16px; border-radius: 18px; background: var(--card-2); border: 1px solid var(--line-2); box-shadow: 0 16px 40px rgba(0, 0, 0, .4); }
+.icon-btn.power { background: linear-gradient(135deg, #34d399, #10b981); border: 0; color: #fff; width: 46px; height: 46px; border-radius: 15px; box-shadow: 0 8px 20px rgba(16, 185, 129, .35); }
+.pc-state { color: var(--muted); }

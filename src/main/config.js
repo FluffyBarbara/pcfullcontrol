@@ -10,6 +10,7 @@ const DEFAULTS = {
   mobile: {
     enabled: true,               // приложение на телефоне (по Wi-Fi)
     port: 8765,
+    remoteControl: true,         // удалённое управление экраном с телефона
   },
   security: {
     allowShell: false,           // разрешить /cmd (выполнение команд)

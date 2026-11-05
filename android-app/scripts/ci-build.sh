@@ -24,6 +24,12 @@ MAN=android/app/src/main/AndroidManifest.xml
 grep -q 'usesCleartextTraffic' "$MAN" || sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$MAN"
 grep -q 'android.permission.CAMERA' "$MAN" || sed -i 's|</manifest>|    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n</manifest>|' "$MAN"
 
+# Нативный модуль включения ПК по сети (Wake-on-LAN): веб-страница не умеет отправлять UDP-пакеты
+JAVA_DIR=android/app/src/main/java/com/pcfullcontrol/mobile
+mkdir -p "$JAVA_DIR"
+cp native/WakeOnLanPlugin.java "$JAVA_DIR/"
+cp native/MainActivity.java "$JAVA_DIR/"
+
 # Значки приложения
 cp -r icons/* "$RES/"
 mkdir -p "$RES/mipmap-anydpi-v26" "$RES/values"
