@@ -96,3 +96,16 @@ test('у каждого действия есть описание для под
   const ctx = await makeCtx();
   for (const a of ctx.actions.actions.values()) assert.ok(Tips.ACTIONS[a.name], `нет описания для ${a.name}`);
 });
+
+test('уборка после обновления: копия программы распознаётся по файлам, чужая папка — нет', () => {
+  const { isOurInstall } = require('../src/main/system/self-cleanup');
+  const d = tmp();
+  fs.mkdirSync(path.join(d, 'resources'));
+  fs.writeFileSync(path.join(d, 'PCFullControl.exe'), 'x');
+  assert.equal(isOurInstall(d), false, 'без resources/app.asar — не наша копия');
+  fs.writeFileSync(path.join(d, 'resources', 'app.asar'), 'не настоящий архив');
+  assert.equal(isOurInstall(d), true);
+  const other = tmp();
+  fs.writeFileSync(path.join(other, 'Other.exe'), 'x');
+  assert.equal(isOurInstall(other), false);
+});

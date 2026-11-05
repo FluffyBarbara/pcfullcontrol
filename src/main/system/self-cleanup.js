@@ -35,10 +35,12 @@ function removePath(p) {
 
 /** Похоже ли содержимое папки на установленную копию PC Full Control. */
 function isOurInstall(dir) {
+  // Смотрим список файлов, а не existsSync: Electron по-особому обрабатывает пути к *.asar
   try {
-    const hasExe = fs.existsSync(path.join(dir, 'PCFullControl.exe')) || fs.existsSync(path.join(dir, 'PC Full Control.exe'));
-    const hasRes = fs.existsSync(path.join(dir, 'resources', 'app.asar')) || fs.existsSync(path.join(dir, 'resources', 'app'));
-    return hasExe && hasRes;
+    const top = fs.readdirSync(dir).map((n) => n.toLowerCase());
+    const hasExe = top.includes('pcfullcontrol.exe') || top.includes('pc full control.exe');
+    const res = top.includes('resources') ? fs.readdirSync(path.join(dir, 'resources')).map((n) => n.toLowerCase()) : [];
+    return hasExe && (res.includes('app.asar') || res.includes('app'));
   } catch (e) { return false; }
 }
 
