@@ -5,6 +5,8 @@ const si = require('systeminformation');
 const info = require('./system/info');
 const { listProcesses } = require('./system/processes');
 const { E } = require('./telegram-api');
+const { gpuStats } = require('./system/gpu');
+const { LEVEL_TEXT } = require('./system/disk-health');
 
 const POWER_TITLES = {
   shutdown: 'выключен по команде', reboot: 'перезагружен по команде',
@@ -179,6 +181,29 @@ class Monitor {
         for (const n of this.prevWatched) if (!running.has(n)) this.ctx.notifier.notify(`⏹ Закрыт процесс: <b>${E(n)}</b>`, { category: 'process' });
       }
       this.prevWatched = running;
+    }
+    // Видеокарта: раз в минуту — статистика для отчётов и тревога при перегреве
+    if (this.hasGpu !== false && now - (this.lastGpu || 0) >= 55000) {
+      this.lastGpu = now;
+      const g = (await gpuStats().catch(() => []))[0];
+      this.hasGpu = !!(g && (g.temp != null || g.util != null));
+      if (this.hasGpu) {
+        db.addGpuMetrics(g.temp, g.util);
+        if (g.temp != null && g.temp >= (cfg.gpuTempCelsius || 85)) {
+          this.alert('gpu', `🔥 <b>Перегрев видеокарты: ${Math.round(g.temp)}°C</b>
+${E(g.name)}, загрузка ${Math.round(g.util || 0)}%${g.fan != null ? `, вентилятор ${Math.round(g.fan)}%` : ''}`, 'critical');
+        }
+      }
+    }
+    // Здоровье дисков: раз в сутки, тревога при проблемах
+    if (cfg.diskHealthCheck !== false && now - (db.getSetting('lastDiskHealth') || 0) * 1000 > 86400e3) {
+      db.setSetting('lastDiskHealth', now / 1000);
+      const disks = await this.ctx.diskHealth(true).catch(() => []);
+      for (const d of disks.filter((x) => x.level !== 'ok')) {
+        this.alert(`diskhealth:${d.serial || d.id}`, `${d.level === 'bad' ? '🚨' : '⚠️'} <b>Диск ${E(d.model)} — ${LEVEL_TEXT[d.level]}</b>
+${d.reasons.map((r) => '• ' + E(r)).join('\n')}
+Сохраните важные файлы на другой диск.`, d.level === 'bad' ? 'critical' : 'warning', false);
+      }
     }
     // Очистка старых данных раз в час
     if (now - this.lastPrune > 3600e3) {

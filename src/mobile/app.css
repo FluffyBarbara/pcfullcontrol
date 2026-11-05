@@ -462,3 +462,52 @@ input:checked + .check { background: var(--grad); border-color: transparent; col
 .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--card-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 #m-clean-run { margin-top: 12px; }
+
+/* ===== «Ещё»: меню-плитки ===== */
+.more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.more-grid button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; min-height: 112px; border-radius: 20px; text-align: left;
+  background: var(--card); border: 1px solid var(--line); color: var(--text); font: inherit; transition: transform .12s; }
+.more-grid button:active { transform: scale(.97); }
+.more-grid b { font-size: 15px; margin-top: 6px; }
+.more-grid small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.mg-ic { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: var(--grad); box-shadow: 0 8px 20px rgba(109, 124, 255, .3); }
+.pane-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 12px; }
+.pane-head h3 { margin: 0; font-size: 20px; }
+
+/* ===== железо ===== */
+.m-gpu-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.m-gpu-temp { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.m-gpu-temp.hot { color: var(--danger); }
+.m-fps { text-align: center; padding: 14px; margin-bottom: 12px; border-radius: 16px; background: radial-gradient(circle at 50% 20%, rgba(109, 124, 255, .25), transparent 70%), var(--card-2); }
+.m-fps.idle { opacity: .7; }
+.m-fps-num { font-size: 44px; font-weight: 800; line-height: 1.05; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.m-fps-lbl { color: var(--muted); font-size: 12.5px; }
+.m-meter { margin-bottom: 10px; }
+.m-meter-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+.m-meter-top span { color: var(--muted); }
+.m-meter .bar i { background: var(--grad); }
+.m-meter.hot .bar i { background: linear-gradient(90deg, #ffb547, #ff5d6c); }
+.m-reasons { margin-top: 8px; padding: 10px 12px; border-radius: 12px; font-size: 13px; background: rgba(255, 181, 71, .1); border: 1px solid rgba(255, 181, 71, .25); }
+.item-ic.disk-ok { color: var(--ok); }
+.item-ic.disk-warn { color: var(--warn); }
+.item-ic.disk-err { color: var(--danger); }
+.pill.tiny { padding: 0 7px; font-size: 10.5px; margin-left: 6px; vertical-align: middle; }
+
+/* ===== сеть ===== */
+.m-net-big { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 6px; }
+.m-speed-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 6px; }
+.m-speed-cell { text-align: center; padding: 12px 6px; border-radius: 14px; background: var(--card-2); }
+.m-speed-cell b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.m-speed-cell span { font-size: 11.5px; color: var(--muted); }
+.dim-item { opacity: .6; }
+
+/* ===== выбор файлов ===== */
+.files-actions { position: sticky; top: 64px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px 10px; margin-bottom: 10px; border-radius: 14px;
+  background: var(--card-2); border: 1px solid var(--line-2); box-shadow: 0 10px 24px rgba(0, 0, 0, .25); font-size: 13px; }
+.files-actions span { flex: 1; min-width: 0; }
+.item.selected { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.check.on { background: var(--grad); border-color: transparent; color: #fff; }
+.icon-btn.active { background: var(--grad); color: #fff; border-color: transparent; }
+.del-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; background: var(--card-2); }
+.del-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.del-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -625,22 +625,110 @@ function mediaPlayer(f) {
   });
   return box;
 }
+// Выбор файлов для удаления: режим отметки включается кнопкой «✓» или долгим нажатием на файл
+let filesEntries = [];
+const fileSel = new Set();
+let selectMode = false;
+
 async function loadFiles(p) {
   let res;
   try { res = await api('/api/files?path=' + encodeURIComponent(p || '')); } catch (e) { toast(e.message, 'err'); return; }
   filesPath = res.path;
   filesParent = res.parent;
+  filesEntries = res.entries;
+  setSelectMode(false);
   $('#files-path').textContent = res.path || 'Расположения';
   $('#files-up').disabled = !res.path;
-  const list = $('#files-list');
-  if (!res.entries.length) { list.replaceChildren(el('div', { class: 'empty' }, ic('folder', 30), 'Папка пуста')); return; }
-  list.replaceChildren(...res.entries.slice(0, 500).map((f) => el('div', { class: 'item tap', onclick: () => (f.isDir ? loadFiles(f.path) : fileSheet(f)) },
-    el('div', { class: 'item-ic' + (f.isDir ? ' folder' : '') }, ic(f.isDir ? (res.path ? 'folder' : 'disk') : IMG_EXT.test(f.name) ? 'image' : AUDIO_EXT.test(f.name) ? 'music' : VIDEO_EXT.test(f.name) ? 'video' : 'file', 18)),
-    el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: f.name }),
-      f.isDir ? null : el('div', { class: 'item-sub', text: fmtBytes(f.size) + (f.mtime ? ' · ' + fmtTime(f.mtime) : '') })),
-    f.isDir ? ic('chevronRight', 18) : null)));
+  $('#files-select').classList.toggle('hidden', !res.path || !res.entries.length);
+  renderFiles();
   window.scrollTo({ top: 0 });
 }
+
+function renderFiles() {
+  const list = $('#files-list');
+  if (!filesEntries.length) { list.replaceChildren(el('div', { class: 'empty' }, ic('folder', 30), 'Папка пуста')); return; }
+  list.replaceChildren(...filesEntries.slice(0, 500).map((f) => {
+    const sel = fileSel.has(f.path);
+    const row = el('div', { class: 'item tap' + (sel ? ' selected' : '') },
+      selectMode ? el('span', { class: 'check' + (sel ? ' on' : '') }, ic('check', 14)) : null,
+      el('div', { class: 'item-ic' + (f.isDir ? ' folder' : '') }, ic(f.isDir ? (filesPath ? 'folder' : 'disk') : IMG_EXT.test(f.name) ? 'image' : AUDIO_EXT.test(f.name) ? 'music' : VIDEO_EXT.test(f.name) ? 'video' : 'file', 18)),
+      el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: f.name }),
+        f.isDir ? (selectMode ? el('div', { class: 'item-sub', text: 'папка' }) : null) : el('div', { class: 'item-sub', text: fmtBytes(f.size) + (f.mtime ? ' · ' + fmtTime(f.mtime) : '') })),
+      !selectMode && f.isDir ? ic('chevronRight', 18) : null);
+    row.addEventListener('click', () => {
+      if (selectMode) { toggleSel(f); return; }
+      if (f.isDir) loadFiles(f.path); else fileSheet(f);
+    });
+    // Долгое нажатие — начать выбор с этого файла
+    let lp = null;
+    row.addEventListener('touchstart', () => { if (filesPath && !selectMode) lp = setTimeout(() => { lp = 'fired'; haptic(20); setSelectMode(true); toggleSel(f); }, 550); }, { passive: true });
+    row.addEventListener('touchmove', () => { if (lp && lp !== 'fired') clearTimeout(lp); lp = null; }, { passive: true });
+    row.addEventListener('touchend', (e) => { if (lp === 'fired') e.preventDefault(); else if (lp) clearTimeout(lp); lp = null; });
+    return row;
+  }));
+}
+
+function setSelectMode(on) {
+  selectMode = on;
+  if (!on) fileSel.clear();
+  $('#files-actions').classList.toggle('hidden', !on);
+  $('#files-select').classList.toggle('active', on);
+  updateSelBar();
+  renderFiles();
+}
+
+function toggleSel(f) {
+  if (fileSel.has(f.path)) fileSel.delete(f.path); else fileSel.add(f.path);
+  haptic(5);
+  updateSelBar();
+  renderFiles();
+}
+
+function updateSelBar() {
+  const chosen = filesEntries.filter((f) => fileSel.has(f.path));
+  const size = chosen.reduce((s, f) => s + (f.size || 0), 0);
+  const dirs = chosen.filter((f) => f.isDir).length;
+  $('#files-sel-text').textContent = chosen.length ? `Выбрано: ${chosen.length}${size ? ' · ' + fmtBytes(size) : ''}${dirs ? ` · папок: ${dirs}` : ''}` : 'Отметьте файлы';
+  $('#files-delete').disabled = !chosen.length;
+}
+
+/** Удаление выбранных файлов: подтверждение со списком, по умолчанию — в корзину Windows. */
+async function deleteFiles(items) {
+  if (!items.length) return;
+  const permanent = el('input', { type: 'checkbox' });
+  const dirs = items.filter((f) => f.isDir).length;
+  const body = [
+    el('p', { text: `Будет удалено: ${items.length}${dirs ? ` (из них папок со всем содержимым: ${dirs})` : ''}. Файлы попадут в корзину Windows — их можно будет восстановить.` }),
+    el('div', { class: 'del-list' }, items.slice(0, 8).map((f) => el('div', { class: 'del-row' }, ic(f.isDir ? 'folder' : 'file', 15), el('span', { text: f.name }), f.size ? el('b', { text: fmtBytes(f.size) }) : null)),
+      items.length > 8 ? el('div', { class: 'muted small', text: `…и ещё ${items.length - 8}` }) : null),
+    el('label', { class: 'm-check' }, permanent, el('span', { class: 'check' }, ic('check', 14)),
+      el('span', { class: 'm-check-main' }, el('b', { text: 'Удалить навсегда, минуя корзину' }), el('small', { text: 'Восстановить будет нельзя' }))),
+    el('div', { class: 'sheet-options' },
+      el('button', { class: 'btn danger', onclick: () => closeSheet(true) }, ic('trash', 18), 'Удалить'),
+      el('button', { class: 'btn', onclick: () => closeSheet(false) }, 'Отмена')),
+  ];
+  const ok = await openSheet(items.length === 1 ? `Удалить «${items[0].name}»?` : `Удалить ${items.length} объектов?`, body);
+  if (!ok) return;
+  haptic(20);
+  try {
+    const res = await api('/api/files/delete', { json: { paths: items.map((f) => f.path), permanent: permanent.checked } });
+    const done = res.filter((r) => r.ok).length;
+    const failed = res.filter((r) => !r.ok);
+    if (failed.length) toast(`Удалено ${done} из ${res.length}. Не удалось: ${failed.slice(0, 2).map((r) => r.error).join('; ')}`, 'err');
+    else toast(permanent.checked ? `Удалено навсегда: ${done}` : `Перемещено в корзину: ${done}`);
+  } catch (e) { toast(e.message, 'err'); }
+  loadFiles(filesPath);
+}
+
+$('#files-select').addEventListener('click', () => setSelectMode(!selectMode));
+$('#files-sel-cancel').addEventListener('click', () => setSelectMode(false));
+$('#files-sel-all').addEventListener('click', () => {
+  const all = filesEntries.every((f) => fileSel.has(f.path));
+  filesEntries.forEach((f) => (all ? fileSel.delete(f.path) : fileSel.add(f.path)));
+  updateSelBar();
+  renderFiles();
+});
+$('#files-delete').addEventListener('click', () => deleteFiles(filesEntries.filter((f) => fileSel.has(f.path))));
 
 async function fileBlob(f) {
   const r = await api('/api/files/download?path=' + encodeURIComponent(f.path), { raw: true });
@@ -659,6 +747,7 @@ async function fileSheet(f) {
   if (!SHELL) opts.append(el('button', { class: 'btn', onclick: () => closeSheet('download') }, ic('download', 18), 'Скачать на телефон'));
   if (INFO.telegram) opts.append(el('button', { class: 'btn', onclick: () => closeSheet('telegram') }, ic('telegram', 18), 'Отправить в Telegram'));
   opts.append(el('button', { class: 'btn', onclick: () => closeSheet('open') }, ic('rocket', 18), 'Открыть на компьютере'));
+  opts.append(el('button', { class: 'btn danger', onclick: () => closeSheet('delete') }, ic('trash', 18), 'Удалить…'));
   opts.append(el('button', { class: 'btn', onclick: () => closeSheet(null) }, ic('chevronLeft', 18), 'Назад'));
   body.push(opts);
   const act = await openSheet(f.name, body);
@@ -674,6 +763,8 @@ async function fileSheet(f) {
     try { await api('/api/files/telegram', { json: { path: f.path } }); toast('Файл отправлен в Telegram'); } catch (e) { toast(e.message, 'err'); }
   } else if (act === 'open') {
     runAction('launch', f.path);
+  } else if (act === 'delete') {
+    deleteFiles([f]);
   }
 }
 
@@ -709,25 +800,31 @@ function uploadFile(file, onProgress) {
 }
 
 // ===================== ещё =====================
-let morePane = 'tasks';
+let morePane = null; // null — меню-плитки раздела «Ещё»
 let logMode = 'events';
-$$('#more-seg button').forEach((b) => b.addEventListener('click', () => {
-  morePane = b.dataset.more;
-  $$('#more-seg button').forEach((x) => x.classList.toggle('active', x === b));
-  loadMore();
-}));
-$$('#log-seg button').forEach((b) => b.addEventListener('click', () => {
+const MORE_TITLES = { hardware: 'Железо', network: 'Сеть', optimize: 'Очистка', apps: 'Программы', startup: 'Автозагрузка', tasks: 'Задачи', log: 'Журнал', settings: 'Настройки' };
+document.querySelectorAll('#more-grid button').forEach((b) => b.addEventListener('click', () => { morePane = b.dataset.more; haptic(6); loadMore(); }));
+document.querySelector('#pane-back').addEventListener('click', () => { morePane = null; loadMore(); });
+document.querySelectorAll('#log-seg button').forEach((b) => b.addEventListener('click', () => {
   logMode = b.dataset.log;
-  $$('#log-seg button').forEach((x) => x.classList.toggle('active', x === b));
+  document.querySelectorAll('#log-seg button').forEach((x) => x.classList.toggle('active', x === b));
   loadLog();
 }));
 
 function loadMore() {
-  $$('.more-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== morePane));
+  $('#more-grid').classList.toggle('hidden', !!morePane);
+  $('#pane-head').classList.toggle('hidden', !morePane);
+  $('#pane-title').textContent = MORE_TITLES[morePane] || '';
+  document.querySelectorAll('.more-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== morePane));
+  window.scrollTo({ top: 0 });
+  if (!morePane) return;
   if (morePane === 'tasks') loadTasks();
   else if (morePane === 'log') loadLog();
   else if (morePane === 'optimize') MOptimize.showClean();
   else if (morePane === 'apps') MOptimize.showApps();
+  else if (morePane === 'hardware') MExtras.hardware();
+  else if (morePane === 'network') MExtras.network();
+  else if (morePane === 'startup') MExtras.startup();
   else loadStatus();
 }
 
@@ -1031,6 +1128,30 @@ if (!store.get('tipsHinted')) {
   setTimeout(() => toast('Подсказка: удерживайте любую кнопку — появится описание, что она делает', 'info'), 4000);
 }
 
+/** Вход через интернет по одноразовой ссылке из Telegram: #/login/<код>. */
+async function loginFromHash() {
+  const m = location.hash.match(/#\/login\/([\w-]{16,})/);
+  if (!m) return false;
+  showPair();
+  $('#pair-form').classList.add('hidden');
+  $('#pair-auto').classList.remove('hidden');
+  try {
+    const res = await api('/api/remote-login', { json: { code: m[1], name: IS_IOS ? 'iPhone' : /android/i.test(navigator.userAgent) ? 'Android' : 'Браузер' } });
+    token = res.token;
+    store.set(TOKEN_KEY, token);
+    history.replaceState(null, '', location.pathname + location.search);
+    haptic(20);
+    await startApp();
+    toast(`Подключено к «${res.pcName}» через интернет`);
+  } catch (e) {
+    $('#pair-auto').classList.add('hidden');
+    $('#pair-form').classList.remove('hidden');
+    $('#pair-error').textContent = e.message;
+  }
+  return true;
+}
+window.addEventListener('hashchange', loginFromHash);
+
 async function pairFromHash() {
   const m = location.hash.match(/#\/pair\/(\d{6})/);
   if (!m) return false;
@@ -1043,6 +1164,7 @@ async function pairFromHash() {
 window.addEventListener('hashchange', pairFromHash);
 
 (async () => {
+  if (await loginFromHash()) return;
   if (await pairFromHash()) return;
   if (!token) { showPair(); return; }
   try { await startApp(); } catch (e) { if (e.status !== 401) { showPair(); $('#pair-error').textContent = e.message; } }

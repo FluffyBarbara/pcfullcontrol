@@ -28,6 +28,8 @@
       <button data-page="phone"><i data-ic="phone"></i><span class="lbl">Телефон</span><span class="badge-dot hidden" id="phone-dot"></span></button>
       <button data-page="control"><i data-ic="grid"></i><span class="lbl">Управление</span></button>
       <button data-page="processes"><i data-ic="activity"></i><span class="lbl">Процессы</span></button>
+      <button data-page="hardware"><i data-ic="gpu"></i><span class="lbl">Железо</span></button>
+      <button data-page="network"><i data-ic="wifi"></i><span class="lbl">Сеть</span></button>
       <button data-page="optimize"><i data-ic="broom"></i><span class="lbl">Оптимизация</span></button>
       <button data-page="tasks"><i data-ic="calendar"></i><span class="lbl">Задачи</span></button>
       <button data-page="log"><i data-ic="list"></i><span class="lbl">Журнал</span></button>
@@ -250,7 +252,7 @@
     <section class="page hidden" id="page-optimize">
       <div class="page-head">
         <div><h1>Оптимизация</h1><p>Ничего не удаляется, пока вы сами не отметите пункты и не подтвердите удаление.</p></div>
-        <div class="seg" id="opt-tabs"><button data-tab="clean" class="active">Очистка диска</button><button data-tab="apps">Удаление программ</button></div>
+        <div class="seg" id="opt-tabs"><button data-tab="clean" class="active">Очистка диска</button><button data-tab="apps">Удаление программ</button><button data-tab="startup">Автозагрузка</button></div>
       </div>
 
       <div id="opt-clean">
@@ -286,6 +288,70 @@
           <p class="muted small mt6" id="apps-count">Загрузка…</p>
         </div>
         <div class="card pad6"><div class="list" id="apps-list"></div></div>
+      </div>
+
+      <div id="opt-startup" class="hidden">
+        <div class="card">
+          <div class="row">
+            <div class="spacer"><b>Программы, которые запускаются вместе с Windows</b>
+              <p class="muted small mt4">Выключенная программа не удаляется — её можно включить обратно в любой момент. Меньше программ в автозагрузке — быстрее включается компьютер.</p></div>
+            <button class="btn" id="startup-refresh"><i data-ic="restart" data-size="16"></i>Обновить список</button>
+          </div>
+          <p class="muted small mt6" id="startup-count">Загрузка…</p>
+        </div>
+        <div class="card pad6"><div class="list" id="startup-list"></div></div>
+      </div>
+    </section>
+
+    <!-- ================= ЖЕЛЕЗО ================= -->
+    <section class="page hidden" id="page-hardware">
+      <div class="page-head">
+        <div><h1>Железо</h1><p>Видеокарта, кадры в секунду в играх и здоровье дисков.</p></div>
+        <button class="btn" id="hw-refresh"><i data-ic="restart" data-size="16"></i>Обновить</button>
+      </div>
+      <div id="hw-gpus"></div>
+      <div class="section-label mt22">Диски</div>
+      <div class="grid g2" id="hw-disks"></div>
+    </section>
+
+    <!-- ================= СЕТЬ ================= -->
+    <section class="page hidden" id="page-network">
+      <div class="page-head"><div><h1>Сеть</h1><p>Интернет, скорость, устройства в домашней сети и доступ к ПК из любой точки.</p></div></div>
+      <div class="grid g2">
+        <div class="card">
+          <h3 class="card-title mb12"><i data-ic="globe" data-size="18"></i>Интернет</h3>
+          <div class="net-state" id="net-state"></div>
+          <div class="section-label mt">Обрывы за неделю</div>
+          <div class="list" id="net-outages"></div>
+        </div>
+        <div class="card">
+          <h3 class="card-title mb12"><i data-ic="zap" data-size="18"></i>Скорость</h3>
+          <div class="speed-box" id="speed-box"></div>
+          <button class="btn primary mt" id="speed-run"><i data-ic="zap" data-size="16"></i>Замерить скорость</button>
+          <p class="muted small mt6">Замер расходует около 100 МБ трафика.</p>
+        </div>
+      </div>
+      <div class="card mt" id="remote-card">
+        <div class="row">
+          <h3 class="card-title"><i data-ic="globe" data-size="18"></i>Доступ из интернета</h3>
+          <span class="spacer"></span><span class="pill" id="ra-status"></span>
+          <label class="switch"><input type="checkbox" id="ra-toggle"><span></span></label>
+        </div>
+        <p class="muted small mt6">Приложение на телефоне будет работать вне дома — через мобильный интернет или чужой Wi-Fi. Роутер настраивать не нужно: защищённый туннель Cloudflare (бесплатно, без регистрации).
+          Войти можно только по одноразовой ссылке из Telegram (/remote) или по QR-коду ниже — привязать новый телефон через интернет нельзя.</p>
+        <div class="row mt hidden" id="ra-actions">
+          <button class="btn" id="ra-qr"><i data-ic="qr" data-size="16"></i>QR-код для входа</button>
+          <button class="btn" id="ra-tg"><i data-ic="telegram" data-size="16"></i>Отправить ссылку в Telegram</button>
+          <span class="muted small" id="ra-url"></span>
+        </div>
+      </div>
+      <div class="card mt">
+        <div class="card-head">
+          <h3 class="card-title"><i data-ic="wifi" data-size="18"></i>Устройства в домашней сети</h3>
+          <button class="btn sm" id="dev-scan"><i data-ic="search" data-size="15"></i>Найти устройства</button>
+        </div>
+        <p class="muted small mb12">О каждом новом устройстве придёт уведомление в Telegram. Нажмите на имя, чтобы подписать устройство.</p>
+        <div class="list" id="dev-list"></div>
       </div>
     </section>
 
@@ -374,6 +440,23 @@
         </div>
       </div>
 
+      <div class="card mt">
+        <h3 class="card-title mb6"><i data-ic="sparkles" data-size="18"></i>Дополнительно</h3>
+        <div class="grid g2 gap-cols">
+          <div class="set-row"><span class="set-ic"><i data-ic="camera" data-size="17"></i></span><span class="set-text"><b>Фото при неверном пароле</b><small id="cam-note">Веб-камера снимает того, кто ошибся паролем на экране входа, фото приходит в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="security.photoOnFailedLogin"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="camera" data-size="17"></i></span><span class="set-text"><b>Фото при каждой разблокировке</b><small>Кто бы ни разблокировал компьютер — фото придёт в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="security.photoOnUnlock"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="mic" data-size="17"></i></span><span class="set-text"><b>Голосовые команды в Telegram</b><small>Речь распознаётся на этом компьютере, без облака</small></span><label class="switch"><input type="checkbox" data-cfg="voice.enabled"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="calendar" data-size="17"></i></span><span class="set-text"><b>Отчёт за неделю</b><small>По воскресеньям в 20:00 в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="reports.weekly"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="globe" data-size="17"></i></span><span class="set-text"><b>Следить за интернетом</b><small>Сообщение, когда связь вернётся после обрыва</small></span><label class="switch"><input type="checkbox" data-cfg="network.watchInternet"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="wifi" data-size="17"></i></span><span class="set-text"><b>Новые устройства в сети</b><small>Уведомление, если к домашней сети подключилось незнакомое устройство</small></span><label class="switch"><input type="checkbox" data-cfg="network.watchDevices"><span></span></label></div>
+        </div>
+        <div class="row mt">
+          <label class="field">Температура видеокарты для тревоги, °C <input class="input" type="number" min="50" max="110" data-cfg="monitor.gpuTempCelsius" data-num></label>
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="weekly-preview"><i data-ic="report" data-size="16"></i>Отчёт за неделю сейчас</button>
+        </div>
+      </div>
+
       <div class="card mt" id="wol-card">
         <h3 class="card-title mb6"><i data-ic="wake" data-size="18"></i>Включение компьютера с телефона</h3>
         <p class="muted small mt6">Выключенный компьютер можно включить кнопкой «Включить» в Android-приложении — оно отправляет в домашнюю сеть «волшебный пакет» (Wake-on-LAN).
@@ -448,5 +531,6 @@
 <script src="../shared/tips.js"></script>
 <script src="app.js"></script>
 <script src="optimize.js"></script>
+<script src="extras.js"></script>
 </body>
 </html>

@@ -156,6 +156,13 @@
         <button class="icon-btn" id="files-up" aria-label="Вверх"><i data-ic="arrowUp"></i></button>
         <button class="icon-btn" id="files-root" aria-label="Диски"><i data-ic="disk"></i></button>
         <div class="path" id="files-path">Расположения</div>
+        <button class="icon-btn hidden" id="files-select" aria-label="Выбрать"><i data-ic="check"></i></button>
+      </div>
+      <div class="files-actions hidden" id="files-actions">
+        <span id="files-sel-text">Выбрано: 0</span>
+        <button class="btn sm" id="files-sel-all">Все</button>
+        <button class="btn sm" id="files-sel-cancel">Отмена</button>
+        <button class="btn sm danger" id="files-delete" disabled><i data-ic="trash" data-size="16"></i>Удалить</button>
       </div>
       <div class="upload-progress hidden" id="upload-progress"><div class="bar"><i id="upload-bar"></i></div><span id="upload-text"></span></div>
       <div class="list" id="files-list"></div>
@@ -165,8 +172,45 @@
     <!-- ЕЩЁ -->
     <section class="view hidden" data-view="more">
       <h2 class="view-title">Ещё</h2>
-      <div class="seg scroll" id="more-seg">
-        <button data-more="tasks" class="active">Задачи</button><button data-more="optimize">Очистка</button><button data-more="apps">Программы</button><button data-more="log">Журнал</button><button data-more="settings">Настройки</button>
+      <div class="more-grid" id="more-grid">
+        <button data-more="hardware"><span class="mg-ic"><i data-ic="gpu" data-size="22"></i></span><b>Железо</b><small>Видеокарта, FPS, диски</small></button>
+        <button data-more="network"><span class="mg-ic"><i data-ic="wifi" data-size="22"></i></span><b>Сеть</b><small>Интернет, скорость, устройства</small></button>
+        <button data-more="optimize"><span class="mg-ic"><i data-ic="broom" data-size="22"></i></span><b>Очистка</b><small>Временные файлы, корзина</small></button>
+        <button data-more="apps"><span class="mg-ic"><i data-ic="package" data-size="22"></i></span><b>Программы</b><small>Удаление программ</small></button>
+        <button data-more="startup"><span class="mg-ic"><i data-ic="rocket" data-size="22"></i></span><b>Автозагрузка</b><small>Что запускается с Windows</small></button>
+        <button data-more="tasks"><span class="mg-ic"><i data-ic="calendar" data-size="22"></i></span><b>Задачи</b><small>Действия по расписанию</small></button>
+        <button data-more="log"><span class="mg-ic"><i data-ic="list" data-size="22"></i></span><b>Журнал</b><small>События и команды</small></button>
+        <button data-more="settings"><span class="mg-ic"><i data-ic="sliders" data-size="22"></i></span><b>Настройки</b><small>Обновления, о программе</small></button>
+      </div>
+      <div class="pane-head hidden" id="pane-head"><button class="icon-btn" id="pane-back" aria-label="Назад"><i data-ic="chevronLeft"></i></button><h3 id="pane-title"></h3></div>
+
+      <div class="more-pane hidden" data-pane="hardware">
+        <div id="m-gpu"></div>
+        <div class="section-title">Диски</div>
+        <div id="m-disks"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="network">
+        <div class="card" id="m-net-state"></div>
+        <div class="card">
+          <div class="card-title"><i data-ic="zap" data-size="18"></i>Скорость интернета</div>
+          <div id="m-speed"></div>
+          <button class="btn primary big" id="m-speed-run"><i data-ic="zap" data-size="18"></i>Замерить скорость</button>
+        </div>
+        <div class="card" id="m-remote">
+          <div class="card-title"><i data-ic="globe" data-size="18"></i>Доступ из интернета</div>
+          <p class="muted small" id="m-remote-text"></p>
+          <label class="setting"><span class="set-text"><b>Включить доступ из интернета</b><small>Вход — только по одноразовой ссылке из Telegram (/remote)</small></span>
+            <span class="switch"><input type="checkbox" id="m-remote-toggle"><span></span></span></label>
+        </div>
+        <div class="section-title">Устройства в домашней сети</div>
+        <div class="list" id="m-devices"></div>
+        <button class="btn big" id="m-dev-scan"><i data-ic="search" data-size="18"></i>Найти устройства</button>
+      </div>
+
+      <div class="more-pane hidden" data-pane="startup">
+        <p class="muted small m-apps-count" id="m-startup-count">Загрузка…</p>
+        <div class="list" id="m-startup"></div>
       </div>
 
       <div class="more-pane hidden" data-pane="optimize">
@@ -186,7 +230,7 @@
         <div class="list" id="m-apps-list"></div>
       </div>
 
-      <div class="more-pane" data-pane="tasks">
+      <div class="more-pane hidden" data-pane="tasks">
         <div class="list" id="tasks-list"></div>
         <button class="btn primary big" id="add-task"><i data-ic="plus" data-size="18"></i>Новая задача</button>
       </div>
@@ -307,6 +351,7 @@
 <script src="shared/tips.js"></script>
 <script src="app.js"></script>
 <script src="optimize.js"></script>
+<script src="extras.js"></script>
 <script src="remote.js"></script>
 </body>
 </html>

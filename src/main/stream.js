@@ -117,7 +117,7 @@ class ScreenStream {
   }
 
   // ---------------- сессии ----------------
-  async start(device, { monitor = 1, preset = 'auto', audio = true } = {}) {
+  async start(device, { monitor = 1, preset = 'auto', audio = true, iceServers = [] } = {}) {
     if (!this.ctx.remote.enabled) throw new Error('Удалённое управление выключено в настройках программы');
     clearTimeout(this.idleTimer);
     await this.ensureWindow();
@@ -125,7 +125,7 @@ class ScreenStream {
     const sid = crypto.randomBytes(12).toString('hex');
     const name = PRESETS[preset] ? preset : 'auto';
     const offer = await this.call('start', {
-      sid, source, preset: name, presets: PRESETS, audio: IS_WIN && audio !== false,
+      sid, source, preset: name, presets: PRESETS, audio: IS_WIN && audio !== false, iceServers,
     });
     this.sessions.set(sid, { deviceId: device.id, device: device.name, monitor: source.index, started: Date.now() });
     this.ctx.remote.noteSession(device.name);

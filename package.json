@@ -13,6 +13,7 @@
     "dist": "electron-builder --win --x64 --publish never"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.2",
     "electron-updater": "6.8.10",
     "qrcode": "1.5.4",
     "sql.js": "1.14.2",
@@ -33,7 +34,16 @@
     "files": [
       "src/**/*",
       "build/icon.png",
-      "package.json"
+      "package.json",
+      "!node_modules/onnxruntime-web/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
+      "!node_modules/@huggingface/transformers/dist/*.web*",
+      "!node_modules/@huggingface/transformers/dist/transformers.js",
+      "!node_modules/@huggingface/transformers/dist/transformers.min.js",
+      "!node_modules/@huggingface/transformers/dist/ort-*",
+      "!node_modules/**/*.map"
     ],
     "win": {
       "target": [
@@ -66,6 +76,21 @@
         "owner": "FluffyBarbara",
         "repo": "pcfullcontrol",
         "releaseType": "release"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/bin",
+        "to": "bin",
+        "filter": [
+          "**/*",
+          "!.gitkeep"
+        ]
       }
     ]
   }

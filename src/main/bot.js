@@ -10,6 +10,8 @@ const media = require('./system/media');
 const updates = require('./system/updates');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { parseDuration, parseTime, parseWeekdays, nextTimeOfDay } = require('./scheduler');
+const { parseVoiceCommand, EXAMPLES: VOICE_EXAMPLES } = require('./voice-commands');
+const { LEVEL_TEXT } = require('./system/disk-health');
 
 const MAIN_KB = replyKb([
   ['📊 Статус', '📸 Скриншот'],
@@ -28,7 +30,10 @@ const BOT_COMMANDS = [
   ['in', 'Задача через N минут'], ['daily', 'Задача по расписанию'], ['msg', 'Сообщение на экран'],
   ['say', 'Озвучить текст'], ['open', 'Открыть ссылку'], ['run', 'Запустить программу'],
   ['clip', 'Буфер обмена ПК'], ['cmd', 'Выполнить команду'], ['ip', 'IP-адреса'], ['webcam', 'Фото с веб-камеры'],
-  ['log', 'Журнал'], ['notify', 'Вкл/выкл уведомления'], ['actions', 'Список действий'], ['help', 'Справка'],
+  ['log', 'Журнал'], ['notify', 'Вкл/выкл уведомления'], ['actions', 'Список действий'],
+  ['gpu', 'Видеокарта и FPS'], ['disks', 'Здоровье дисков'], ['net', 'Интернет'], ['speedtest', 'Замер скорости'],
+  ['devices', 'Устройства в сети'], ['remote', 'Доступ из интернета'], ['week', 'Отчёт за неделю'], ['voice', 'Голосовые команды'],
+  ['help', 'Справка'],
 ];
 
 const HELP = `<b>PC Full Control — управление компьютером</b>
@@ -49,6 +54,11 @@ const HELP = `<b>PC Full Control — управление компьютером
 • <code>/daily 08:00 будни notify Пора вставать!</code> — по расписанию
   (дни: будни, выходные, пн-пт, сб,вс; можно не указывать)
 • /actions — названия действий для задач
+
+<b>Железо и сеть:</b> /gpu, /disks, /net, /speedtest, /devices
+<b>Из любой точки:</b> /remote — ссылка для входа в приложение через интернет
+<b>Отчёт за неделю:</b> /week (приходит сам по воскресеньям в 20:00)
+<b>🎙 Голосом:</b> отправьте голосовое сообщение — например, «выключи компьютер через полчаса». Подробнее: /voice
 
 <b>Прочее:</b> /log, /notify (вкл/выкл уведомления), /myid`;
 
@@ -104,6 +114,8 @@ class TelegramBot {
       '/at': this.cmdAt, '/in': this.cmdIn, '/daily': this.cmdDaily, '/deltask': this.cmdDelTask,
       '/actions': this.cmdActions, '/notify': this.cmdNotify, '/clip': this.cmdClip, '/users': this.cmdUsers,
       '/vol': (c, a, m) => (a ? this.runAction(c, 'set_volume', a, { user: m.from }) : this.cmdMedia(c)),
+      '/gpu': this.cmdGpu, '/disks': this.cmdDisks, '/net': this.cmdNet, '/speedtest': this.cmdSpeed,
+      '/devices': this.cmdDevices, '/remote': this.cmdRemote, '/week': this.cmdWeek, '/voice': this.cmdVoiceHelp,
     };
     const simple = {
       '/shutdown': 'shutdown', '/reboot': 'reboot', '/sleep': 'sleep', '/hibernate': 'hibernate', '/lock': 'lock',
@@ -230,6 +242,7 @@ class TelegramBot {
     if (cmd === '/start' && arg.startsWith('pair_')) return this.pair(chatId, arg.slice(5), user);
     if (!this.ctx.isAuthorized(user.id)) return this.unauthorized(chatId, user);
 
+    if (msg.voice || msg.video_note) return this.onVoice(chatId, msg, user);
     if (msg.document || msg.photo || msg.video || msg.audio) return this.onUpload(chatId, msg);
     if (!text) return null;
 
@@ -406,9 +419,158 @@ class TelegramBot {
     ];
     if (this.ctx.config.apps.length) rows.push([['⭐ Мои программы', 'apps']]);
     if (this.ctx.config.security.allowShell) rows.push([['💻 Выполнить команду', 'in|shell']]);
+    rows.push([['🎮 Видеокарта', 'gpu'], ['💽 Здоровье дисков', 'disks']]);
+    rows.push([['🌐 Интернет', 'net'], ['📡 Устройства в сети', 'dev']]);
+    rows.push([['🌍 Доступ из интернета', 'remote'], ['📅 Отчёт за неделю', 'week']]);
     rows.push([['🗑 Очистить корзину', 'a|empty_recycle_bin'], ['♻️ Перезапуск приложения', 'a|restart_app']]);
     rows.push([[this.ctx.notifier.muted ? '🔔 Включить уведомления' : '🔕 Выключить уведомления', 'nt']]);
     return this.editOrSend(chatId, messageId, '🛠 <b>Дополнительно</b>', inlineKb(rows));
+  }
+
+  // ================= Железо, сеть, отчёты =================
+  async cmdGpu(chatId) {
+    this.api.chatAction(chatId);
+    let r = await this.ctx.gpu();
+    // Счётчику кадров нужно пару секунд, чтобы набрать статистику
+    if (r.fpsAvailable && !r.fps) { await new Promise((res) => setTimeout(res, 2500)); r = await this.ctx.gpu(); }
+    if (!r.gpus.length) return this.send(chatId, '🎮 Видеокарта не найдена или не отдаёт данные.');
+    const L = [];
+    for (const g of r.gpus) {
+      L.push(`🎮 <b>${E(g.name)}</b>`);
+      if (g.temp != null) L.push(`🌡 Температура: <b>${Math.round(g.temp)}°C</b>`);
+      if (g.util != null) L.push(`⚙️ Загрузка: ${Math.round(g.util)}%`);
+      if (g.memTotal) L.push(`🧠 Видеопамять: ${info.fmtBytes(g.memUsed || 0)} из ${info.fmtBytes(g.memTotal)}`);
+      if (g.clock != null) L.push(`⏱ Частота: ${Math.round(g.clock)} МГц${g.memClock ? ` · память ${Math.round(g.memClock)} МГц` : ''}`);
+      if (g.power != null) L.push(`⚡ Мощность: ${Math.round(g.power)} Вт${g.powerLimit ? ` из ${Math.round(g.powerLimit)}` : ''}`);
+      if (g.fan != null) L.push(`🌀 Вентилятор: ${Math.round(g.fan)}%`);
+      L.push('');
+    }
+    if (r.fps) L.push(`🕹 <b>${E(r.fps.app.replace(/\.exe$/i, ''))}: ${r.fps.fps} кадр/с</b> (1% низких — ${r.fps.low1})`);
+    else if (r.fpsAvailable) L.push('🕹 Игра не запущена — кадры в секунду появятся, когда она будет на экране.');
+    return this.send(chatId, L.join('\n'), inlineKb([[['🔄 Обновить', 'gpu']]]));
+  }
+
+  async cmdDisks(chatId) {
+    this.api.chatAction(chatId);
+    const disks = await this.ctx.diskHealth(true);
+    if (!disks.length) return this.send(chatId, '💽 Данные о дисках недоступны (нужна Windows 10/11).');
+    const icon = { ok: '✅', warn: '⚠️', bad: '🚨' };
+    const L = ['💽 <b>Здоровье дисков</b>', ''];
+    for (const d of disks) {
+      L.push(`${icon[d.level]} <b>${E(d.model)}</b>${d.volumes ? ` (${E(d.volumes)})` : ''} — ${LEVEL_TEXT[d.level]}`);
+      const parts = [`${d.media || d.bus || 'диск'}, ${info.fmtBytes(d.size)}`];
+      if (d.temp != null) parts.push(`${d.temp}°C`);
+      if (d.wear != null) parts.push(`износ ${d.wear}%`);
+      if (d.hours != null) parts.push(`наработка ${Math.round(d.hours / 24)} дн.`);
+      L.push(E(parts.join(' · ')));
+      for (const r of d.reasons) L.push(`  • ${E(r)}`);
+      L.push('');
+    }
+    return this.send(chatId, L.join('\n'));
+  }
+
+  async cmdNet(chatId) {
+    const st = this.ctx.net.status();
+    const L = ['🌐 <b>Интернет</b>'];
+    L.push(st.online === false ? `🔴 Нет связи${st.downSince ? ` с ${new Date(st.downSince * 1000).toLocaleTimeString('ru-RU')}` : ''}` : st.online ? `🟢 Есть связь${st.latency ? ` · отклик ${st.latency} мс` : ''}` : '⏳ Проверяю…');
+    const out = st.outages;
+    L.push(out.length ? `Обрывов за неделю: ${out.length}` : 'Обрывов за неделю не было');
+    for (const o of out.slice(0, 5)) L.push(`  • ${fmtTs(o.start)} — ${Math.max(1, Math.round((o.end - o.start) / 60))} мин`);
+    if (st.lastSpeed) L.push(`\n⚡ Последний замер (${fmtTs(st.lastSpeed.ts)}): ↓ <b>${st.lastSpeed.down}</b> / ↑ <b>${st.lastSpeed.up}</b> Мбит/с, задержка ${st.lastSpeed.ping} мс`);
+    return this.send(chatId, L.join('\n'), inlineKb([[['⚡ Замерить скорость', 'sp'], ['📡 Устройства', 'dev']]]));
+  }
+
+  async cmdSpeed(chatId) {
+    const msg = await this.send(chatId, '⚡ Замеряю скорость интернета… (≈20 секунд)');
+    try {
+      const r = await this.ctx.net.speedTest();
+      const text = `⚡ <b>Скорость интернета</b>\n⬇️ Скачивание: <b>${r.down} Мбит/с</b>\n⬆️ Загрузка: <b>${r.up} Мбит/с</b>\n📶 Задержка: ${r.ping} мс (разброс ${r.jitter} мс)`;
+      return this.editOrSend(chatId, msg && msg.message_id, text, inlineKb([[['🔄 Ещё раз', 'sp']]]));
+    } catch (e) {
+      return this.editOrSend(chatId, msg && msg.message_id, '❌ ' + E(e.message));
+    }
+  }
+
+  async cmdDevices(chatId) {
+    const msg = await this.send(chatId, '📡 Ищу устройства в домашней сети… (≈10 секунд)');
+    let list;
+    try { list = await this.ctx.net.scan(false); } catch (e) { return this.editOrSend(chatId, msg && msg.message_id, '❌ ' + E(e.message)); }
+    const online = list.filter((d) => d.online);
+    const weekAgo = Date.now() / 1000 - 7 * 86400;
+    const L = [`📡 <b>Устройства в сети: ${online.length}</b>`, ''];
+    for (const d of online.slice(0, 40)) {
+      const name = d.label || d.name || d.vendor || 'Неизвестное устройство';
+      L.push(`${d.first_seen > weekAgo ? '🆕 ' : ''}<b>${E(name)}</b> — ${E(d.ip)}${d.vendor && d.vendor !== name ? `\n   <i>${E(d.vendor)}</i>` : ''}`);
+    }
+    return this.editOrSend(chatId, msg && msg.message_id, L.join('\n'), inlineKb([[['🔄 Обновить', 'dev']]]));
+  }
+
+  async cmdRemote(chatId, arg, msg) {
+    const t = this.ctx.tunnel;
+    const st = t.state();
+    if (!st.enabled) {
+      return this.send(chatId, '🌍 <b>Доступ из интернета выключен</b>\nВключите — и приложение на телефоне будет работать вне дома (мобильный интернет, чужой Wi-Fi). Роутер настраивать не нужно.\n\nВход — только по одноразовой ссылке отсюда.',
+        inlineKb([[['✅ Включить', 'ron']]]));
+    }
+    if (st.status !== 'online') {
+      return this.send(chatId, `🌍 Доступ из интернета включается… ${st.status === 'downloading' ? `скачиваю модуль ${st.progress}%` : ''}${st.error ? `\n${E(st.error)}` : ''}\nПовторите /remote через минуту.`);
+    }
+    const l = t.loginLink(TelegramBot.userName((msg && msg.from) || {}));
+    return this.send(chatId, '🌍 <b>Вход в приложение через интернет</b>\nНажмите кнопку на телефоне. Ссылка одноразовая и действует 15 минут.\nНа iPhone после входа можно «Поделиться → На экран Домой».',
+      inlineKb([[['📱 Открыть приложение', l.url]], [['⛔ Выключить доступ', 'roff']]]));
+  }
+
+  async cmdWeek(chatId) {
+    const { build } = require('./weekly');
+    return this.send(chatId, build(this.ctx).text);
+  }
+
+  cmdVoiceHelp(chatId) {
+    const ready = this.ctx.speech.modelReady;
+    return this.send(chatId, `🎙 <b>Голосовые команды</b>\nЗапишите голосовое сообщение — программа распознает речь прямо на компьютере (без облака) и выполнит команду.\n\nПримеры:\n${VOICE_EXAMPLES.map((x) => '• ' + x).join('\n')}\n\nОпасные действия (выключение, перезагрузка) — с подтверждением.${ready ? '' : '\n\n⏬ При первом голосовом программа скачает модель распознавания речи (≈250 МБ) — это один раз.'}`);
+  }
+
+  /** Голосовое сообщение → текст (Whisper на ПК) → команда. */
+  async onVoice(chatId, msg, user) {
+    if (this.ctx.config.voice && this.ctx.config.voice.enabled === false) return this.send(chatId, '🎙 Голосовые команды выключены в настройках программы на ПК.');
+    const f = msg.voice || msg.video_note;
+    if (f.duration > 120) return this.send(chatId, '🎙 Голосовое слишком длинное — запишите команду до 2 минут.');
+    const first = !this.ctx.speech.modelReady;
+    const status = await this.send(chatId, first ? '⏬ Первое голосовое: скачиваю модель распознавания речи (≈250 МБ, один раз)…' : '🎙 Распознаю…');
+    const mid = status && status.message_id;
+    let lastEdit = 0;
+    let text;
+    try {
+      const data = await this.api.downloadFile(f.file_id);
+      const r = await this.ctx.speech.transcribe(data, {
+        onProgress: (p) => {
+          if (Date.now() - lastEdit < 3000) return;
+          lastEdit = Date.now();
+          this.editOrSend(chatId, mid, `⏬ Скачиваю модель распознавания речи: ${p.pct}% (один раз)`).catch(() => {});
+        },
+      });
+      text = r.text;
+    } catch (e) {
+      return this.editOrSend(chatId, mid, '❌ Не удалось распознать: ' + E(e.message));
+    }
+    if (!text) return this.editOrSend(chatId, mid, '🎙 Не расслышал — попробуйте сказать чётче.');
+    const cmd = parseVoiceCommand(text, { apps: this.ctx.config.apps });
+    this.ctx.db.logCommand('telegram', TelegramBot.userName(user), 'voice', text, !!cmd, cmd ? cmd.title : 'не понял');
+    if (!cmd) {
+      return this.editOrSend(chatId, mid, `🎙 «${E(text)}»\n\nНе понял, что сделать 🤔 Примеры: ${VOICE_EXAMPLES.slice(0, 4).join(', ')}. Все примеры — /voice`);
+    }
+    await this.editOrSend(chatId, mid, `🎙 «${E(text)}»\n➡️ ${E(cmd.title)}`);
+    switch (cmd.action) {
+      case 'remind': {
+        const id = this.ctx.scheduler.addOnce('notify', cmd.text, Date.now() / 1000 + cmd.minutes * 60);
+        this.ctx.emit('event');
+        return this.send(chatId, `⏰ Напомню «${E(cmd.text)}» через ${cmd.minutes} мин (задача #${id}).`);
+      }
+      case 'weekly_report': return this.cmdWeek(chatId);
+      case 'speedtest': return this.cmdSpeed(chatId);
+      case 'gpu': return this.cmdGpu(chatId);
+      default: return this.runAction(chatId, cmd.action, cmd.arg || '', { user });
+    }
   }
 
   cmdApps(chatId, messageId = null) {
@@ -692,6 +854,15 @@ class TelegramBot {
         return app ? this.runAction(chatId, 'launch', app.cmd, { user }) : null;
       }
       case 'cam': return this.cmdWebcam(chatId);
+      case 'gpu': return this.cmdGpu(chatId);
+      case 'disks': return this.cmdDisks(chatId);
+      case 'net': return this.cmdNet(chatId);
+      case 'sp': return this.cmdSpeed(chatId);
+      case 'dev': return this.cmdDevices(chatId);
+      case 'remote': return this.cmdRemote(chatId, '', { from: user });
+      case 'ron': await this.ctx.tunnel.setEnabled(true).catch((e) => this.send(chatId, '❌ ' + E(e.message))); return this.cmdRemote(chatId, '', { from: user });
+      case 'roff': await this.ctx.tunnel.setEnabled(false); return this.editOrSend(chatId, mid, '🌍 Доступ из интернета выключен.');
+      case 'week': return this.cmdWeek(chatId);
       case 'ip': return this.cmdIp(chatId);
       case 'nt': await this.cmdNotify(chatId); return this.cmdMore(chatId, '', null, mid);
       case 'log': return this.cmdLog(chatId, '', null, mid, rest || 'events');

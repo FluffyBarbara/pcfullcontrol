@@ -109,7 +109,10 @@
     if (gen !== rc.gen) { stopSession(start.sid); return false; }
     rc.sid = start.sid;
     rc.audio = !!start.audio;
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    // Через интернет нужны STUN-серверы, чтобы найти путь к домашнему ПК
+    const ice = (typeof INFO !== 'undefined' && INFO && INFO.iceServers) || [];
+    const far = ice.length > 0;
+    const pc = new RTCPeerConnection({ iceServers: ice });
     rc.pc = pc;
     pc.ontrack = (e) => {
       const v = video();
@@ -126,10 +129,10 @@
     pc.onconnectionstatechange = () => onPcState(pc, gen);
     await pc.setRemoteDescription({ type: 'offer', sdp: start.sdp });
     await pc.setLocalDescription(await pc.createAnswer());
-    await gathered(pc, 800);
+    await gathered(pc, far ? 3000 : 800);
     if (gen !== rc.gen) return false;
     await api('/api/remote/rtc/answer', { json: { sid: rc.sid, sdp: pc.localDescription.sdp } });
-    await waitFor(() => ['connected', 'completed'].includes(pc.iceConnectionState), 9000, () => pc.iceConnectionState === 'failed' || gen !== rc.gen);
+    await waitFor(() => ['connected', 'completed'].includes(pc.iceConnectionState), far ? 15000 : 9000, () => pc.iceConnectionState === 'failed' || gen !== rc.gen);
     await waitFor(() => video().videoWidth > 0, 8000, () => gen !== rc.gen);
     updateSound();
     return gen === rc.gen;

@@ -220,7 +220,9 @@ const Optimize = (() => {
     $$('#opt-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === t));
     $('#opt-clean').classList.toggle('hidden', t !== 'clean');
     $('#opt-apps').classList.toggle('hidden', t !== 'apps');
+    $('#opt-startup').classList.toggle('hidden', t !== 'startup');
     if (t === 'apps') loadApps();
+    if (t === 'startup') Extras.loadStartup();
   }
 
   $$('#opt-tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));

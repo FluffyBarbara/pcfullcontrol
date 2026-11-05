@@ -127,10 +127,10 @@
     });
   }
 
-  async function start({ sid, source, preset, presets, audio }) {
+  async function start({ sid, source, preset, presets, audio, iceServers = [] }) {
     const p = presets[preset];
     const { stream, track } = await captureVideo(source, p);
-    const pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+    const pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
     const s = { sid, pc, stream, track, source, presets, preset: p, presetName: preset, dc: null, timer: null, audioTrack: null };
     S.set(sid, s);
     try {

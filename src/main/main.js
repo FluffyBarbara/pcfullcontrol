@@ -109,6 +109,11 @@ async function init() {
   ctx.scheduler.start();
   ctx.lan = new LanServer(ctx);
   ctx.lan.start();
+  ctx.net.start();
+  ctx.activity.start();
+  ctx.intruder.start().catch(() => {});
+  if (ctx.config.remote && ctx.config.remote.enabled) ctx.tunnel.start().catch(() => {});
+  startWeeklyReports();
   startBot();
   createTray();
   registerIpc();
@@ -119,6 +124,8 @@ async function init() {
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
   ctx.on('update-state', (st) => { send('update-state', st); updateTray(); });
+  ctx.on('remote-access', (st) => send('remote-access', st));
+  ctx.on('net-progress', (p) => send('net-progress', p));
   guardAutologon(true);
 
   let showFlag = false;
@@ -196,11 +203,33 @@ function prepareForUpdate() {
     ctx.lan && ctx.lan.stop();
     ctx.remote && ctx.remote.stopAgent();
     ctx.stream && ctx.stream.stopAll();
+    stopServices();
     ctx.db.save();
   } catch (e) { /* ignore */ }
 }
 
 let lastUpdateCheck = 0;
+/** Останавливает фоновые службы (перед выходом и обновлением). */
+function stopServices() {
+  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(),
+    () => { clearTimeout(ctx.tunnel.restartTimer); if (ctx.tunnel.proc) ctx.tunnel.proc.kill(); }, () => ctx.fps.stop()]) {
+    try { fn(); } catch (e) { /* ignore */ }
+  }
+}
+
+// ================= Отчёт за неделю =================
+function startWeeklyReports() {
+  const weekly = require('./weekly');
+  const tick = () => {
+    if (!ctx.config.reports || !ctx.config.reports.weekly || !ctx.tg) return;
+    if (!weekly.isDue(ctx.db.getSetting('lastWeeklyReport'))) return;
+    ctx.db.setSetting('lastWeeklyReport', Date.now() / 1000);
+    ctx.notifier.notify(weekly.build(ctx).text, { category: 'report' });
+  };
+  setTimeout(tick, 60000);
+  setInterval(tick, 15 * 60 * 1000);
+}
+
 async function checkAppUpdate() {
   lastUpdateCheck = Date.now();
   try {
@@ -306,6 +335,7 @@ async function quit() {
       ctx.lan && ctx.lan.stop();
       ctx.remote && ctx.remote.stopAgent();
       ctx.stream && ctx.stream.stopAll();
+      stopServices();
       await ctx.notifier.flush(3000);
       ctx.db.close();
     }
@@ -325,6 +355,7 @@ function watchPower() {
   });
   powerMonitor.on('unlock-screen', () => {
     if (ctx.config.monitor.notifyLogin) ctx.notifier.notify('🔓 Компьютер разблокирован', { category: 'login', level: 'warning' });
+    ctx.intruder.onUnlock().catch(() => {});
   });
   powerMonitor.on('shutdown', () => ctx.db.save());
 }
@@ -541,6 +572,36 @@ function registerIpc() {
   handle('apps-leftovers', ({ id }) => ctx.apps.findLeftovers(id));
   handle('apps-remove-leftovers', ({ id, tokens }) => ctx.apps.removeLeftovers(id, tokens));
   handle('cleanup-report', () => ctx.db.getSetting('lastCleanup'));
+  // Железо: видеокарта (с кадрами в игре) и здоровье дисков
+  handle('hw-info', async ({ force }) => ({ gpu: await ctx.gpu().catch(() => ({ gpus: [] })), disks: await ctx.diskHealth(!!force).catch((e) => ({ error: e.message })) }));
+  // Сеть
+  handle('net-status', () => ctx.net.status());
+  handle('net-speedtest', () => ctx.net.speedTest());
+  handle('net-scan', () => ctx.net.scan(false));
+  handle('net-label', ({ mac, label }) => ctx.db.labelNetDevice(mac, label));
+  // Автозагрузка (включение/выключение обратимо)
+  handle('startup-list', async () => ({ available: ctx.startup.available, items: await ctx.startup.list() }));
+  handle('startup-set', async ({ id, enabled }) => {
+    const r = await ctx.startup.setEnabled(id, !!enabled);
+    ctx.db.logCommand('local', 'ПК', 'startup', `${id} → ${enabled ? 'вкл' : 'выкл'}`, true, '');
+    return r;
+  });
+  // Доступ из интернета
+  handle('remote-access-state', () => ctx.tunnel.state());
+  handle('remote-access-set', ({ enabled }) => ctx.tunnel.setEnabled(!!enabled));
+  handle('remote-access-link', async () => {
+    const l = ctx.tunnel.loginLink('ПК');
+    return { ...l, qr: await QRCode.toDataURL(l.url, { margin: 1, width: 300, color: { dark: '#0b0d12', light: '#ffffff' } }) };
+  });
+  handle('remote-access-send', () => {
+    const l = ctx.tunnel.loginLink('ПК');
+    ctx.notifier.notify(`🌍 <b>Вход в приложение через интернет</b>\n<a href="${l.url}">Открыть PC Full Control</a> — ссылка одноразовая и действует 15 минут.`, { category: 'security' });
+    return true;
+  });
+  // Отчёт за неделю и прочее
+  handle('weekly-preview', () => require('./weekly').build(ctx).text);
+  handle('weekly-send', () => { ctx.notifier.notify(require('./weekly').build(ctx).text, { category: 'report' }); return true; });
+  handle('extras-state', () => ({ hasCamera: ctx.intruder.hasCamera, voiceModel: ctx.speech.modelReady }));
   handle('autologon-enable', async ({ password }) => {
     const r = await poweron.enableAutologon(password);
     ctx.db.setSetting('autologonEnabled', true);

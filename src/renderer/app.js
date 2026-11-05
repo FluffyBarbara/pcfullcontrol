@@ -169,6 +169,8 @@ function go(p) {
   } else if (p === 'control') loadVolume();
   else if (p === 'processes') { loadProcesses(); timers.p = setInterval(() => { if (!document.hidden) loadProcesses(); }, 5000); }
   else if (p === 'optimize') Optimize.show();
+  else if (p === 'hardware') { Extras.hardware(); timers.h = setInterval(() => { if (!document.hidden) Extras.gpuOnly(); }, 2500); }
+  else if (p === 'network') { Extras.network(); timers.n = setInterval(() => { if (!document.hidden) Extras.network(); }, 8000); }
   else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();
   else if (p === 'settings') fillSettings();

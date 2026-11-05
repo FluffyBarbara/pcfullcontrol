@@ -4,3 +4,5 @@ out/
 *.log
 *.sqlite
 .DS_Store
+build/bin/*.exe
+build/bin/*.txt

@@ -14,6 +14,21 @@ const DEFAULTS = {
   },
   security: {
     allowShell: false,           // разрешить /cmd (выполнение команд)
+    photoOnFailedLogin: true,    // фото с веб-камеры при неверном пароле на экране входа
+    photoOnUnlock: false,        // фото при каждой разблокировке
+  },
+  voice: {
+    enabled: true,               // голосовые команды в Telegram
+  },
+  network: {
+    watchInternet: true,         // следить за обрывами интернета
+    watchDevices: true,          // следить за новыми устройствами в домашней сети
+  },
+  reports: {
+    weekly: true,                // отчёт за неделю в Telegram (воскресенье, 20:00)
+  },
+  remote: {
+    enabled: false,              // доступ из интернета (туннель Cloudflare)
   },
   files: {
     allowedRoots: [],            // ограничить файловый менеджер папками; пусто = весь диск
@@ -31,6 +46,8 @@ const DEFAULTS = {
     ramPercent: 90,
     diskFreePercent: 10,
     tempCelsius: 85,
+    gpuTempCelsius: 85,          // тревога при перегреве видеокарты
+    diskHealthCheck: true,       // ежедневная проверка здоровья дисков
     batteryLowPercent: 20,
     cooldownMin: 30,
     notifyStart: true,

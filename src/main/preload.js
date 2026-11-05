@@ -8,8 +8,10 @@ const INVOKE = new Set([
   'delete-task', 'get-log', 'check-app-update', 'open-external', 'open-data-dir', 'quit',
   'mobile-info', 'mobile-regen', 'remove-device', 'get-processes', 'whatsnew-state', 'whatsnew-ack', 'update-state', 'update-start', 'wol-info', 'wol-setup', 'autologon-enable', 'autologon-disable',
   'clean-analyze', 'clean-run', 'apps-list', 'apps-uninstall', 'apps-job', 'apps-leftovers', 'apps-remove-leftovers', 'cleanup-report',
+  'hw-info', 'net-status', 'net-speedtest', 'net-scan', 'net-label', 'startup-list', 'startup-set',
+  'remote-access-state', 'remote-access-set', 'remote-access-link', 'remote-access-send', 'weekly-preview', 'weekly-send', 'extras-state',
 ]);
-const EVENTS = new Set(['refresh', 'metrics', 'update-state', 'update-available']);
+const EVENTS = new Set(['refresh', 'metrics', 'update-state', 'update-available', 'remote-access', 'net-progress']);
 
 contextBridge.exposeInMainWorld('pcc', {
   async invoke(channel, data) {

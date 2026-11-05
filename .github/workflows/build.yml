@@ -26,6 +26,22 @@ jobs:
       - name: Тесты
         run: npm test
 
+      - name: Счётчик кадров PresentMon (Intel, MIT)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } https://api.github.com/repos/GameTechDev/PresentMon/releases/latest
+          $rel.assets | ForEach-Object { Write-Host "  $($_.name)" }
+          $asset = $rel.assets | Where-Object { $_.name -match '^PresentMon.*x64\.exe$' } | Select-Object -First 1
+          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -match 'x64' -and $_.name -like '*.exe' -and $_.name -notmatch 'arm|Service|Capture' } | Select-Object -First 1 }
+          New-Item -ItemType Directory -Force build/bin | Out-Null
+          if ($asset) {
+            Invoke-WebRequest $asset.browser_download_url -OutFile build/bin/PresentMon.exe
+            Invoke-WebRequest "https://raw.githubusercontent.com/GameTechDev/PresentMon/$($rel.tag_name)/LICENSE.txt" -OutFile build/bin/PresentMon-LICENSE.txt -ErrorAction SilentlyContinue
+            Write-Host "PresentMon: $($asset.name) ($($rel.tag_name))"
+          } else { Write-Warning 'PresentMon не найден — счётчик кадров будет недоступен' }
+
       - name: Сборка установщика
         run: npm run dist
         env:

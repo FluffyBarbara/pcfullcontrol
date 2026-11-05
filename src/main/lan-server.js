@@ -143,6 +143,25 @@ class LanServer {
     return { token, pcName: this.ctx.pcName, version: this.ctx.version };
   }
 
+  /** Вход через интернет: одноразовый код из Telegram → токен для этого телефона. */
+  remoteLogin(body, ip) {
+    this.checkPairAttempts(ip);
+    const v = this.ctx.tunnel.useCode(body.code);
+    if (!v) {
+      this.failed.get(ip).push(Date.now());
+      throw new HttpError(403, 'Ссылка устарела или уже использована. Получите новую в Telegram командой /remote.');
+    }
+    const token = crypto.randomBytes(32).toString('base64url');
+    const name = `${String(body.name || 'Телефон').slice(0, 40)} · через интернет`;
+    // Один и тот же телефон не плодит записи: обновляем токен у прежней
+    const prev = this.ctx.db.listDevices().find((d) => d.name === name && d.platform === 'internet');
+    if (prev) this.ctx.db.removeDevice(prev.id);
+    this.ctx.db.addDevice(name, 'internet', sha256(token), ip);
+    this.ctx.tunnel.notifyLogin(name, ip);
+    this.ctx.emit('event');
+    return { token, pcName: this.ctx.pcName, version: this.ctx.version };
+  }
+
   auth(req) {
     const h = req.headers.authorization || '';
     const token = h.startsWith('Bearer ') ? h.slice(7) : '';
@@ -203,15 +222,22 @@ class LanServer {
     const q = (k, d = '') => url.searchParams.get(k) ?? d;
     const ctx = this.ctx;
     const ip = clientIp(req);
+    const remote = viaTunnel(req);
 
     // --- без авторизации ---
     if (p === '/api/hello') {
       // Открыто для Android-приложения: проверка, что по адресу отвечает именно PC Full Control
       res.setHeader('Access-Control-Allow-Origin', '*');
+      if (remote) return { app: 'pc-full-control', version: ctx.version, remote: true };
       const nic = poweron.primaryInterface();
       return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
-    if (p === '/api/pair' && m === 'POST') return this.pair(await readJson(req), ip);
+    if (p === '/api/pair' && m === 'POST') {
+      if (remote) throw new HttpError(403, 'Привязка через интернет запрещена. Дома отсканируйте QR-код, а вне дома войдите по ссылке из Telegram (команда /remote).');
+      return this.pair(await readJson(req), ip);
+    }
+    // Вход через интернет по одноразовой ссылке из Telegram
+    if (p === '/api/remote-login' && m === 'POST') return this.remoteLogin(await readJson(req), ip);
 
     // Потоковое воспроизведение (аудио/видео на телефоне): плеер не умеет передавать токен в заголовке,
     // поэтому доступ — по временной ссылке, выданной привязанному телефону.
@@ -238,6 +264,8 @@ class LanServer {
         remote: ctx.remote.enabled,
         wol: (() => { const n = poweron.primaryInterface(); return n ? { mac: n.mac, broadcast: n.broadcast, wifi: n.wifi } : null; })(),
         autologon: !!ctx.db.getSetting('autologonEnabled'),
+        viaInternet: remote,
+        iceServers: remote ? STUN : [],
       };
     }
     if (p === '/api/update/state') return ctx.appUpdater.state;
@@ -326,7 +354,7 @@ class LanServer {
     }
     if (p === '/api/remote/rtc/start' && m === 'POST') {
       const body = await readJson(req);
-      try { return await ctx.stream.start(device, { monitor: Number(body.monitor) || 1, preset: String(body.preset || 'auto'), audio: body.audio !== false }); }
+      try { return await ctx.stream.start(device, { monitor: Number(body.monitor) || 1, preset: String(body.preset || 'auto'), audio: body.audio !== false, iceServers: remote ? STUN : [] }); }
       catch (e) { throw new HttpError(400, e.message); }
     }
     if (p === '/api/remote/rtc/answer' && m === 'POST') {
@@ -352,6 +380,38 @@ class LanServer {
     }
     if (p === '/api/files') return this.listFiles(q('path'));
     if (p === '/api/files/download') return this.download(q('path'), res, device);
+    if (p === '/api/files/delete' && m === 'POST') {
+      const body = await readJson(req);
+      const { shell } = require('electron');
+      const res2 = await ctx.files.deletePaths(body.paths, { permanent: !!body.permanent, trash: (x) => shell.trashItem(x) });
+      const ok = res2.filter((r) => r.ok).length;
+      ctx.db.logCommand('mobile', device.name, 'delete_files', `${ok} из ${res2.length}${body.permanent ? ' (навсегда)' : ' (в корзину)'}`, ok === res2.length, res2.filter((r) => r.ok).map((r) => r.path).slice(0, 5).join('; '));
+      return res2;
+    }
+    // --- железо ---
+    if (p === '/api/hw') return { gpu: await ctx.gpu().catch(() => ({ gpus: [] })), disks: await ctx.diskHealth(q('force') === '1').catch((e) => ({ error: e.message })) };
+    // --- сеть ---
+    if (p === '/api/net') return ctx.net.status();
+    if (p === '/api/net/speedtest' && m === 'POST') { try { return await ctx.net.speedTest(); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/net/scan' && m === 'POST') { try { return await ctx.net.scan(false); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/net/label' && m === 'POST') { const b = await readJson(req); return { ok: ctx.db.labelNetDevice(String(b.mac || ''), b.label) }; }
+    // --- автозагрузка ---
+    if (p === '/api/startup') { try { return { available: ctx.startup.available, items: await ctx.startup.list() }; } catch (e) { throw new HttpError(500, e.message); } }
+    if (p === '/api/startup/set' && m === 'POST') {
+      const b = await readJson(req);
+      try {
+        const r = await ctx.startup.setEnabled(b.id, !!b.enabled);
+        ctx.db.logCommand('mobile', device.name, 'startup', `${b.id} → ${b.enabled ? 'вкл' : 'выкл'}`, true, '');
+        return r;
+      } catch (e) { throw new HttpError(400, e.message); }
+    }
+    // --- доступ из интернета ---
+    if (p === '/api/internet' && m === 'GET') return ctx.tunnel.state();
+    if (p === '/api/internet' && m === 'POST') { const b = await readJson(req); try { return await ctx.tunnel.setEnabled(!!b.enabled); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/internet/link' && m === 'POST') { try { return ctx.tunnel.loginLink(device.name); } catch (e) { throw new HttpError(400, e.message); } }
+    // --- отчёт за неделю ---
+    if (p === '/api/weekly') return { text: require('./weekly').build(ctx).text };
+    if (p === '/api/weekly/send' && m === 'POST') { ctx.notifier.notify(require('./weekly').build(ctx).text, { category: 'report' }); return { ok: true }; }
     if (p === '/api/files/ticket' && m === 'POST') return this.mediaTicket((await readJson(req)).path);
     if (p === '/api/files/upload' && m === 'PUT') return this.upload(req, q('name'), q('dir'), device);
     if (p === '/api/files/telegram' && m === 'POST') return this.fileToTelegram((await readJson(req)).path, device);
@@ -510,9 +570,18 @@ class LanServer {
   }
 }
 
+/** Запрос пришёл из интернета через туннель Cloudflare (cloudflared подключается к нам с этого же ПК). */
+function viaTunnel(req) {
+  const a = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return (a === '127.0.0.1' || a === '::1') && !!(req.headers['cf-connecting-ip'] || req.headers['cf-ray']);
+}
+
 function clientIp(req) {
+  if (viaTunnel(req)) return String(req.headers['cf-connecting-ip'] || 'интернет').slice(0, 64);
   return String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 }
+
+const STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
