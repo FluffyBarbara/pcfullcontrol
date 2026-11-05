@@ -358,3 +358,11 @@ pre.output { background: var(--bg); border: 1px solid var(--line); border-radius
 .gap-cols { gap: 0 24px; } .row.center { justify-content: center; } .stack.end { align-items: flex-end; }
 #proc-search { width: 260px; }
 .lg-cpu { background: var(--cpu); } .lg-ram { background: var(--ram); } .lg-temp { background: var(--temp); }
+
+/* ---------- обновление ---------- */
+.upd-progress { margin-top: 14px; padding: 14px; border-radius: 14px; background: var(--bg-2); border: 1px solid rgba(109, 124, 255, .35); }
+.upd-progress .bar { height: 9px; }
+.upd-progress .bar i { width: 0; transition: width .4s ease; }
+.upd-progress.indeterminate .bar i { width: 35% !important; animation: indet 1.2s ease-in-out infinite; }
+@keyframes indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+.t-pill { cursor: pointer; }

@@ -153,6 +153,7 @@ async function loadState() {
   renderQuickTiles();
   const upd = STATE.update && STATE.update.hasUpdate;
   $('#title-update').classList.toggle('hidden', !upd);
+  if (['downloading', 'downloaded', 'installing'].includes(UPD.status)) renderUpdateState(UPD);
   $('#about-dot').classList.toggle('hidden', !upd);
 }
 
@@ -673,19 +674,59 @@ function renderAbout() {
 }
 function renderUpdate(u) {
   if (!u) return;
-  $('#install-update').classList.toggle('hidden', !u.hasUpdate);
-  $('#update-result').textContent = u.hasUpdate ? `Доступна версия ${u.latest}. Установка займёт около минуты, программа перезапустится сама.`
+  const busy = ['downloading', 'downloaded', 'installing'].includes(UPD.status);
+  $('#install-update').classList.toggle('hidden', !u.hasUpdate || busy);
+  if (busy) return;
+  $('#update-result').textContent = u.hasUpdate ? `Доступна версия ${u.latest}. Программа скачает её, установит и сразу откроется новой версией.`
     : u.latest ? `Установлена последняя версия (${u.current}).` : (u.message || '');
 }
+
+// Состояние обновления приходит из главного процесса: проверка → скачивание (с процентами) → установка
+let UPD = { status: 'idle' };
+function renderUpdateState(st) {
+  UPD = st || UPD;
+  const box = $('#upd-progress');
+  const pill = $('#title-update');
+  const busy = ['downloading', 'downloaded', 'installing'].includes(UPD.status);
+  box.classList.toggle('hidden', !busy);
+  box.classList.toggle('indeterminate', UPD.status !== 'downloading' || !UPD.total);
+  if (busy) {
+    $('#install-update').classList.add('hidden');
+    $('#upd-bar').style.width = (UPD.percent || 0) + '%';
+    if (UPD.status === 'downloading') {
+      $('#upd-text').textContent = `Скачиваю версию ${UPD.latest}` + (UPD.total ? ` · ${fmtBytes(UPD.transferred)} из ${fmtBytes(UPD.total)}` : '')
+        + (UPD.speed ? ` · ${fmtBytes(UPD.speed)}/с` : '');
+      $('#upd-pct').textContent = (UPD.percent || 0) + '%';
+    } else {
+      $('#upd-text').textContent = `Устанавливаю версию ${UPD.latest} — программа закроется и через минуту откроется новой версией`;
+      $('#upd-pct').textContent = '';
+    }
+    $('#update-result').textContent = '';
+    pill.classList.remove('hidden');
+    pill.replaceChildren(ic('download', 14), UPD.status === 'downloading' ? `Обновление ${UPD.percent || 0}%` : 'Установка обновления…');
+  } else if (UPD.status === 'error') {
+    $('#update-result').textContent = 'Обновление не удалось: ' + UPD.error;
+    $('#install-update').disabled = false;
+  }
+}
+window.pcc.on('update-state', (st) => {
+  renderUpdateState(st);
+  if (st.status === 'error') toast('Обновление не удалось: ' + st.error, 'err');
+});
+
 $('#check-update').addEventListener('click', async () => {
   $('#update-result').textContent = 'Проверяю…';
   try { STATE.update = await api('check-app-update'); renderUpdate(STATE.update); loadState(); } catch (e) { $('#update-result').textContent = 'Не удалось проверить: ' + e.message; }
 });
 $('#install-update').addEventListener('click', async () => {
-  if (!(await confirmModal('Установить обновление?', 'Программа скачает новую версию, установит её и перезапустится.', 'Установить', false))) return;
+  const v = STATE.update && STATE.update.latest;
+  if (!(await confirmModal(`Обновить до ${v || 'новой версии'}?`, 'Программа скачает обновление, установит его и сама откроется уже новой версией. Это займёт 1–2 минуты.', 'Обновить', false))) return;
   $('#install-update').disabled = true;
-  $('#update-result').textContent = 'Скачиваю обновление…';
-  try { const r = await api('run-action', { name: 'app_update' }); $('#update-result').textContent = r.result; } catch (e) { $('#update-result').textContent = e.message; $('#install-update').disabled = false; }
+  try {
+    const r = await api('update-start');
+    $('#update-result').textContent = r;
+    renderUpdateState(await api('update-state'));
+  } catch (e) { $('#update-result').textContent = e.message; $('#install-update').disabled = false; }
 });
 $('#title-update').addEventListener('click', () => go('about'));
 $('#show-whatsnew').addEventListener('click', () => showWhatsNew(null, STATE.version));
@@ -708,6 +749,7 @@ window.pcc.on('refresh', () => {
 (async () => {
   Icons.hydrate();
   await loadState();
+  renderUpdateState(await api('update-state'));
   const needSetup = !STATE.mobile.devices && !(STATE.bot.configured && STATE.users.length);
   go(needSetup ? 'phone' : 'overview');
   const wn = await api('whatsnew-state');

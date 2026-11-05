@@ -1,9 +1,9 @@
 'use strict';
-// Обновление самой программы из релизов GitHub: скачивает новый установщик и запускает тихую установку.
+// Обновление программы прямо из неё: electron-updater скачивает новую версию из релизов GitHub
+// (с проверкой контрольной суммы), устанавливает её тихо и сразу запускает новую версию.
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { powershell, psQuote } = require('./system/exec');
+const { E } = require('./telegram-api');
 
 function cmpVersions(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -14,101 +14,124 @@ function cmpVersions(a, b) {
   return 0;
 }
 
-/** Запущена ли программа с правами администратора (Windows). */
-async function isElevated() {
-  if (process.platform !== 'win32') return false;
-  const r = await powershell('([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)', 20000);
-  return /true/i.test(r.out);
-}
-
-/**
- * Запускает установщик тихо (/S) с последующим запуском программы (--force-run).
- * Через Start-Process (ShellExecute): если прав администратора нет, Windows покажет запрос UAC
- * вместо молчаливой ошибки. Возвращает { ok, pid, error }.
- */
-async function launchInstaller(file, elevated) {
-  const verb = elevated ? '' : ' -Verb RunAs';
-  const script = `$ErrorActionPreference='Stop'
-try {
-  $p = Start-Process -FilePath ${psQuote(file)} -ArgumentList '/S','--force-run' -PassThru${verb}
-  "ok:" + $p.Id
-} catch { "error:" + $_.Exception.Message }`;
-  const r = await powershell(script, 120000);
-  const m = r.out.match(/ok:(\d+)/);
-  if (m) return { ok: true, pid: Number(m[1]) };
-  const err = (r.out.match(/error:(.*)/) || [])[1] || r.out || 'неизвестная ошибка';
-  return { ok: false, error: /cancel|отмен/i.test(err) ? 'Запрос прав администратора на ПК был отклонён' : err.trim() };
+function humanError(e) {
+  const msg = String((e && e.message) || e || '');
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|net::ERR|getaddrinfo/i.test(msg)) return 'нет связи с GitHub';
+  if (/sha512|checksum/i.test(msg)) return 'файл обновления повреждён, попробуйте ещё раз';
+  if (/404/.test(msg)) return 'файл обновления не найден в релизе';
+  if (/403|rate limit/i.test(msg)) return 'GitHub временно ограничил число проверок, попробуйте через час';
+  return msg.split('\n')[0].slice(0, 200) || 'неизвестная ошибка';
 }
 
 class AppUpdater {
   constructor(ctx) {
     this.ctx = ctx;
-    this.busy = false;
+    this.updater = null;
+    this.state = { status: 'idle', current: ctx.version, latest: null, percent: 0, transferred: 0, total: 0, speed: 0, error: '' };
+  }
+
+  setState(patch) {
+    this.state = { ...this.state, ...patch };
+    this.ctx.emit('update-state', this.state);
+  }
+
+  log(level, msg) {
+    try {
+      const dir = this.ctx.dataDir;
+      if (dir) fs.appendFileSync(path.join(dir, 'update.log'), `${new Date().toISOString()} [${level}] ${msg}\n`);
+    } catch (e) { /* ignore */ }
+  }
+
+  /** electron-updater работает только в установленной программе (не при запуске из исходников). */
+  get() {
+    if (this.updater) return this.updater;
+    let autoUpdater;
+    try {
+      ({ autoUpdater } = require('electron-updater'));
+    } catch (e) {
+      return null;
+    }
+    if (!autoUpdater || !autoUpdater.isUpdaterActive()) return null;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.disableDifferentialDownload = true;
+    autoUpdater.logger = {
+      info: (m) => this.log('info', m), warn: (m) => this.log('warn', m),
+      error: (m) => this.log('error', m), debug: () => {},
+    };
+    // Для автоматических проверок (e2e): свой адрес с обновлениями
+    if (process.env.PCFC_UPDATE_FEED) autoUpdater.setFeedURL({ provider: 'generic', url: process.env.PCFC_UPDATE_FEED });
+
+    autoUpdater.on('download-progress', (p) => {
+      this.setState({ status: 'downloading', percent: Math.round(p.percent || 0), transferred: p.transferred, total: p.total, speed: p.bytesPerSecond });
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+      this.setState({ status: 'downloaded', percent: 100 });
+      this.install(info.version).catch((e) => this.fail(e));
+    });
+    autoUpdater.on('error', (e) => {
+      if (['downloading', 'downloaded', 'installing', 'checking'].includes(this.state.status)) this.fail(e);
+    });
+    this.updater = autoUpdater;
+    return autoUpdater;
+  }
+
+  fail(e) {
+    const msg = humanError(e);
+    this.log('error', msg);
+    const wasUpdating = ['downloading', 'downloaded', 'installing'].includes(this.state.status);
+    this.setState({ status: 'error', error: msg });
+    if (wasUpdating) this.ctx.notifier.notify(`❌ Обновление не удалось: ${E(msg)}`, { category: 'update', level: 'warning' });
   }
 
   async check() {
-    const repo = this.ctx.config.appUpdate.repo;
     const current = this.ctx.version;
+    const u = this.get();
+    if (!u) {
+      const info = { current, latest: null, hasUpdate: false, message: 'Обновление работает только в установленной программе' };
+      this.ctx.updateInfo = info;
+      return info;
+    }
+    const busy = ['downloading', 'downloaded', 'installing'].includes(this.state.status);
+    if (!busy) this.setState({ status: 'checking', error: '' });
     let r;
     try {
-      r = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'PCFullControl' },
-        signal: AbortSignal.timeout(20000),
-      });
+      r = await u.checkForUpdates();
     } catch (e) {
-      throw new Error('нет связи с GitHub');
+      if (!busy) this.setState({ status: 'error', error: humanError(e) });
+      throw new Error(humanError(e));
     }
-    if (r.status === 404) return { current, latest: null, hasUpdate: false, message: 'Релизы не найдены' };
-    if (r.status === 403) throw new Error('GitHub временно ограничил число проверок, попробуйте через час');
-    if (!r.ok) throw new Error(`GitHub ответил ${r.status}`);
-    const rel = await r.json();
-    const asset = (rel.assets || []).find((a) => /\.exe$/i.test(a.name));
-    const latest = String(rel.tag_name || '').replace(/^v/, '');
-    const info = {
-      current, latest, hasUpdate: cmpVersions(latest, current) > 0 && !!asset,
-      url: asset ? asset.browser_download_url : null, name: asset ? asset.name : null,
-      size: asset ? asset.size : 0, notes: rel.body || '',
-    };
+    const latest = r && r.updateInfo ? r.updateInfo.version : null;
+    const hasUpdate = !!latest && cmpVersions(latest, current) > 0;
+    const info = { current, latest, hasUpdate, notes: (r && r.updateInfo && r.updateInfo.releaseNotes) || '' };
     this.ctx.updateInfo = info;
+    if (!busy) this.setState({ status: hasUpdate ? 'available' : 'latest', latest });
     return info;
   }
 
-  /** Действие «Обновить PC Full Control»: сразу отвечает, есть ли обновление, установку ведёт в фоне. */
+  /** «Обновить PC Full Control»: сразу отвечает, есть ли новая версия; скачивание и установка идут в фоне. */
   async startUpdate() {
+    const s = this.state.status;
+    if (s === 'downloading') return `Обновление до ${this.state.latest} уже скачивается (${this.state.percent}%).`;
+    if (s === 'downloaded' || s === 'installing') return `Обновление до ${this.state.latest} устанавливается — программа скоро перезапустится.`;
     const c = await this.check();
-    if (!c.hasUpdate) {
-      return c.latest ? `У вас последняя версия — ${c.current}. Обновлений нет.` : `Обновлений нет (${c.message || 'релизы не найдены'}).`;
-    }
-    if (process.platform !== 'win32') return `Доступна версия ${c.latest}, но автообновление работает только в Windows.`;
-    if (this.busy) return `Обновление до ${c.latest} уже идёт.`;
-    this.busy = true;
-    this.ctx.jobs.start('app_update', `Обновление PC Full Control до ${c.latest}`, async () => {
-      try {
-        return await this.downloadAndInstall(c);
-      } finally {
-        this.busy = false;
-      }
-    });
-    return `Найдена версия ${c.latest} (у вас ${c.current}). Скачиваю и устанавливаю — программа перезапустится через 1–2 минуты, придёт уведомление.`;
+    if (!c.hasUpdate) return c.latest ? `У вас последняя версия — ${c.current}. Обновлений нет.` : `Обновлений нет (${c.message || 'релизы не найдены'}).`;
+    this.setState({ status: 'downloading', latest: c.latest, percent: 0, error: '' });
+    this.ctx.notifier.notify(`⬇️ Скачиваю PC Full Control <b>${E(c.latest)}</b>…`, { category: 'update' });
+    this.get().downloadUpdate().catch((e) => this.fail(e));
+    return `Найдена версия ${c.latest} (у вас ${c.current}). Скачиваю — после загрузки программа сама установит обновление и откроется уже новой версией.`;
   }
 
-  async downloadAndInstall(c) {
-    const res = await fetch(c.url, { signal: AbortSignal.timeout(20 * 60000), headers: { 'User-Agent': 'PCFullControl' } });
-    if (!res.ok) throw new Error(`Не удалось скачать установщик: HTTP ${res.status}`);
-    const data = Buffer.from(await res.arrayBuffer());
-    if (c.size && data.length !== c.size) throw new Error(`Установщик скачан не полностью (${data.length} из ${c.size} байт)`);
-    const file = path.join(os.tmpdir(), `PCFullControl-Setup-${c.latest}.exe`);
-    fs.writeFileSync(file, data);
-
-    const elevated = await isElevated();
-    const launched = await launchInstaller(file, elevated);
-    if (!launched.ok) throw new Error(`Установщик не запустился: ${launched.error}`);
-
-    this.ctx.db.setSetting('updateInProgress', { from: c.current, to: c.latest, ts: Date.now() / 1000 });
-    // Даём установщику стартовать и уведомлению уйти, затем закрываемся, чтобы файлы можно было заменить
-    setTimeout(() => this.ctx.quitApp(), 5000);
-    return `Установщик версии ${c.latest} запущен${elevated ? '' : ' (подтвердите запрос администратора на ПК)'}.`;
+  async install(version) {
+    this.setState({ status: 'installing' });
+    this.log('info', `Устанавливаю ${version}`);
+    this.ctx.db.setSetting('updateInProgress', { from: this.ctx.version, to: version, ts: Date.now() / 1000 });
+    this.ctx.notifier.notify(`🔄 Устанавливаю PC Full Control <b>${E(version)}</b> — программа перезапустится через минуту.`, { category: 'update' });
+    await this.ctx.notifier.flush(5000);
+    this.ctx.prepareForUpdate();
+    // Тихая установка (/S) и запуск новой версии после неё (--force-run)
+    this.get().quitAndInstall(true, true);
   }
 }
 
-module.exports = { AppUpdater, cmpVersions, launchInstaller, isElevated };
+module.exports = { AppUpdater, cmpVersions, humanError };

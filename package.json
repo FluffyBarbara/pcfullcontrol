@@ -1,7 +1,7 @@
 {
   "name": "pc-full-control",
   "productName": "PC Full Control",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Управление компьютером с телефона через Telegram",
   "main": "src/main/main.js",
   "author": "PC Full Control",
@@ -13,6 +13,7 @@
     "dist": "electron-builder --win --x64 --publish never"
   },
   "dependencies": {
+    "electron-updater": "6.8.10",
     "qrcode": "1.5.4",
     "sql.js": "1.14.2",
     "systeminformation": "5.33.16"
@@ -25,10 +26,24 @@
     "appId": "com.pcfullcontrol.app",
     "productName": "PC Full Control",
     "executableName": "PCFullControl",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["src/**/*", "build/icon.png", "package.json"],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png",
       "requestedExecutionLevel": "asInvoker"
     },
@@ -44,6 +59,14 @@
       "include": "build/installer.nsh",
       "artifactName": "PCFullControl-Setup.exe",
       "language": "1049"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "FluffyBarbara",
+        "repo": "pcfullcontrol",
+        "releaseType": "release"
+      }
+    ]
   }
 }

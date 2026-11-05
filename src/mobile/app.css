@@ -323,3 +323,6 @@ main { padding: 14px 16px calc(var(--tab-h) + 30px + env(safe-area-inset-bottom)
 .gap-v { height: 10px; }
 .update-card { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--card)), var(--card)); }
 .update-card p { margin: 0 0 4px; font-size: 14px; }
+.upd-progress { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+.upd-progress .bar { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; margin-bottom: 8px; }
+.upd-progress .bar i { display: block; height: 100%; width: 0; background: var(--grad); transition: width .4s; }

@@ -138,5 +138,6 @@ test('у текущей версии есть запись в истории и�
   assert.ok(CHANGELOG.some((v) => v.version === version), `нет записи для ${version}`);
   assert.deepEqual(between('1.0.0', '1.1.0').map((v) => v.version), ['1.1.0']);
   assert.deepEqual(between('1.1.0', '1.2.0').map((v) => v.version), ['1.2.0']);
+  assert.deepEqual(between('1.1.0', '1.3.0').map((v) => v.version), ['1.3.0', '1.2.0']);
   assert.equal(between(null, '1.0.0').length, 1);
 });

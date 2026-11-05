@@ -31,23 +31,44 @@ if ($hello.app -ne 'pc-full-control') { throw 'Неожиданный ответ
 $before = App-Pids
 Write-Host "Процессы до обновления: $($before -join ', ')"
 
-Write-Host '=== 3. Обновление поверх работающей программы ==='
-node -e "require('./src/main/app-updater').launchInstaller(process.argv[1], true).then((r) => { console.log(JSON.stringify(r)); if (!r.ok) process.exit(1); })" $inst
-if ($LASTEXITCODE -ne 0) { throw 'Установщик не запустился' }
-# Как и настоящая программа: закрываемся через 5 секунд после запуска установщика
-Start-Sleep 5
+Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
+$res = Join-Path (Split-Path $exe) 'resources\app-update.yml'
+if (!(Test-Path $res)) { throw 'В установленной программе нет app-update.yml — обновление не найдёт релизы' }
+Get-Content $res | Write-Host
 $before | ForEach-Object { Stop-Process -Id $_ -ErrorAction SilentlyContinue }
+Start-Sleep 3
 
-# Ждём, пока установщик закончит и запустит новую копию программы
-$deadline = (Get-Date).AddSeconds(240)
+# «Новая версия» 9.9.9 на локальном сервере обновлений (тот же установщик, та же контрольная сумма)
+$feed = Join-Path $env:RUNNER_TEMP 'feed'
+New-Item -ItemType Directory -Force $feed | Out-Null
+Copy-Item $inst $feed
+$yml = (Get-Content 'out\windows\latest.yml' -Raw) -replace '(?m)^version: .*$', 'version: 9.9.9'
+Set-Content -Path (Join-Path $feed 'latest.yml') -Value $yml -Encoding utf8
+Write-Host $yml
+$server = Start-Process node -ArgumentList @('scripts/e2e-feed-server.js', $feed) -PassThru -NoNewWindow
+Start-Sleep 2
+
+$env:PCFC_UPDATE_FEED = 'http://127.0.0.1:9999/'
+$env:PCFC_UPDATE_AUTO = '1'
+Start-Process $exe
+$null = Wait-Hello 90
+$running = App-Pids
+Write-Host "Запущено с автообновлением: $($running -join ', ')"
+
+# Программа сама скачивает «обновление», закрывается, установщик ставит его и запускает программу снова
+$deadline = (Get-Date).AddSeconds(300)
 do {
   Start-Sleep 3
-  $now = App-Pids
-  $fresh = @($now | Where-Object { $before -notcontains $_ })
+  $fresh = @(App-Pids | Where-Object { $running -notcontains $_ })
 } while ($fresh.Count -eq 0 -and (Get-Date) -lt $deadline)
-if ($fresh.Count -eq 0) { throw 'После обновления программа не запустилась снова' }
-Write-Host "Новые процессы: $($fresh -join ', ')"
+
+$log = Get-ChildItem -Path $env:APPDATA -Filter update.log -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($log) { Write-Host "--- $($log.FullName) ---"; Get-Content $log.FullName | Write-Host }
+if ($fresh.Count -eq 0) { throw 'После обновления программа не открылась снова' }
+Write-Host "Новые процессы после обновления: $($fresh -join ', ')"
 $hello2 = Wait-Hello 90
 Write-Host "Ответ после обновления: $($hello2 | ConvertTo-Json -Compress)"
+if (!$log -or -not (Select-String -Path $log.FullName -Pattern 'quitAndInstall|Install:' -Quiet)) { throw 'В журнале обновления нет установки' }
+Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
 
-Write-Host '=== Готово: установка, запуск и обновление работают ==='
+Write-Host '=== Готово: установка, запуск и обновление внутри программы работают ==='

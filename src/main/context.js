@@ -13,11 +13,13 @@ const { Scheduler } = require('./scheduler');
 const { AppUpdater } = require('./app-updater');
 
 class AppContext extends EventEmitter {
-  constructor(db, { version = '0.0.0', quitApp = () => {}, restartApp = () => {} } = {}) {
+  constructor(db, { version = '0.0.0', quitApp = () => {}, restartApp = () => {}, dataDir = null, prepareForUpdate = () => {} } = {}) {
     super();
     this.setMaxListeners(50);
     this.db = db;
     this.version = version;
+    this.dataDir = dataDir;
+    this.prepareForUpdate = prepareForUpdate;
     this.startedAt = Date.now() / 1000;
     this.quitApp = quitApp;
     this.restartAppImpl = restartApp;

@@ -786,8 +786,52 @@ async function updateFlow(btn = null) {
   try {
     const r = await api('/api/action/app_update', { json: { arg: '' } });
     toast(r.result, r.ok ? 'ok' : 'err');
-    if (r.ok) $('#update-card').classList.add('hidden');
+    if (r.ok) watchUpdate(u.latest, u.current);
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/** Показывает ход обновления и ждёт, пока ПК вернётся уже с новой версией. */
+let updWatch = null;
+function watchUpdate(target, from) {
+  clearInterval(updWatch);
+  const card = $('#update-card');
+  const box = $('#upd-progress');
+  card.classList.remove('hidden');
+  box.classList.remove('hidden');
+  $('#update-btn').classList.add('hidden');
+  const show = (pct, text) => { $('#upd-bar').style.width = pct + '%'; $('#upd-text').textContent = text; };
+  show(0, 'Начинаю…');
+  let restarting = false;
+  const started = Date.now();
+  updWatch = setInterval(async () => {
+    if (Date.now() - started > 10 * 60000) { clearInterval(updWatch); show(0, 'Не дождался ответа от ПК. Проверьте программу на компьютере.'); return; }
+    let st;
+    try {
+      const r = await fetch('/api/update/state', { headers: { Authorization: 'Bearer ' + token } });
+      if (!r.ok) throw new Error('нет ответа');
+      st = await r.json();
+    } catch (e) {
+      restarting = true;
+      show(100, 'Программа на ПК перезапускается с новой версией…');
+      return;
+    }
+    if (restarting || st.current !== from) {
+      // ПК вернулся — проверяем версию
+      try {
+        INFO = await api('/api/info');
+        clearInterval(updWatch);
+        box.classList.add('hidden');
+        $('#update-btn').classList.remove('hidden');
+        card.classList.add('hidden');
+        $('#about-version').textContent = INFO.version;
+        toast(INFO.version === from ? `Программа перезапустилась, но версия осталась ${from}` : `Готово! На ПК теперь версия ${INFO.version}`, INFO.version === from ? 'err' : 'ok');
+      } catch (e) { /* ещё запускается */ }
+      return;
+    }
+    if (st.status === 'downloading') show(st.percent || 0, `Скачиваю ${target}: ${st.percent || 0}%`);
+    else if (st.status === 'downloaded' || st.status === 'installing') show(100, 'Устанавливаю — программа на ПК перезапустится…');
+    else if (st.status === 'error') { clearInterval(updWatch); show(0, 'Ошибка: ' + st.error); $('#update-btn').classList.remove('hidden'); }
+  }, 2000);
 }
 $('#update-btn').addEventListener('click', () => updateFlow());
 $('#check-update').addEventListener('click', () => updateFlow($('#check-update')));

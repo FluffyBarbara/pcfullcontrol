@@ -34,7 +34,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/PCFullControl-Setup.exe
+          path: |
+            dist/PCFullControl-Setup.exe
+            dist/PCFullControl-Setup.exe.blockmap
+            dist/latest.yml
           if-no-files-found: error
 
   android:
@@ -123,4 +126,6 @@ jobs:
           make_latest: true
           files: |
             out/windows/PCFullControl-Setup.exe
+            out/windows/PCFullControl-Setup.exe.blockmap
+            out/windows/latest.yml
             out/android/PCControl-Android.apk

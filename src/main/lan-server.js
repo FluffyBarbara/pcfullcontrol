@@ -207,6 +207,7 @@ class LanServer {
         update: ctx.updateInfo ? { hasUpdate: ctx.updateInfo.hasUpdate, latest: ctx.updateInfo.latest } : null,
       };
     }
+    if (p === '/api/update/state') return ctx.appUpdater.state;
     if (p === '/api/update/check') {
       let u;
       try { u = await ctx.appUpdater.check(); } catch (e) { throw new HttpError(502, e.message); }

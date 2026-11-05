@@ -1,6 +1,7 @@
 'use strict';
 // PC Full Control — главный процесс Electron: окно, значок в трее, автозапуск, службы.
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, session, dialog, powerMonitor } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
 const { Database } = require('./db');
@@ -14,7 +15,7 @@ const processes = require('./system/processes');
 const media = require('./system/media');
 const { between: changesBetween } = require('../shared/changelog');
 const { E } = require('./telegram-api');
-const { run, IS_WIN } = require('./system/exec');
+const { run, IS_WIN, spawnDetached } = require('./system/exec');
 
 const TASK_NAME = 'PCFullControl';
 const ICON = path.join(__dirname, '..', '..', 'build', 'icon.png');
@@ -29,7 +30,10 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showWindow());
-  app.whenReady().then(init).catch((e) => {
+  app.whenReady().then(async () => {
+    if (await relaunchElevated()) return;
+    await init();
+  }).catch((e) => {
     dialog.showErrorBox('PC Full Control', `Не удалось запустить приложение:\n${e.stack || e}`);
     app.exit(1);
   });
@@ -42,6 +46,32 @@ app.on('before-quit', () => {
   try { ctx && ctx.db.save(); } catch (e) { /* ignore */ }
 });
 
+// ================= Права администратора =================
+// Программе нужны права администратора (выключение ПК, обновления Windows, тихая установка обновлений).
+// Установщик создаёт задачу Планировщика с наивысшими правами. Если программу открыли обычным ярлыком,
+// перезапускаемся через эту задачу — так права есть, а окна UAC нет.
+const userFile = (name) => path.join(app.getPath('userData'), name);
+
+async function relaunchElevated() {
+  if (!IS_WIN || !app.isPackaged || process.argv.includes('--no-elevate')) return false;
+  if ((await run('fltmc.exe', [], { timeout: 10000 })).code === 0) return false; // уже администратор
+  // Защита от зацикливания: если недавно уже пробовали и не вышло — работаем без прав
+  try {
+    const last = Number(fs.readFileSync(userFile('elevate-attempt'), 'utf8'));
+    if (Date.now() - last < 60000) return false;
+  } catch (e) { /* первой попытки ещё не было */ }
+  const q = await run('schtasks.exe', ['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/NH'], { timeout: 10000 });
+  if (q.code !== 0 || /Disabled|Отключено/i.test(q.out)) return false;
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  fs.writeFileSync(userFile('elevate-attempt'), String(Date.now()));
+  if (!process.argv.includes('--hidden')) fs.writeFileSync(userFile('show-window.flag'), '1');
+  // Задачу запускаем с небольшой задержкой, чтобы этот экземпляр успел закрыться
+  spawnDetached('cmd.exe', ['/d', '/s', '/c', `"ping -n 3 127.0.0.1 >nul & schtasks /Run /TN ${TASK_NAME}"`],
+    { windowsHide: true, windowsVerbatimArguments: true });
+  app.exit(0);
+  return true;
+}
+
 async function init() {
   app.setAppUserModelId('com.pcfullcontrol.app');
   // Доступ к веб-камере только для собственных окон приложения
@@ -51,6 +81,8 @@ async function init() {
   const db = await Database.open(path.join(app.getPath('userData'), 'pcontrol.sqlite'));
   ctx = new AppContext(db, {
     version: app.getVersion(),
+    dataDir: app.getPath('userData'),
+    prepareForUpdate,
     quitApp: quit,
     restartApp: () => {
       quitting = true;
@@ -74,8 +106,17 @@ async function init() {
   ctx.on('event', () => send('refresh'));
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
+  ctx.on('update-state', (st) => { send('update-state', st); updateTray(); });
 
-  if (!process.argv.includes('--hidden') || ctx.db.getSetting('pendingWhatsNew')) showWindow();
+  let showFlag = false;
+  try { fs.rmSync(userFile('show-window.flag')); showFlag = true; } catch (e) { /* флага нет */ }
+  if (!process.argv.includes('--hidden') || showFlag || ctx.db.getSetting('pendingWhatsNew')) showWindow();
+
+  // Для автоматической проверки обновления в CI: один раз сразу запустить обновление
+  if (process.env.PCFC_UPDATE_AUTO && !fs.existsSync(userFile('e2e-auto-update.done'))) {
+    fs.writeFileSync(userFile('e2e-auto-update.done'), '1');
+    setTimeout(() => ctx.appUpdater.startUpdate().then((m) => ctx.appUpdater.log('info', m)).catch((e) => ctx.appUpdater.log('error', e.message)), 8000);
+  }
   setTimeout(checkAppUpdate, 30 * 1000);
   setInterval(checkAppUpdate, 6 * 3600 * 1000);
 }
@@ -99,6 +140,18 @@ function trackVersion() {
   const changes = changesBetween(from, version);
   const lines = changes.flatMap((v) => v.items.map(([, t]) => `• ${E(t)}`));
   ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
+}
+
+/** Перед установкой обновления: останавливаем службы, сохраняем базу; выход сделает electron-updater. */
+function prepareForUpdate() {
+  quitting = true;
+  try {
+    ctx.monitor && ctx.monitor.stop();
+    ctx.scheduler.stop();
+    ctx.bot && ctx.bot.stop();
+    ctx.lan && ctx.lan.stop();
+    ctx.db.save();
+  } catch (e) { /* ignore */ }
 }
 
 async function checkAppUpdate() {
@@ -404,6 +457,8 @@ function registerIpc() {
     return ctx.db.recentEvents(limit);
   });
   handle('check-app-update', async () => { ctx.updateInfo = await ctx.appUpdater.check(); return ctx.updateInfo; });
+  handle('update-state', () => ctx.appUpdater.state);
+  handle('update-start', () => ctx.appUpdater.startUpdate());
   handle('open-external', ({ url }) => {
     if (!/^https:\/\/(t\.me|telegram\.me|github\.com)\//.test(url)) throw new Error('Ссылка не разрешена');
     return shell.openExternal(url);
