@@ -232,6 +232,35 @@ function renderHeroPills() {
 const RING_GRADS = {
   cpu: ['#6d7cff', '#8b9bff'], ram: ['#a855f7', '#e879f9'], disk: ['#06b6d4', '#22d3ee'], temp: ['#f97316', '#fbbf24'], gpu: ['#10b981', '#34d399'],
 };
+/** Мини-график последнего часа под показателем (из той же истории, что и большой график). */
+function spark(key, field) {
+  const rows = (chartData || []).filter((r) => r[field] !== null && r[field] !== undefined);
+  if (rows.length < 3) return null;
+  const vals = rows.slice(-120).map((r) => r[field]);
+  const max = field === 'temp' ? Math.max(...vals, 50) : 100;
+  const w = 160; const h = 30;
+  const pts = vals.map((v, i) => [(i / (vals.length - 1)) * w, h - (Math.max(0, Math.min(max, v)) / max) * (h - 3) - 1.5]);
+  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('class', 'spark');
+  const [c1, c2] = RING_GRADS[key] || RING_GRADS.cpu;
+  const gid = 'sp-' + key;
+  const defs = document.createElementNS(ns, 'defs');
+  const lg = document.createElementNS(ns, 'linearGradient');
+  lg.setAttribute('id', gid); lg.setAttribute('x1', '0'); lg.setAttribute('x2', '0'); lg.setAttribute('y1', '0'); lg.setAttribute('y2', '1');
+  [[0, c2], [1, 'transparent']].forEach(([o, col]) => { const st = document.createElementNS(ns, 'stop'); st.setAttribute('offset', String(o)); st.setAttribute('stop-color', col); lg.append(st); });
+  defs.append(lg);
+  const area = document.createElementNS(ns, 'path');
+  area.setAttribute('d', `${d}L${w},${h}L0,${h}Z`); area.setAttribute('class', 'area'); area.setAttribute('fill', `url(#${gid})`);
+  const line = document.createElementNS(ns, 'path');
+  line.setAttribute('d', d); line.setAttribute('class', 'line'); line.setAttribute('stroke', c1);
+  svg.append(defs, area, line);
+  return svg;
+}
+
 function ringCard(key, icon, label, percent, value, sub, display) {
   const r = 38; const c = 2 * Math.PI * r;
   const p = Math.max(0, Math.min(100, percent || 0));
@@ -249,7 +278,16 @@ function ringCard(key, icon, label, percent, value, sub, display) {
     mk({ cx: 46, cy: 46, r, fill: 'none', 'stroke-width': 9, 'stroke-linecap': 'round', class: 'val', stroke: `url(#${id})`, 'stroke-dasharray': c, 'stroke-dashoffset': c * (1 - p / 100) }));
   return el('div', { class: 'card gauge' },
     el('div', { class: 'ring' }, svg, el('div', { class: 'ring-num' }, el('span', {}, display ?? Math.round(p), el('small', { text: display ? '' : '%' })))),
-    el('div', { class: 'g-info' }, el('div', { class: 'g-label' }, ic(icon, 15), label), el('div', { class: 'g-value', text: value }), el('div', { class: 'g-sub', text: sub || '' })));
+    el('div', { class: 'g-info' }, el('div', { class: 'g-label' }, ic(icon, 15), label), el('div', { class: 'g-value', text: value }), el('div', { class: 'g-sub', text: sub || '' }),
+      spark(key, { cpu: 'cpu', ram: 'ram', disk: null, temp: 'temp' }[key])));
+}
+
+/** «Добрый вечер · четверг, 5 ноября» */
+function greeting() {
+  const d = new Date();
+  const h = d.getHours();
+  const hi = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
+  return `${hi} · ${d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}`;
 }
 
 /** «AMD Ryzen 5 3600 6-Core Processor» → «AMD Ryzen 5 3600», «Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz» → «Intel Core i7-9700K». */
@@ -262,6 +300,7 @@ async function loadStatus() {
   let s;
   try { s = await api('get-status'); } catch (e) { return; }
   $('#hero-sub').textContent = `${s.os} · работает ${fmtDur(s.uptime)}`;
+  $('#hero-greet').textContent = greeting();
   const disk = s.disks.length ? s.disks.reduce((a, b) => (b.total > a.total ? b : a)) : null;
   const cards = [
     ringCard('cpu', 'cpu', 'Процессор', s.cpu.percent, `${s.cpu.threads} потоков`, s.cpu.mhz ? `${s.cpu.mhz} МГц` : ''),

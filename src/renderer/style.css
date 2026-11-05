@@ -481,3 +481,127 @@ input:focus-visible + .check { outline: 2px solid var(--accent); outline-offset:
 .center-box { display: grid; place-items: center; margin: 0 auto; }
 .center-box img { width: 260px; height: 260px; }
 .report-pre { max-height: 55vh; overflow: auto; white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.5; }
+
+/* ==================================================================
+   Дизайн 2.0: мягкое свечение фона, стеклянные панели, живые кольца
+   ================================================================== */
+:root {
+  --glass: rgba(18, 22, 31, .66);
+  --glass-2: rgba(26, 32, 46, .6);
+  --glow-1: rgba(109, 124, 255, .22);
+  --glow-2: rgba(34, 211, 238, .14);
+  --glow-3: rgba(192, 132, 252, .12);
+  --ring-glow: rgba(109, 124, 255, .55);
+  --card-border: rgba(255, 255, 255, .075);
+  --card-hi: rgba(255, 255, 255, .05);
+}
+body {
+  background:
+    radial-gradient(900px 600px at 8% -10%, var(--glow-1), transparent 60%),
+    radial-gradient(800px 600px at 105% 15%, var(--glow-2), transparent 60%),
+    radial-gradient(700px 500px at 60% 120%, var(--glow-3), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+/* Медленное «дыхание» фона — почти незаметное, придаёт глубину */
+body::before {
+  content: ''; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+  background: conic-gradient(from 0deg at 50% 50%, transparent 0 25%, rgba(109, 124, 255, .05) 35%, transparent 50%, rgba(34, 211, 238, .04) 70%, transparent 85%);
+  animation: aurora 40s linear infinite;
+}
+@keyframes aurora { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { body::before { animation: none; } }
+
+.titlebar { background: rgba(10, 12, 18, .6); backdrop-filter: blur(18px) saturate(1.3); }
+.sidebar { background: rgba(12, 15, 22, .55); backdrop-filter: blur(22px) saturate(1.2); border-right-color: var(--card-border); }
+.content { background: transparent; }
+
+/* Стеклянные карточки с тонкой подсветкой сверху */
+.card {
+  background: linear-gradient(180deg, var(--card-hi), transparent 40%), var(--glass);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 18px 40px rgba(0, 0, 0, .32);
+  transition: border-color .25s, transform .25s, box-shadow .25s;
+}
+.card:hover { border-color: rgba(255, 255, 255, .12); }
+
+/* Плавное появление раздела */
+.page:not(.hidden) { animation: pageIn .38s cubic-bezier(.2, .8, .2, 1); }
+@keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* Заголовки */
+.page-head h1 { font-size: 30px; font-weight: 800; letter-spacing: -.03em; background: linear-gradient(180deg, #fff 30%, #b9c2d8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.section-label { display: flex; align-items: center; gap: 8px; }
+.section-label::before { content: ''; width: 14px; height: 3px; border-radius: 3px; background: var(--grad); }
+
+/* Боковое меню: светящаяся «таблетка» у активного раздела */
+.nav button { transition: background .2s, color .2s, transform .15s; }
+.nav button:hover { transform: translateX(2px); }
+.nav button.active {
+  background: linear-gradient(90deg, rgba(109, 124, 255, .22), rgba(34, 211, 238, .08));
+  box-shadow: inset 0 0 0 1px rgba(109, 124, 255, .25), 0 8px 24px rgba(109, 124, 255, .15);
+}
+.nav button.active::before { box-shadow: 0 0 12px var(--accent); }
+.brand-logo { box-shadow: 0 10px 28px rgba(109, 124, 255, .45), 0 0 0 1px rgba(255, 255, 255, .08); }
+
+/* Главная карточка «Обзора»: переливающаяся рамка и приветствие */
+.hero {
+  position: relative; overflow: hidden; border-radius: 24px;
+  background:
+    radial-gradient(500px 220px at 0% 0%, rgba(109, 124, 255, .32), transparent 70%),
+    radial-gradient(420px 220px at 100% 100%, rgba(34, 211, 238, .2), transparent 70%),
+    var(--glass);
+  border: 1px solid transparent;
+  backdrop-filter: blur(18px);
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: linear-gradient(120deg, rgba(109, 124, 255, .7), rgba(34, 211, 238, .5), rgba(192, 132, 252, .5), rgba(109, 124, 255, .7));
+  background-size: 300% 300%; animation: heroBorder 12s ease infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+}
+@keyframes heroBorder { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+.hero-ic { width: 72px; height: 72px; border-radius: 22px; box-shadow: 0 16px 40px rgba(109, 124, 255, .5), inset 0 1px 0 rgba(255, 255, 255, .35); }
+.hero h2 { font-size: 30px; font-weight: 800; letter-spacing: -.03em; }
+.hero-greet { font-size: 13px; font-weight: 600; letter-spacing: .02em; color: var(--accent-2); margin-bottom: 2px; }
+
+/* Кольца показателей: свечение и крупные цифры */
+.gauge { position: relative; overflow: hidden; transition: transform .25s, border-color .25s; }
+.gauge:hover { transform: translateY(-2px); }
+.gauge::after { content: ''; position: absolute; width: 140px; height: 140px; left: -30px; top: -40px; border-radius: 50%; background: radial-gradient(circle, rgba(109, 124, 255, .16), transparent 70%); pointer-events: none; }
+.ring .val { filter: drop-shadow(0 0 6px var(--ring-glow)); }
+.ring .track { stroke: rgba(255, 255, 255, .06); }
+.ring-num { font-size: 24px; }
+.g-value { font-weight: 700; }
+.spark { display: block; width: 100%; height: 30px; margin-top: 6px; overflow: visible; }
+.spark path.line { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.spark path.area { opacity: .22; }
+
+/* Кнопки: мягкое свечение и блик */
+.btn { transition: background .2s, border-color .2s, transform .12s, box-shadow .2s, filter .2s; }
+.btn.primary { position: relative; overflow: hidden; box-shadow: 0 10px 26px rgba(109, 124, 255, .38), inset 0 1px 0 rgba(255, 255, 255, .25); }
+.btn.primary::after { content: ''; position: absolute; top: 0; left: -60%; width: 50%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .28), transparent); transform: skewX(-20deg); transition: left .6s; }
+.btn.primary:hover::after { left: 120%; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Плитки действий */
+.tile { background: var(--glass); border-color: var(--card-border); backdrop-filter: blur(12px); }
+.tile:hover { border-color: rgba(109, 124, 255, .35); box-shadow: 0 12px 30px rgba(0, 0, 0, .3), 0 0 0 1px rgba(109, 124, 255, .12); }
+.tile-ic { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
+.tile:hover .tile-ic { transform: scale(1.06); }
+.tile-ic { transition: transform .2s; }
+
+/* Списки и строки */
+.item { background: rgba(255, 255, 255, .025); border-color: var(--card-border); transition: border-color .2s, background .2s; }
+.item:hover { border-color: rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .04); }
+.seg { background: rgba(0, 0, 0, .25); border-color: var(--card-border); }
+.seg button.active { background: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .04)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 4px 14px rgba(0, 0, 0, .3); }
+.input { background: rgba(0, 0, 0, .25); border-color: var(--card-border); transition: border-color .2s, box-shadow .2s; }
+.input:focus { border-color: rgba(109, 124, 255, .55); box-shadow: 0 0 0 3px rgba(109, 124, 255, .15); outline: none; }
+.modal { background: rgba(3, 5, 9, .55); backdrop-filter: blur(10px); }
+.modal-card { background: linear-gradient(180deg, rgba(255, 255, 255, .04), transparent 30%), rgba(17, 21, 30, .92); border-color: rgba(255, 255, 255, .1); backdrop-filter: blur(20px); }
+.toast { backdrop-filter: blur(16px); }
+.bar { background: rgba(255, 255, 255, .06); }
+.bar i { box-shadow: 0 0 10px rgba(109, 124, 255, .35); }
+.nav { overflow-x: hidden; padding-right: 4px; }
