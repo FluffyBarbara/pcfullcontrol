@@ -58,6 +58,9 @@ test('диски: оценка здоровья', () => {
   assert.equal(assess({ media: 'HDD', temp: 58 }).level, 'warn');
   assert.equal(assess({ kind: 'hdd', reallocated: 8 }).level, 'warn', 'переназначенные сектора — «Тревога», как в CrystalDiskInfo');
   assert.equal(assess({ kind: 'hdd', crcErrors: 3 }).level, 'ok', 'ошибки кабеля — только замечание');
+  assert.equal(assess({ kind: 'nvme', temp: 72 }).level, 'ok', 'NVMe при 72°C — норма');
+  assert.equal(assess({ kind: 'nvme', temp: 82 }).level, 'warn');
+  assert.equal(assess({ kind: 'ssd', temp: 72 }).level, 'warn');
   const n = normalize([{ id: '0', model: 'Samsung SSD 970', media: 'SSD', bus: 'NVMe', size: 500e9, health: 'Healthy', wear: '3', temp: 41, hours: 8000 }]);
   assert.equal(n[0].level, 'ok');
   assert.equal(n[0].wear, 3);

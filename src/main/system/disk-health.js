@@ -298,9 +298,11 @@ function assess(d) {
     else if (life <= 30) bump('warn', `SSD заметно изношен (осталось ${life}% ресурса)`);
   }
   if (d.temp != null) {
-    const limit = ssd ? 70 : 55;
-    if (d.temp >= limit + 10) bump('bad', `перегрев: ${d.temp}°C`);
-    else if (d.temp >= limit) bump('warn', `высокая температура: ${d.temp}°C`);
+    // Пороги как у производителей: NVMe обычно греются до 70°C и сбрасывают частоту около 80–85°C
+    const nvme = /nvme/i.test(`${d.kind || ''} ${d.media || ''} ${d.bus || ''}`);
+    const [warn, bad] = nvme ? [80, 85] : ssd ? [70, 80] : [55, 65];
+    if (d.temp >= bad) bump('bad', `перегрев: ${d.temp}°C`);
+    else if (d.temp >= warn) bump('warn', `высокая температура: ${d.temp}°C`);
   }
   if (d.crcErrors > 0) notes.push(`были ошибки передачи данных по кабелю (${d.crcErrors}). Если число растёт — замените SATA-кабель или порт.`);
   return { level, reasons, notes };

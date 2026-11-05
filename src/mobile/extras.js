@@ -66,7 +66,7 @@ const MExtras = (() => {
       const [tone, label] = DISK_LEVEL[d.level] || DISK_LEVEL.ok;
       const ring = el('div', { class: 'm-dh-ring ' + tone + (d.life != null ? '' : ' word') }, el('div', {}, el('b', { text: d.life != null ? `${d.life}%` : label }), el('span', { text: d.life != null ? label : 'состояние' })));
       ring.style.setProperty('--p', d.life != null ? d.life : 100);
-      const hot = d.temp != null && d.temp >= (d.kind === 'hdd' ? 55 : 70);
+      const hot = d.temp != null && d.temp >= ({ hdd: 55, nvme: 80 }[d.kind] || 70);
       const tiles = el('div', { class: 'm-dh-tiles' },
         [['Температура', d.temp != null ? `${d.temp}°C` : '—', hot ? 'hot' : ''], ['Наработка', fmtHours(d.hours)],
           ['Включений', d.powerCycles != null ? fmtNum(d.powerCycles) : '—'], ['Записано', fmtTB(d.written)]]

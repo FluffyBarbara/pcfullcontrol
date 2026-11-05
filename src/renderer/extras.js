@@ -58,7 +58,8 @@ const Extras = (() => {
   }
   const fmtTB = (b) => (b == null ? null : b >= 1e12 ? `${(b / 1e12).toFixed(2)} ТБ` : `${(b / 1e9).toFixed(1)} ГБ`);
   const fmtSize = (b) => (!b ? '—' : b >= 1e12 ? `${(b / 1e12).toFixed(b >= 1e13 ? 0 : 1)} ТБ` : `${Math.round(b / 1e9)} ГБ`);
-  const tempTone = (d) => (d.temp == null ? '' : d.temp >= ((d.kind === 'hdd') ? 55 : 70) ? 'hot' : d.temp >= ((d.kind === 'hdd') ? 46 : 60) ? 'mid' : 'cool');
+  const TEMP_LIM = { hdd: [46, 55], ssd: [60, 70], nvme: [70, 80] };
+  const tempTone = (d) => { if (d.temp == null) return ''; const [mid, hot] = TEMP_LIM[d.kind] || TEMP_LIM.ssd; return d.temp >= hot ? 'hot' : d.temp >= mid ? 'mid' : 'cool'; };
 
   function diskSub(d) {
     return [d.kindText, d.rpm ? `${fmtNum(d.rpm)} об/мин` : null, d.bus && !/^nvme$/i.test(d.bus) ? d.bus : null, d.link ? d.link.replace('Gb/s', 'Гбит/с') : null, fmtSize(d.size)]
