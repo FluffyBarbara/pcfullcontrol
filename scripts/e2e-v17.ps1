@@ -12,6 +12,7 @@ if (-not $hw.gpu.fpsAvailable) { Write-Warning 'PresentMon не попал в у
 
 Write-Host '=== 2ж. Автозагрузка: выключение и включение обратно ==='
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+if (!(Test-Path $run)) { New-Item -Path $run -Force | Out-Null }
 New-ItemProperty $run -Name 'PCFC-E2E-Startup' -Value "`"$env:SystemRoot\System32\notepad.exe`"" -Force | Out-Null
 $st = Invoke-RestMethod "$B/api/startup" -Headers $J -TimeoutSec 120
 Write-Host "  в автозагрузке: $($st.items.Count)"
