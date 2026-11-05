@@ -52,7 +52,7 @@ function normalize(rows) {
   return rows.map((r) => {
     const d = {
       id: r.id, model: r.model || 'Диск', serial: r.serial || '', media: r.media === 'Unspecified' ? '' : r.media || '', bus: r.bus || '',
-      size: Number(r.size) || 0, health: r.health || '', status: r.status || '', temp: num(r.temp), tempMax: num(r.tempMax),
+      size: Number(r.size) || 0, health: r.health || '', status: r.status || '', temp: num(r.temp) || null, tempMax: num(r.tempMax) || null,
       wear: num(r.wear), hours: num(r.hours), readErrors: num(r.readErrors), writeErrors: num(r.writeErrors),
       predictFailure: !!r.predictFailure, volumes: r.volumes || '',
     };
