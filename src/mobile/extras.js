@@ -98,14 +98,6 @@ const MExtras = (() => {
     }));
   }
 
-  function renderRemote(st) {
-    $('#m-remote-toggle').checked = !!st.enabled;
-    const text = { off: 'Выключено. Включите — и приложение заработает вне дома (мобильный интернет, чужой Wi-Fi). Роутер настраивать не нужно.',
-      downloading: `Скачиваю модуль туннеля: ${st.progress}%…`, starting: 'Подключаюсь…', online: 'Работает. Ссылка для входа вне дома — в Telegram: команда /remote.',
-      error: 'Ошибка: ' + (st.error || 'не удалось подключиться') }[st.status] || '';
-    $('#m-remote-text').textContent = INFO && INFO.viaInternet ? 'Вы сейчас подключены через интернет. ' + text : text;
-  }
-
   async function network() {
     let st;
     try { st = await api('/api/net'); } catch (e) { toast(e.message, 'err'); return; }
@@ -116,7 +108,6 @@ const MExtras = (() => {
       el('p', { class: 'muted small', text: st.outages.length ? `Обрывов за неделю: ${st.outages.length}. Последний: ${clock(st.outages[0].start)}, ${Math.max(1, Math.round((st.outages[0].end - st.outages[0].start) / 60))} мин` : 'Обрывов за неделю не было 👍' }));
     if (!st.speedBusy) renderSpeed(st.lastSpeed); else renderSpeed(null, true);
     renderDevices(st.devices);
-    try { renderRemote(await api('/api/internet')); } catch (e) { /* ignore */ }
   }
 
   $('#m-speed-run').addEventListener('click', async () => {
@@ -131,14 +122,6 @@ const MExtras = (() => {
     b.classList.add('busy');
     try { renderDevices(await api('/api/net/scan', { json: {} })); } catch (e) { toast(e.message, 'err'); } finally { b.disabled = false; b.classList.remove('busy'); }
   });
-  $('#m-remote-toggle').addEventListener('change', async (e) => {
-    const on = e.target.checked;
-    if (!on && INFO && INFO.viaInternet) {
-      if (!(await confirmSheet('Выключить доступ из интернета?', 'Вы сейчас подключены через интернет — связь с компьютером пропадёт до возвращения домой.', 'Выключить', true, 'globe'))) { e.target.checked = true; return; }
-    }
-    try { renderRemote(await api('/api/internet', { json: { enabled: on } })); toast(on ? 'Доступ из интернета включается — ссылка придёт в Telegram по команде /remote' : 'Доступ из интернета выключен', 'info'); } catch (err) { toast(err.message, 'err'); e.target.checked = !on; }
-  });
-
   // ---------------- автозагрузка ----------------
   async function startup() {
     $('#m-startup-count').textContent = 'Читаю автозагрузку…';

@@ -37,13 +37,9 @@
 
   // ---------------- отправка команд ----------------
   const dcOpen = () => rc.dc && rc.dc.readyState === 'open';
-  const wsOpen = () => rc.ws && rc.ws.readyState === 1;
 
   function send(cmd) {
     const c = { ...cmd, monitor: rc.monitor };
-    if (wsOpen()) {
-      try { rc.ws.send(JSON.stringify({ type: 'input', cmd: c })); return Promise.resolve(); } catch (e) { /* ниже — по HTTP */ }
-    }
     if (dcOpen()) {
       try { rc.dc.send(JSON.stringify({ type: 'input', cmd: c })); return Promise.resolve(); } catch (e) { /* ниже — по HTTP */ }
     }
@@ -57,7 +53,6 @@
   }
 
   function dcSend(msg) {
-    if (wsOpen()) { try { rc.ws.send(JSON.stringify(msg)); return true; } catch (e) { return false; } }
     if (!dcOpen()) return false;
     try { rc.dc.send(JSON.stringify(msg)); return true; } catch (e) { return false; }
   }
@@ -114,10 +109,7 @@
     if (gen !== rc.gen) { stopSession(start.sid); return false; }
     rc.sid = start.sid;
     rc.audio = !!start.audio;
-    // Через интернет нужны STUN-серверы, чтобы найти путь к домашнему ПК
-    const ice = (typeof INFO !== 'undefined' && INFO && INFO.iceServers) || [];
-    const far = ice.length > 0;
-    const pc = new RTCPeerConnection({ iceServers: ice });
+    const pc = new RTCPeerConnection({ iceServers: [] });
     rc.pc = pc;
     pc.ontrack = (e) => {
       const v = video();
@@ -134,10 +126,10 @@
     pc.onconnectionstatechange = () => onPcState(pc, gen);
     await pc.setRemoteDescription({ type: 'offer', sdp: start.sdp });
     await pc.setLocalDescription(await pc.createAnswer());
-    await gathered(pc, far ? 3000 : 800);
+    await gathered(pc, 800);
     if (gen !== rc.gen) return false;
     await api('/api/remote/rtc/answer', { json: { sid: rc.sid, sdp: pc.localDescription.sdp } });
-    await waitFor(() => ['connected', 'completed'].includes(pc.iceConnectionState), far ? 15000 : 9000, () => pc.iceConnectionState === 'failed' || gen !== rc.gen);
+    await waitFor(() => ['connected', 'completed'].includes(pc.iceConnectionState), 9000, () => pc.iceConnectionState === 'failed' || gen !== rc.gen);
     await waitFor(() => video().videoWidth > 0, 8000, () => gen !== rc.gen);
     updateSound();
     return gen === rc.gen;
@@ -150,117 +142,6 @@
     }).catch(() => {});
   }
 
-
-  // ---------------- поток H.264 через WebSocket (интернет, любые сети) ----------------
-  // ПК кодирует видео сам (видеокарта), телефон декодирует аппаратно (WebCodecs) и рисует на холсте.
-  // Работает через туннель там, где прямое соединение WebRTC не проходит (мобильные операторы, NAT).
-  const canWs = () => 'VideoDecoder' in window && window.isSecureContext;
-
-  async function connectWs(gen) {
-    if (!canWs()) throw new Error('Телефон не поддерживает этот режим');
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/remote/ws?token=${encodeURIComponent(token)}&monitor=${rc.monitor}&preset=${rc.preset}`);
-    ws.binaryType = 'arraybuffer';
-    rc.ws = ws;
-    rc.wsFrames = 0;
-    const cv = $r('#rc-cv');
-    const g = cv.getContext('2d', { alpha: false, desynchronized: true });
-    let dec = null;
-    let codec = null;
-    let decCfg = null; // настройки декодера: аппаратный, если телефон умеет, иначе программный
-    let waitKey = true;
-    let lastAsk = 0;
-    const askKey = () => { if (Date.now() - lastAsk > 400 && ws.readyState === 1) { lastAsk = Date.now(); ws.send(JSON.stringify({ type: 'keyframe' })); } };
-    const mkDec = () => {
-      dec = new VideoDecoder({
-        output: (f) => {
-          if (cv.width !== f.displayWidth || cv.height !== f.displayHeight) { cv.width = f.displayWidth; cv.height = f.displayHeight; layout(false); }
-          g.drawImage(f, 0, 0, cv.width, cv.height);
-          f.close();
-          rc.wsFrames++;
-        },
-        error: () => { waitKey = true; dec = null; askKey(); },
-      });
-      dec.configure(decCfg);
-    };
-    const pickDecoder = async (c) => {
-      for (const hardwareAcceleration of ['prefer-hardware', 'no-preference']) {
-        const cfg = { codec: c, optimizeForLatency: true, hardwareAcceleration };
-        try { if ((await VideoDecoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) { /* следующий */ }
-      }
-      return null;
-    };
-    ws.onmessage = (ev) => {
-      if (gen !== rc.gen) return;
-      if (typeof ev.data === 'string') {
-        let m;
-        try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.type === 'config') {
-          codec = m.codec;
-          decCfg = null;
-          try { if (dec && dec.state !== 'closed') dec.close(); } catch (e) { /* ignore */ }
-          dec = null;
-          waitKey = true;
-          pickDecoder(m.codec).then((cfg) => {
-            if (codec !== m.codec) return;
-            decCfg = cfg;
-            if (!cfg) showHint('Телефон не умеет показывать этот видеопоток', 4000); else askKey();
-          });
-          rc.host = { ...rc.host, codec: m.codec.startsWith('avc1') ? 'H264' : m.codec, hw: m.hw, target: m.fps };
-        } else if (m.type === 'pong') {
-          rc.wsPing = Math.round(performance.now() - m.t);
-        } else onDc(ev.data);
-        return;
-      }
-      const buf = ev.data;
-      if (!codec || !decCfg || buf.byteLength < 14) return;
-      const v = new DataView(buf);
-      const key = (v.getUint8(0) & 1) === 1;
-      if (waitKey && !key) { askKey(); return; }
-      if (!dec || dec.state === 'closed') { if (!key) { askKey(); return; } mkDec(); }
-      // Телефон не успевает декодировать — пропускаем до следующего опорного кадра
-      if (!key && dec.decodeQueueSize > 4) { waitKey = true; askKey(); return; }
-      waitKey = false;
-      try {
-        dec.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: v.getFloat64(5, true), data: new Uint8Array(buf, 13) }));
-      } catch (e) { waitKey = true; askKey(); }
-    };
-    ws.onclose = () => {
-      if (rc.ws !== ws || gen !== rc.gen || !rc.open) return;
-      rc.ws = null;
-      reconnect(gen);
-    };
-    await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('Нет ответа')), 10000);
-      ws.addEventListener('open', () => { clearTimeout(t); resolve(); }, { once: true });
-      ws.addEventListener('error', () => { clearTimeout(t); reject(new Error('Не удалось подключиться')); }, { once: true });
-    });
-    await waitFor(() => rc.wsFrames > 0, 12000, () => gen !== rc.gen || ws.readyState > 1);
-    return gen === rc.gen;
-  }
-
-  function cleanupWs() {
-    const ws = rc.ws;
-    rc.ws = null;
-    if (ws) { try { ws.close(); } catch (e) { /* ignore */ } }
-  }
-
-  // Пинг и кадры в секунду для режима WebSocket
-  async function wsStatsLoop(gen) {
-    let last = rc.wsFrames || 0;
-    let t = performance.now();
-    while (rc.open && gen === rc.gen && rc.transport === 'ws') {
-      await sleep(1000);
-      if (wsOpen()) rc.ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
-      const now = performance.now();
-      const fps = Math.round(((rc.wsFrames - last) * 1000) / (now - t));
-      last = rc.wsFrames;
-      t = now;
-      const cv = $r('#rc-cv');
-      rc.view = { fps: Math.max(0, fps), w: cv.width, h: cv.height, ping: rc.wsPing != null ? rc.wsPing : null };
-      renderStatus();
-    }
-  }
 
   function cleanupRtc() {
     dcSend({ type: 'bye' });
@@ -287,19 +168,6 @@
 
   async function reconnect(gen) {
     if (rc.reconnecting || gen !== rc.gen || !rc.open) return;
-    if (rc.transport === 'ws') {
-      rc.reconnecting = true;
-      setStatus('переподключение…', 'wait');
-      cleanupWs();
-      let ok2 = false;
-      for (let i = 0; i < 3 && !ok2 && gen === rc.gen; i++) {
-        try { ok2 = await connectWs(gen); } catch (e) { cleanupWs(); await sleep(1500); }
-      }
-      rc.reconnecting = false;
-      if (gen !== rc.gen) return;
-      if (!ok2) { startJpeg(gen); showHint('Связь слабая — включён режим совместимости', 4000); }
-      return;
-    }
     rc.reconnecting = true;
     setStatus('переподключение…', 'wait');
     cleanupRtc();
@@ -412,7 +280,6 @@
     const res = v.h ? ` · ${v.h}p` : '';
     const ping = v.ping != null ? ` · ${v.ping} мс` : '';
     if (rc.transport === 'rtc') setStatus(`${v.fps} к/с${res}${ping}`, 'on');
-    else if (rc.transport === 'ws') setStatus(`${v.fps} к/с${res}${ping} · через интернет`, 'on');
     else setStatus(`${v.fps} к/с${res} · совместимость`, 'on');
   }
 
@@ -428,7 +295,6 @@
   function showMedia() {
     const rtc = rc.transport === 'rtc';
     video().classList.toggle('hidden', !rtc);
-    $r('#rc-cv').classList.toggle('hidden', rc.transport !== 'ws');
     img().classList.toggle('hidden', rc.transport !== 'jpeg');
     updateSound();
     layout(true);
@@ -446,7 +312,6 @@
   // ---------------- раскладка, масштаб, курсор ----------------
   function mediaSize() {
     if (rc.transport === 'rtc') return [video().videoWidth || 16, video().videoHeight || 9];
-    if (rc.transport === 'ws') return [$r('#rc-cv').width || 16, $r('#rc-cv').height || 9];
     return [img().naturalWidth || 16, img().naturalHeight || 9];
   }
 
@@ -808,7 +673,7 @@
     const v = rc.view || {};
     const rows = [];
     const row = (k, val) => rows.push(el('div', { class: 'rc-info-row' }, el('span', { text: k }), el('b', { text: val })));
-    row('Соединение', rc.transport === 'rtc' ? 'видео напрямую (WebRTC)' : rc.transport === 'ws' ? 'видео через защищённый туннель' : 'совместимость (кадры)');
+    row('Соединение', rc.transport === 'rtc' ? 'видео напрямую (WebRTC)' : 'совместимость (кадры)');
     if (v.fps != null) row('Кадров в секунду', `${v.fps}${h.target ? ` из ${h.target}` : ''}`);
     if (v.w) row('Разрешение', `${v.w}×${v.h}`);
     if (h.codec) row('Кодек', `${h.codec}${h.hw ? ' · аппаратный' : h.encoder ? ` · ${h.encoder}` : ''}`);
@@ -895,27 +760,11 @@
     try { rc.wakeLock = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null; } catch (e) { rc.wakeLock = null; }
 
     let ok = false;
-    const far = !!info.viaInternet;
-    // Через интернет: если прямое соединение уже не получалось — сразу поток через туннель
-    const preferWs = opts.force === 'ws' || (far && pref('far_mode', '') === 'ws' && opts.force !== 'rtc');
-    if (!preferWs && info.rtc && window.RTCPeerConnection && opts.force !== 'jpeg') {
+    if (info.rtc && window.RTCPeerConnection && opts.force !== 'jpeg') {
       rc.transport = 'rtc';
       showMedia();
       try { ok = await connectRtc(gen); } catch (e) { ok = false; }
       if (!ok && gen === rc.gen) cleanupRtc();
-      if (far) setPref('far_mode', ok ? 'rtc' : 'ws');
-    }
-    if (!ok && gen === rc.gen && canWs() && opts.force !== 'jpeg' && opts.force !== 'rtc') {
-      rc.transport = 'ws';
-      showMedia();
-      try { ok = await connectWs(gen); } catch (e) { ok = false; }
-      if (!ok && gen === rc.gen) cleanupWs();
-      if (ok) {
-        setStatus('подключено', 'on');
-        wsStatsLoop(gen);
-        if (innerHeight > innerWidth && !rc.rotateHinted) { rc.rotateHinted = true; showHint('Поверните телефон — экран ПК станет крупнее', 3500); }
-        return;
-      }
     }
     if (gen !== rc.gen) return;
     if (ok) {
@@ -932,7 +781,6 @@
     rc.open = false;
     rc.gen++;
     if (rc.transport === 'rtc') cleanupRtc();
-    if (rc.transport === 'ws') cleanupWs();
     rc.transport = null;
     if (rc.full) setFull(false);
     clearMods();
@@ -976,7 +824,6 @@
     video().addEventListener('loadedmetadata', () => layout(true));
     document.addEventListener('visibilitychange', () => {
       if (document.hidden || !rc.open) return;
-      if (rc.transport === 'ws') { if (!wsOpen()) reconnect(rc.gen); return; }
       if (rc.transport !== 'rtc') return;
       const pc = rc.pc;
       if (!pc || ['failed', 'disconnected', 'closed'].includes(pc.connectionState)) reconnect(rc.gen);
@@ -1031,7 +878,7 @@
   }
 
   // Для автоматических проверок
-  const state = () => ({ open: rc.open, transport: rc.transport, view: rc.view, host: rc.host, preset: rc.preset, input: rc.input, cursor: rc.cursor, frames: rc.wsFrames || 0 });
+  const state = () => ({ open: rc.open, transport: rc.transport, view: rc.view, host: rc.host, preset: rc.preset, input: rc.input, cursor: rc.cursor });
   window.RemoteControl = { open, close, state, send, setPreset, setInput };
   init();
 })();

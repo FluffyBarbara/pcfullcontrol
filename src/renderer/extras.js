@@ -139,23 +139,9 @@ const Extras = (() => {
     }));
   }
 
-  // Доступ из интернета
-  const RA_TEXT = { off: ['', 'выключен'], downloading: ['warn', 'скачиваю модуль'], starting: ['warn', 'подключаюсь…'], online: ['ok', 'работает'], error: ['err', 'ошибка'] };
-  function renderRemote(st) {
-    if (!st) return;
-    $('#ra-toggle').checked = !!st.enabled;
-    const [tone, text] = RA_TEXT[st.status] || RA_TEXT.off;
-    const pill = $('#ra-status');
-    pill.className = 'pill ' + tone;
-    pill.textContent = st.status === 'downloading' ? `скачиваю модуль ${st.progress}%` : text;
-    if (st.error && st.status === 'error') pill.dataset.tip = st.error;
-    $('#ra-actions').classList.toggle('hidden', st.status !== 'online');
-  }
-
   let speedRunning = false;
   async function network() {
     try { renderNet(await api('net-status')); } catch (e) { /* ignore */ }
-    try { renderRemote(await api('remote-access-state')); } catch (e) { /* ignore */ }
   }
 
   // ---------------- автозагрузка ----------------
@@ -204,27 +190,6 @@ const Extras = (() => {
     b.disabled = true;
     b.replaceChildren(ic('hourglass', 15), 'Ищу…');
     try { renderDevices(await api('net-scan')); } catch (e) { toast(e.message, 'err'); } finally { b.disabled = false; b.replaceChildren(ic('search', 15), 'Найти устройства'); }
-  });
-  $('#ra-toggle').addEventListener('change', async (e) => {
-    const on = e.target.checked;
-    if (on && !(await confirmModal('Включить доступ из интернета?', 'Программа скачает модуль туннеля Cloudflare (≈60 МБ) и откроет защищённый доступ к приложению на телефоне. Войти можно только по одноразовой ссылке из Telegram или по QR-коду с этого экрана.', 'Включить', false))) {
-      e.target.checked = false;
-      return;
-    }
-    try { renderRemote(await api('remote-access-set', { enabled: on })); } catch (err) { toast(err.message, 'err'); network(); }
-  });
-  window.pcc.on('remote-access', renderRemote);
-  $('#ra-qr').addEventListener('click', async () => {
-    try {
-      const l = await api('remote-access-link');
-      await openModal([el('h3', { text: 'Вход через интернет' }),
-        el('p', { text: 'Отсканируйте камерой телефона. Код одноразовый и действует 15 минут — работает из любой сети.' }),
-        el('div', { class: 'qr-box center-box' }, el('img', { src: l.qr, alt: 'QR-код' })),
-        el('div', { class: 'row end mt' }, el('button', { class: 'btn primary', onclick: () => closeModal() }, 'Готово'))]);
-    } catch (e) { toast(e.message, 'err'); }
-  });
-  $('#ra-tg').addEventListener('click', async () => {
-    try { await api('remote-access-send'); toast('Ссылка отправлена в Telegram'); } catch (e) { toast(e.message, 'err'); }
   });
   $('#startup-refresh').addEventListener('click', loadStartup);
   $('#weekly-preview').addEventListener('click', async () => {

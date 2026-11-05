@@ -114,7 +114,7 @@ async function init() {
   // Фоновые помощники — чуть позже, чтобы не нагружать компьютер в первые секунды после входа
   setTimeout(() => ctx.activity.start(), 30000);
   setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
-  if (ctx.config.remote && ctx.config.remote.enabled) ctx.tunnel.start().catch(() => {});
+  setTimeout(() => removeInternetAccessLeftovers().catch(() => {}), 15000);
   startWeeklyReports();
   startBot();
   createTray();
@@ -126,7 +126,6 @@ async function init() {
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
   ctx.on('update-state', (st) => { send('update-state', st); updateTray(); });
-  ctx.on('remote-access', (st) => send('remote-access', st));
   ctx.on('net-progress', (p) => send('net-progress', p));
   guardAutologon(true);
 
@@ -213,8 +212,7 @@ function prepareForUpdate() {
 let lastUpdateCheck = 0;
 /** Останавливает фоновые службы (перед выходом и обновлением). */
 function stopServices() {
-  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(),
-    () => { clearTimeout(ctx.tunnel.restartTimer); if (ctx.tunnel.proc) ctx.tunnel.proc.kill(); }, () => ctx.fps.stop()]) {
+  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(), () => ctx.fps.stop()]) {
     try { fn(); } catch (e) { /* ignore */ }
   }
 }
@@ -247,6 +245,26 @@ async function checkAppUpdate() {
     ctx.notifier.notify(`✨ Доступна новая версия PC Full Control <b>${E(u.latest)}</b>.\nУстановить: «🔄 Обновления → 🤖 Обновить PC Full Control» или в программе на ПК.`, { category: 'update' });
   }
   send('refresh');
+}
+
+/**
+ * Доступ из интернета (туннель Cloudflare) убран в версии 1.9.0. Один раз после обновления:
+ * возвращаем обычное меню в чатах Telegram вместо кнопки «Мой ПК» и удаляем скачанный программой
+ * модуль туннеля и его журналы (это файлы самой программы в её папке данных).
+ */
+async function removeInternetAccessLeftovers() {
+  if (ctx.db.getSetting('internetAccessRemoved')) return;
+  if (ctx.tg) {
+    for (const id of ctx.authorizedIds()) {
+      try { await ctx.tg.call('setChatMenuButton', { chat_id: id, menu_button: { type: 'commands' } }); } catch (e) { return; /* нет связи — попробуем при следующем запуске */ }
+    }
+  }
+  if (ctx.dataDir) {
+    for (const f of ['bin/cloudflared.exe', 'bin/cloudflared.exe.part', 'cloudflared.log', 'cloudflared.prev.log']) {
+      try { fs.rmSync(path.join(ctx.dataDir, f), { force: true }); } catch (e) { /* файл занят — не страшно */ }
+    }
+  }
+  ctx.db.setSetting('internetAccessRemoved', true);
 }
 
 function startBot() {
@@ -587,18 +605,6 @@ function registerIpc() {
     const r = await ctx.startup.setEnabled(id, !!enabled);
     ctx.db.logCommand('local', 'ПК', 'startup', `${id} → ${enabled ? 'вкл' : 'выкл'}`, true, '');
     return r;
-  });
-  // Доступ из интернета
-  handle('remote-access-state', () => ctx.tunnel.state());
-  handle('remote-access-set', ({ enabled }) => ctx.tunnel.setEnabled(!!enabled));
-  handle('remote-access-link', async () => {
-    const l = ctx.tunnel.loginLink('ПК');
-    return { ...l, qr: await QRCode.toDataURL(l.url, { margin: 1, width: 300, color: { dark: '#0b0d12', light: '#ffffff' } }) };
-  });
-  handle('remote-access-send', () => {
-    const l = ctx.tunnel.loginLink('ПК');
-    ctx.notifier.notify(`🌍 <b>Вход в приложение через интернет</b>\n<a href="${l.url}">Открыть PC Full Control</a> — ссылка одноразовая и действует 15 минут.`, { category: 'security' });
-    return true;
   });
   // Отчёт за неделю и прочее
   handle('weekly-preview', () => require('./weekly').build(ctx).text);

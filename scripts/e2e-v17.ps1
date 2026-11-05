@@ -71,35 +71,4 @@ if (-not $v.text -or $v.text.Length -lt 10) { throw 'Речь не распоз�
 $v = Invoke-RestMethod "$B/api/test/transcribe" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ audio = $ogg } | ConvertTo-Json) -TimeoutSec 300
 Write-Host "  повторно (модель уже загружена): $($v.ms) мс"
 
-Write-Host '=== 2л. Доступ из интернета (туннель Cloudflare) ==='
-$s = Invoke-RestMethod "$B/api/internet" -Method Post -Headers $J -ContentType 'application/json' -Body '{"enabled":true}' -TimeoutSec 300
-for ($i = 0; $i -lt 60 -and $s.status -ne 'online'; $i++) { Start-Sleep 2; $s = Invoke-RestMethod "$B/api/internet" -Headers $J }
-Write-Host "  туннель: $($s.status) $($s.error)"
-if ($s.status -ne 'online') { throw "Туннель не поднялся: $($s.error)" }
-$link = Invoke-RestMethod "$B/api/internet/link" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
-$base = ($link.url -split '/#/')[0]
-$code = ($link.url -split '/#/login/')[1]
-$hello = $null
-for ($i = 0; $i -lt 30 -and -not $hello; $i++) { try { $hello = Invoke-RestMethod "$base/api/hello" -TimeoutSec 15 } catch { Start-Sleep 3 } }
-if (-not $hello) { throw 'Программа не отвечает через туннель' }
-Write-Host "  через интернет отвечает: $($hello | ConvertTo-Json -Compress)"
-if (-not $hello.remote -or $hello.mac) { throw 'Через интернет не должны показываться MAC и имя ПК' }
-try { Invoke-RestMethod "$base/api/pair" -Method Post -ContentType 'application/json' -Body '{"code":"246810","name":"x"}' | Out-Null; throw 'PAIR-OK' } catch { if ($_.Exception.Message -eq 'PAIR-OK') { throw 'Привязка через интернет должна быть запрещена' } }
-Write-Host '  привязка нового телефона через интернет запрещена'
-# Запросы с паузами по 5 с — ловим обрыв простаивающего соединения (Cloudflare показал бы 502)
-for ($i = 0; $i -lt 5; $i++) {
-  Start-Sleep -Milliseconds 5200
-  try { $null = Invoke-RestMethod "$base/api/hello" -TimeoutSec 20 } catch { throw "Через интернет ответ с ошибкой после паузы: $($_.Exception.Message)" }
-}
-Write-Host '  после пауз по 5 с через интернет отвечает без ошибок'
-$lg = Invoke-RestMethod "$base/api/remote-login" -Method Post -ContentType 'application/json' -Body (@{ code = $code; name = 'E2E' } | ConvertTo-Json)
-$RJ = @{ Authorization = "Bearer $($lg.token)" }
-$inf = Invoke-RestMethod "$base/api/info" -Headers $RJ
-if (-not $inf.viaInternet) { throw 'Сервер не понял, что вход через интернет' }
-try { Invoke-RestMethod "$base/api/remote-login" -Method Post -ContentType 'application/json' -Body (@{ code = $code; name = 'E2E' } | ConvertTo-Json) | Out-Null; throw 'REUSE' } catch { if ($_.Exception.Message -eq 'REUSE') { throw 'Одноразовую ссылку можно использовать повторно!' } }
-Write-Host '  вход по одноразовой ссылке работает, повторно — нет'
-$link2 = Invoke-RestMethod "$B/api/internet/link" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
-node scripts/e2e-ws.js (Join-Path (Join-Path $env:RUNNER_TEMP 'pw') 'node_modules\playwright-core') $link2.url
-if ($LASTEXITCODE -ne 0) { throw 'Экран через интернет (поток H.264) не работает' }
-Invoke-RestMethod "$B/api/internet" -Method Post -Headers $J -ContentType 'application/json' -Body '{"enabled":false}' | Out-Null
 Write-Host 'Проверки версии 1.7 пройдены'

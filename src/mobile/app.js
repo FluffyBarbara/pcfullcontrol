@@ -1128,35 +1128,6 @@ if (!store.get('tipsHinted')) {
   setTimeout(() => toast('Подсказка: удерживайте любую кнопку — появится описание, что она делает', 'info'), 4000);
 }
 
-/** Вход через интернет по одноразовой ссылке из Telegram: #/login/<код>. */
-async function loginFromHash() {
-  const m = location.hash.match(/#\/login\/([\w-]{16,})/);
-  if (!m) return false;
-  showPair();
-  $('#pair-form').classList.add('hidden');
-  $('#pair-auto').classList.remove('hidden');
-  try {
-    const res = await api('/api/remote-login', { json: { code: m[1], name: IS_IOS ? 'iPhone' : /android/i.test(navigator.userAgent) ? 'Android' : 'Браузер' } });
-    token = res.token;
-    store.set(TOKEN_KEY, token);
-    history.replaceState(null, '', location.pathname + location.search);
-    haptic(20);
-    await startApp();
-    toast(`Подключено к «${res.pcName}» через интернет`);
-  } catch (e) {
-    // Ссылку уже использовали, но этот телефон уже вошёл — просто открываем приложение
-    if (token) {
-      history.replaceState(null, '', location.pathname + location.search);
-      try { await startApp(); return true; } catch (err) { /* токен не подошёл — покажем ошибку */ }
-    }
-    $('#pair-auto').classList.add('hidden');
-    $('#pair-form').classList.remove('hidden');
-    $('#pair-error').textContent = e.message;
-  }
-  return true;
-}
-window.addEventListener('hashchange', loginFromHash);
-
 async function pairFromHash() {
   const m = location.hash.match(/#\/pair\/(\d{6})/);
   if (!m) return false;
@@ -1169,7 +1140,6 @@ async function pairFromHash() {
 window.addEventListener('hashchange', pairFromHash);
 
 (async () => {
-  if (await loginFromHash()) return;
   if (await pairFromHash()) return;
   if (!token) { showPair(); return; }
   try { await startApp(); } catch (e) { if (e.status !== 401) { showPair(); $('#pair-error').textContent = e.message; } }

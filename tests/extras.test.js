@@ -112,24 +112,3 @@ test('файлы: удаляются только выбранные, систе
   assert.ok(prot.every((x) => !x.ok && /нужна системе/.test(x.error)));
   assert.ok(fs.existsSync(os.homedir()));
 });
-
-test('доступ из интернета: кнопка «Мой ПК» многоразовая, ссылка — одноразовая', async () => {
-  const { RemoteAccess } = require('../src/main/tunnel');
-  const events = [];
-  const ctx = { config: { remote: { enabled: true }, mobile: { port: 8765 } }, dataDir: null, tg: null, db: { addEvent: (...a) => events.push(a) }, notifier: { notify: () => {} }, authorizedIds: () => [], emit: () => {} };
-  const t = new RemoteAccess(ctx);
-  t.url = 'https://abc-def.trycloudflare.com';
-  t.startHealth = () => {};
-  await t.onNewUrl();
-  const menu = t.menuUrl();
-  assert.match(menu, /^https:\/\/abc-def\.trycloudflare\.com\/#\/login\/[\w-]{20,}$/);
-  const key = menu.split('/login/')[1];
-  assert.ok(t.useCode(key));
-  assert.ok(t.useCode(key), 'кнопку можно нажимать много раз');
-  const once = t.loginLink('x').url.split('/login/')[1];
-  assert.ok(t.useCode(once));
-  assert.equal(t.useCode(once), null, 'одноразовая ссылка второй раз не работает');
-  await t.onNewUrl();
-  assert.equal(t.useCode(key), null, 'после смены адреса старый ключ не действует');
-  assert.equal(t.useCode(''), null);
-});

@@ -22,7 +22,6 @@ const { NetWatch } = require('./netwatch');
 const { IntruderWatch } = require('./intruder');
 const { ActivityTracker } = require('./activity');
 const { SpeechRecognizer } = require('./speech');
-const { RemoteAccess } = require('./tunnel');
 const path = require('path');
 const fs = require('fs');
 
@@ -64,7 +63,6 @@ class AppContext extends EventEmitter {
     this.intruder = new IntruderWatch(this);
     this.activity = new ActivityTracker(this);
     this.speech = new SpeechRecognizer(this);
-    this.tunnel = new RemoteAccess(this);
     this._diskHealth = null;
     this.monitor = null;
     this.bot = null;

@@ -80,7 +80,6 @@ class LanServer {
     this.server.keepAliveTimeout = 120 * 1000;
     this.server.headersTimeout = 125 * 1000;
     // Видеопоток экрана через WebSocket (работает и через туннель из интернета)
-    this.server.on('upgrade', (req, socket, head) => this.upgrade(req, socket, head));
     this.server.on('error', (e) => {
       this.status = 'error';
       this.error = e.code === 'EADDRINUSE' ? `Порт ${this.port} занят другой программой` : e.message;
@@ -101,31 +100,6 @@ class LanServer {
     if (this.server) this.server.close();
     this.server = null;
     this.status = 'stopped';
-  }
-
-  /** WebSocket /api/remote/ws?token=… — поток H.264 для телефона (WebCodecs) и команды мыши/клавиатуры. */
-  upgrade(req, socket, head) {
-    const url = new URL(req.url, 'http://x');
-    const reject = (code, text) => { try { socket.end(`HTTP/1.1 ${code} ${text}\r\n\r\n`); } catch (e) { /* ignore */ } };
-    if (url.pathname !== '/api/remote/ws') return reject(404, 'Not Found');
-    let device;
-    try {
-      req.headers.authorization = 'Bearer ' + (url.searchParams.get('token') || '');
-      device = this.auth(req);
-    } catch (e) { return reject(401, 'Unauthorized'); }
-    if (!this.ctx.remote.enabled) return reject(403, 'Forbidden');
-    if (!this.wss) {
-      const { WebSocketServer } = require('ws');
-      this.wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 1024 * 1024 });
-    }
-    this.wss.handleUpgrade(req, socket, head, (ws) => {
-      this.ctx.stream.attachWs(ws, device, {
-        monitor: Number(url.searchParams.get('monitor')) || 1,
-        preset: String(url.searchParams.get('preset') || 'auto'),
-        remote: viaTunnel(req),
-      }).catch((e) => { try { ws.close(1011, String(e.message).slice(0, 100)); } catch (er) { /* ignore */ } });
-    });
-    return undefined;
   }
 
   // ---------------- привязка ----------------
@@ -170,25 +144,6 @@ class LanServer {
     this.ctx.db.addDevice(name, platform, sha256(token), ip);
     this.pairCode(true);
     this.ctx.notifier.notify(`📱 Привязан телефон с приложением: <b>${E(name)}</b> (${E(ip)})`, { category: 'security', level: 'warning' });
-    this.ctx.emit('event');
-    return { token, pcName: this.ctx.pcName, version: this.ctx.version };
-  }
-
-  /** Вход через интернет: одноразовый код из Telegram → токен для этого телефона. */
-  remoteLogin(body, ip) {
-    this.checkPairAttempts(ip);
-    const v = this.ctx.tunnel.useCode(body.code);
-    if (!v) {
-      this.failed.get(ip).push(Date.now());
-      throw new HttpError(403, 'Ссылка устарела или уже использована. Получите новую в Telegram командой /remote.');
-    }
-    const token = crypto.randomBytes(32).toString('base64url');
-    const name = `${String(body.name || 'Телефон').slice(0, 40)} · через интернет`;
-    // Один и тот же телефон не плодит записи: обновляем токен у прежней
-    const prev = this.ctx.db.listDevices().find((d) => d.name === name && d.platform === 'internet');
-    if (prev) this.ctx.db.removeDevice(prev.id);
-    this.ctx.db.addDevice(name, 'internet', sha256(token), ip);
-    this.ctx.tunnel.notifyLogin(name, ip);
     this.ctx.emit('event');
     return { token, pcName: this.ctx.pcName, version: this.ctx.version };
   }
@@ -253,22 +208,17 @@ class LanServer {
     const q = (k, d = '') => url.searchParams.get(k) ?? d;
     const ctx = this.ctx;
     const ip = clientIp(req);
-    const remote = viaTunnel(req);
 
     // --- без авторизации ---
     if (p === '/api/hello') {
       // Открыто для Android-приложения: проверка, что по адресу отвечает именно PC Full Control
       res.setHeader('Access-Control-Allow-Origin', '*');
-      if (remote) return { app: 'pc-full-control', version: ctx.version, remote: true };
       const nic = poweron.primaryInterface();
       return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
     if (p === '/api/pair' && m === 'POST') {
-      if (remote) throw new HttpError(403, 'Привязка через интернет запрещена. Дома отсканируйте QR-код, а вне дома войдите по ссылке из Telegram (команда /remote).');
       return this.pair(await readJson(req), ip);
     }
-    // Вход через интернет по одноразовой ссылке из Telegram
-    if (p === '/api/remote-login' && m === 'POST') return this.remoteLogin(await readJson(req), ip);
 
     // Потоковое воспроизведение (аудио/видео на телефоне): плеер не умеет передавать токен в заголовке,
     // поэтому доступ — по временной ссылке, выданной привязанному телефону.
@@ -295,8 +245,6 @@ class LanServer {
         remote: ctx.remote.enabled,
         wol: (() => { const n = poweron.primaryInterface(); return n ? { mac: n.mac, broadcast: n.broadcast, wifi: n.wifi } : null; })(),
         autologon: !!ctx.db.getSetting('autologonEnabled'),
-        viaInternet: remote,
-        iceServers: remote ? STUN : [],
       };
     }
     if (p === '/api/update/state') return ctx.appUpdater.state;
@@ -386,7 +334,7 @@ class LanServer {
     }
     if (p === '/api/remote/rtc/start' && m === 'POST') {
       const body = await readJson(req);
-      try { return await ctx.stream.start(device, { monitor: Number(body.monitor) || 1, preset: String(body.preset || 'auto'), audio: body.audio !== false, iceServers: remote ? STUN : [] }); }
+      try { return await ctx.stream.start(device, { monitor: Number(body.monitor) || 1, preset: String(body.preset || 'auto'), audio: body.audio !== false }); }
       catch (e) { throw new HttpError(400, e.message); }
     }
     if (p === '/api/remote/rtc/answer' && m === 'POST') {
@@ -437,10 +385,6 @@ class LanServer {
         return r;
       } catch (e) { throw new HttpError(400, e.message); }
     }
-    // --- доступ из интернета ---
-    if (p === '/api/internet' && m === 'GET') return ctx.tunnel.state();
-    if (p === '/api/internet' && m === 'POST') { const b = await readJson(req); try { return await ctx.tunnel.setEnabled(!!b.enabled); } catch (e) { throw new HttpError(400, e.message); } }
-    if (p === '/api/internet/link' && m === 'POST') { try { return ctx.tunnel.loginLink(device.name); } catch (e) { throw new HttpError(400, e.message); } }
     // Только для автоматических проверок: распознать присланный звуковой файл (как голосовое из Telegram)
     if (process.env.PCFC_TEST_HOOKS && p === '/api/test/transcribe' && m === 'POST') {
       const body = await readJson(req);
@@ -609,18 +553,9 @@ class LanServer {
   }
 }
 
-/** Запрос пришёл из интернета через туннель Cloudflare (cloudflared подключается к нам с этого же ПК). */
-function viaTunnel(req) {
-  const a = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  return (a === '127.0.0.1' || a === '::1') && !!(req.headers['cf-connecting-ip'] || req.headers['cf-ray']);
-}
-
 function clientIp(req) {
-  if (viaTunnel(req)) return String(req.headers['cf-connecting-ip'] || 'интернет').slice(0, 64);
   return String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 }
-
-const STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);

@@ -32,7 +32,7 @@ const BOT_COMMANDS = [
   ['clip', 'Буфер обмена ПК'], ['cmd', 'Выполнить команду'], ['ip', 'IP-адреса'], ['webcam', 'Фото с веб-камеры'],
   ['log', 'Журнал'], ['notify', 'Вкл/выкл уведомления'], ['actions', 'Список действий'],
   ['gpu', 'Видеокарта и FPS'], ['disks', 'Здоровье дисков'], ['net', 'Интернет'], ['speedtest', 'Замер скорости'],
-  ['devices', 'Устройства в сети'], ['remote', 'Доступ из интернета'], ['week', 'Отчёт за неделю'], ['voice', 'Голосовые команды'],
+  ['devices', 'Устройства в сети'], ['week', 'Отчёт за неделю'], ['voice', 'Голосовые команды'],
   ['help', 'Справка'],
 ];
 
@@ -56,7 +56,6 @@ const HELP = `<b>PC Full Control — управление компьютером
 • /actions — названия действий для задач
 
 <b>Железо и сеть:</b> /gpu, /disks, /net, /speedtest, /devices
-<b>Из любой точки:</b> /remote — ссылка для входа в приложение через интернет
 <b>Отчёт за неделю:</b> /week (приходит сам по воскресеньям в 20:00)
 <b>🎙 Голосом:</b> отправьте голосовое сообщение — например, «выключи компьютер через полчаса». Подробнее: /voice
 
@@ -115,7 +114,7 @@ class TelegramBot {
       '/actions': this.cmdActions, '/notify': this.cmdNotify, '/clip': this.cmdClip, '/users': this.cmdUsers,
       '/vol': (c, a, m) => (a ? this.runAction(c, 'set_volume', a, { user: m.from }) : this.cmdMedia(c)),
       '/gpu': this.cmdGpu, '/disks': this.cmdDisks, '/net': this.cmdNet, '/speedtest': this.cmdSpeed,
-      '/devices': this.cmdDevices, '/remote': this.cmdRemote, '/week': this.cmdWeek, '/voice': this.cmdVoiceHelp,
+      '/devices': this.cmdDevices, '/week': this.cmdWeek, '/voice': this.cmdVoiceHelp,
     };
     const simple = {
       '/shutdown': 'shutdown', '/reboot': 'reboot', '/sleep': 'sleep', '/hibernate': 'hibernate', '/lock': 'lock',
@@ -281,7 +280,6 @@ class TelegramBot {
     this.ctx.db.addTgUser(user.id, user.username || '', [user.first_name, user.last_name].filter(Boolean).join(' '));
     this.ctx.pairingCode(true);
     this.ctx.emit('event');
-    if (this.ctx.tunnel) this.ctx.tunnel.updateMenuButtons().catch(() => {});
     if (hadUsers) {
       this.ctx.notifier.notify(`🔗 Привязан новый телефон: ${E(TelegramBot.userName(user))}`, { category: 'security', level: 'warning' });
     } else {
@@ -422,7 +420,7 @@ class TelegramBot {
     if (this.ctx.config.security.allowShell) rows.push([['💻 Выполнить команду', 'in|shell']]);
     rows.push([['🎮 Видеокарта', 'gpu'], ['💽 Здоровье дисков', 'disks']]);
     rows.push([['🌐 Интернет', 'net'], ['📡 Устройства в сети', 'dev']]);
-    rows.push([['🌍 Доступ из интернета', 'remote'], ['📅 Отчёт за неделю', 'week']]);
+    rows.push([['📅 Отчёт за неделю', 'week']]);
     rows.push([['🗑 Очистить корзину', 'a|empty_recycle_bin'], ['♻️ Перезапуск приложения', 'a|restart_app']]);
     rows.push([[this.ctx.notifier.muted ? '🔔 Включить уведомления' : '🔕 Выключить уведомления', 'nt']]);
     return this.editOrSend(chatId, messageId, '🛠 <b>Дополнительно</b>', inlineKb(rows));
@@ -504,28 +502,6 @@ class TelegramBot {
       L.push(`${d.first_seen > weekAgo ? '🆕 ' : ''}<b>${E(name)}</b> — ${E(d.ip)}${d.vendor && d.vendor !== name ? `\n   <i>${E(d.vendor)}</i>` : ''}`);
     }
     return this.editOrSend(chatId, msg && msg.message_id, L.join('\n'), inlineKb([[['🔄 Обновить', 'dev']]]));
-  }
-
-  async cmdRemote(chatId, arg, msg) {
-    const t = this.ctx.tunnel;
-    const st = t.state();
-    if (!st.enabled) {
-      return this.send(chatId, '🌍 <b>Доступ из интернета выключен</b>\nВключите — и приложение на телефоне будет работать вне дома (мобильный интернет, чужой Wi-Fi). Роутер настраивать не нужно.\n\nВход — только по одноразовой ссылке отсюда.',
-        inlineKb([[['✅ Включить', 'ron']]]));
-    }
-    if (st.status !== 'online') {
-      return this.send(chatId, `🌍 Доступ из интернета включается… ${st.status === 'downloading' ? `скачиваю модуль ${st.progress}%` : ''}${st.error ? `\n${E(st.error)}` : ''}\nПовторите /remote через минуту.`);
-    }
-    const l = t.loginLink(TelegramBot.userName((msg && msg.from) || {}));
-    t.updateMenuButtons().catch(() => {});
-    const kb = { inline_keyboard: [
-      ...(t.menuUrl() ? [[{ text: '🖥 Открыть прямо в Telegram', web_app: { url: t.menuUrl() } }]] : []),
-      [{ text: '🌐 Открыть в браузере', url: l.url }],
-      [{ text: '⛔ Выключить доступ', callback_data: 'roff' }],
-    ] };
-    return this.send(chatId, '🌍 <b>Вход в приложение через интернет</b>\n'
-      + 'Проще всего — кнопка <b>«🖥 Мой ПК»</b> внизу чата: она всегда ведёт на актуальный адрес (он меняется после перезапуска ПК).\n'
-      + 'Ссылка «в браузере» одноразовая и действует 15 минут.', kb);
   }
 
   async cmdWeek(chatId) {
@@ -867,9 +843,6 @@ class TelegramBot {
       case 'net': return this.cmdNet(chatId);
       case 'sp': return this.cmdSpeed(chatId);
       case 'dev': return this.cmdDevices(chatId);
-      case 'remote': return this.cmdRemote(chatId, '', { from: user });
-      case 'ron': await this.ctx.tunnel.setEnabled(true).catch((e) => this.send(chatId, '❌ ' + E(e.message))); return this.cmdRemote(chatId, '', { from: user });
-      case 'roff': await this.ctx.tunnel.setEnabled(false); return this.editOrSend(chatId, mid, '🌍 Доступ из интернета выключен.');
       case 'week': return this.cmdWeek(chatId);
       case 'ip': return this.cmdIp(chatId);
       case 'nt': await this.cmdNotify(chatId); return this.cmdMore(chatId, '', null, mid);

@@ -27,9 +27,6 @@ const DEFAULTS = {
   reports: {
     weekly: true,                // отчёт за неделю в Telegram (воскресенье, 20:00)
   },
-  remote: {
-    enabled: false,              // доступ из интернета (туннель Cloudflare)
-  },
   files: {
     allowedRoots: [],            // ограничить файловый менеджер папками; пусто = весь диск
     uploadDir: '',               // куда сохранять файлы с телефона (пусто = Загрузки\PCControl)
