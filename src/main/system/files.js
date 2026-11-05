@@ -95,6 +95,51 @@ class FileManager {
     return { path: f, size: st.size, name: path.basename(f) };
   }
 
+  /** Пути, которые нельзя удалить ни при каких условиях: корни дисков, системные папки, сама домашняя папка. */
+  static isProtected(p) {
+    const r = path.resolve(p);
+    const low = (IS_WIN ? r.toLowerCase() : r).replace(/[\\/]+$/, '');
+    if (path.parse(r).root.replace(/[\\/]+$/, '').toLowerCase() === low || r === path.parse(r).root) return true;
+    const env = (k) => process.env[k];
+    const crit = [os.homedir(), env('SystemRoot'), env('ProgramFiles'), env('ProgramFiles(x86)'), env('ProgramData'), env('APPDATA'), env('LOCALAPPDATA'),
+      ...['Desktop', 'Downloads', 'Documents', 'Pictures', 'Music', 'Videos'].map((d) => path.join(os.homedir(), d)),
+      ...(IS_WIN ? [] : ['/bin', '/boot', '/etc', '/usr', '/var', '/lib', '/sbin', '/root', '/home'])]
+      .filter(Boolean).map((x) => (IS_WIN ? path.resolve(x).toLowerCase() : path.resolve(x)));
+    if (crit.includes(low)) return true;
+    const sys = (env('SystemRoot') || 'C:\\Windows').toLowerCase();
+    return IS_WIN && (low === sys || low.startsWith(sys + '\\'));
+  }
+
+  /**
+   * Удаляет ТОЛЬКО перечисленные пользователем файлы и папки.
+   * По умолчанию — в корзину (можно восстановить); permanent — безвозвратно.
+   * @param {string[]} paths
+   * @param {{ permanent?: boolean, trash?: (p:string)=>Promise<void> }} opts
+   */
+  async deletePaths(paths, { permanent = false, trash = null } = {}) {
+    if (!Array.isArray(paths) || !paths.length) throw new FileAccessError('Ничего не выбрано');
+    if (paths.length > 500) throw new FileAccessError('Слишком много файлов за один раз (максимум 500)');
+    const results = [];
+    for (const raw of paths) {
+      const r = { path: String(raw), ok: false };
+      try {
+        const p = this.check(raw);
+        if (FileManager.isProtected(p)) throw new FileAccessError('Эту папку удалять нельзя — она нужна системе');
+        let st;
+        try { st = fs.lstatSync(p); } catch (e) { throw new FileAccessError('Файл не найден'); }
+        r.isDir = st.isDirectory();
+        if (!permanent && trash) await trash(p);
+        else fs.rmSync(p, { recursive: true, force: false, maxRetries: 2 });
+        r.ok = !fs.existsSync(p);
+        if (!r.ok) r.error = 'Файл занят другой программой';
+      } catch (e) {
+        r.error = e instanceof FileAccessError ? e.message : (e.code === 'EBUSY' || e.code === 'EPERM' ? 'Файл занят или нет прав' : e.message);
+      }
+      results.push(r);
+    }
+    return results;
+  }
+
   saveUpload(filename, data, directory = null) {
     const dir = directory ? this.check(directory) : this.uploadDir;
     fs.mkdirSync(dir, { recursive: true });

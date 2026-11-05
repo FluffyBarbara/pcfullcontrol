@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS tg_users (user_id INTEGER PRIMARY KEY, username TEXT,
 CREATE TABLE IF NOT EXISTS devices (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, platform TEXT, token_hash TEXT UNIQUE,
   created REAL, last_seen REAL, ip TEXT);
+CREATE TABLE IF NOT EXISTS app_usage (day TEXT, name TEXT, seconds INTEGER DEFAULT 0, PRIMARY KEY (day, name));
+CREATE TABLE IF NOT EXISTS outages (id INTEGER PRIMARY KEY AUTOINCREMENT, start REAL, end REAL);
+CREATE TABLE IF NOT EXISTS speedtests (ts REAL PRIMARY KEY, down REAL, up REAL, ping REAL);
+CREATE TABLE IF NOT EXISTS net_devices (mac TEXT PRIMARY KEY, ip TEXT, name TEXT, vendor TEXT, label TEXT, first_seen REAL, last_seen REAL);
+CREATE TABLE IF NOT EXISTS gpu_metrics (ts REAL PRIMARY KEY, temp REAL, util REAL);
+CREATE TABLE IF NOT EXISTS freed (ts REAL, bytes INTEGER, what TEXT);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(ts);
 `;
@@ -154,7 +160,41 @@ class Database {
     this.run('DELETE FROM events WHERE ts<?', [t - eventsDays * 86400]);
     this.run('DELETE FROM commands WHERE ts<?', [t - eventsDays * 86400]);
     this.run('DELETE FROM jobs WHERE id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT 50)');
+    this.run('DELETE FROM gpu_metrics WHERE ts<?', [t - 14 * 86400]);
+    this.run('DELETE FROM outages WHERE start<?', [t - 90 * 86400]);
+    this.run('DELETE FROM speedtests WHERE ts<?', [t - 90 * 86400]);
+    this.run('DELETE FROM freed WHERE ts<?', [t - 90 * 86400]);
+    const old = new Date((t - 60 * 86400) * 1000).toISOString().slice(0, 10);
+    this.run('DELETE FROM app_usage WHERE day<?', [old]);
   }
+
+  // ---------- статистика для отчётов ----------
+  addAppUsage(day, name, seconds) {
+    this.run('INSERT INTO app_usage(day, name, seconds) VALUES (?,?,?) ON CONFLICT(day, name) DO UPDATE SET seconds = seconds + excluded.seconds', [day, name, seconds]);
+  }
+  appUsageSince(day) {
+    return this.all('SELECT name, SUM(seconds) AS seconds FROM app_usage WHERE day >= ? GROUP BY name ORDER BY seconds DESC', [day]);
+  }
+  addOutage(start, end) { return this.insert('INSERT INTO outages(start, end) VALUES (?,?)', [start, end]); }
+  outagesSince(ts) { return this.all('SELECT * FROM outages WHERE start >= ? ORDER BY start DESC', [ts]); }
+  addSpeedtest(r) { this.run('INSERT OR REPLACE INTO speedtests(ts, down, up, ping) VALUES (?,?,?,?)', [r.ts, r.down, r.up, r.ping]); }
+  speedtestsSince(ts) { return this.all('SELECT * FROM speedtests WHERE ts >= ? ORDER BY ts DESC', [ts]); }
+  lastSpeedtest() { return this.get('SELECT * FROM speedtests ORDER BY ts DESC LIMIT 1'); }
+  netDevices() { return this.all('SELECT * FROM net_devices ORDER BY last_seen DESC'); }
+  upsertNetDevice(d) {
+    const t = now();
+    const ex = this.get('SELECT mac FROM net_devices WHERE mac=?', [d.mac]);
+    if (ex) this.run('UPDATE net_devices SET ip=?, name=COALESCE(NULLIF(?, \'\'), name), vendor=?, last_seen=? WHERE mac=?', [d.ip, d.name || '', d.vendor || '', t, d.mac]);
+    else this.run('INSERT INTO net_devices(mac, ip, name, vendor, label, first_seen, last_seen) VALUES (?,?,?,?,?,?,?)', [d.mac, d.ip, d.name || '', d.vendor || '', '', t, t]);
+    return !ex;
+  }
+  labelNetDevice(mac, label) { return this.run('UPDATE net_devices SET label=? WHERE mac=?', [String(label || '').slice(0, 60), mac]) > 0; }
+  addGpuMetrics(temp, util) { this.run('INSERT OR REPLACE INTO gpu_metrics(ts, temp, util) VALUES (?,?,?)', [now(), temp, util]); }
+  gpuMetricsSince(ts) { return this.all('SELECT * FROM gpu_metrics WHERE ts >= ? ORDER BY ts', [ts]); }
+  addFreed(bytes, what) { this.run('INSERT INTO freed(ts, bytes, what) VALUES (?,?,?)', [now(), Math.round(bytes) || 0, what]); }
+  freedSince(ts) { return (this.get('SELECT COALESCE(SUM(bytes), 0) AS b FROM freed WHERE ts >= ?', [ts]) || {}).b || 0; }
+  eventsSince(ts) { return this.all('SELECT * FROM events WHERE ts >= ? ORDER BY ts', [ts]); }
+  commandsSince(ts) { return this.all('SELECT * FROM commands WHERE ts >= ? ORDER BY ts', [ts]); }
 
   // ---------- задачи ----------
   addTask({ action, arg = '', kind, runAt = null, timeOfDay = null, weekdays = '0,1,2,3,4,5,6' }) {
