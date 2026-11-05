@@ -155,7 +155,7 @@ function trackVersion() {
   db.setSetting('pendingWhatsNew', { from, to: version });
   // Уборка после обновления: данные старой версии, старые копии и скачанные установщики программы
   if (IS_WIN && app.isPackaged) {
-    cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData') })
+    cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData'), log: (m) => ctx.appUpdater.log('info', m) })
       .then((report) => {
         db.setSetting('lastCleanup', { ...report, ts: Date.now() / 1000, version });
         const n = report.items.filter((x) => x.freed > 0 || /копия|запись/.test(x.what)).length;

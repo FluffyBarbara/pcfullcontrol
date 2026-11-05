@@ -172,6 +172,8 @@ Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
 
 Write-Host '=== 4. Уборка после обновления: старые копии и установщики программы ==='
 for ($i = 0; $i -lt 30 -and ((Test-Path $oldDir) -or (Test-Path $oldSetup)); $i++) { Start-Sleep 2 }
+Write-Host "Старая копия: $(Test-Path $oldDir), старый установщик: $(Test-Path $oldSetup), чужой файл: $(Test-Path $decoy)"
+Get-Content $log.FullName | Select-String 'уборка' | Write-Host
 if (Test-Path $oldDir) { throw 'Старая копия программы не удалена' }
 if (Test-Path $oldSetup) { throw 'Старый установщик не удалён' }
 if (!(Test-Path $decoy)) { throw 'Удалён чужой файл из «Загрузок» — так нельзя' }

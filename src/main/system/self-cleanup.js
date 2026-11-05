@@ -59,9 +59,10 @@ ConvertTo-Json -InputObject @($o) -Compress`, 30000);
  * @param {{ exeDir: string, electronSession?: any, dataDir?: string }} opts
  * @returns {Promise<{ items: {what:string, freed:number}[], total:number }>}
  */
-async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = null } = {}) {
+async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = null, log = () => {} } = {}) {
   const items = [];
-  const add = (what, freed) => { if (freed > 0 || what) items.push({ what, freed }); };
+  const add = (what, freed) => { items.push({ what, freed }); log(`уборка: ${what} (${freed} байт)`); };
+  log(`уборка после обновления: папка программы ${exeDir}`);
 
   // 1. Кэш загрузки обновлений
   const upd = path.join(env('LOCALAPPDATA', path.join(os.homedir(), 'AppData', 'Local')), 'pc-full-control-updater');
@@ -69,14 +70,6 @@ async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = nu
     try { add('Загруженный установщик обновления', removePath(upd)); } catch (e) { /* занят */ }
   }
 
-  // 2. Кэши старой версии программы
-  if (electronSession) {
-    try {
-      await electronSession.clearCache();
-      await electronSession.clearCodeCaches({});
-      add('Кэш старой версии программы', 0);
-    } catch (e) { /* не критично */ }
-  }
   if (dataDir) {
     for (const f of ['elevate-attempt', 'show-window.flag']) { try { fs.rmSync(path.join(dataDir, f), { force: true }); } catch (e) { /* ignore */ } }
     // Журнал обновлений: оставляем последние 300 строк
@@ -99,11 +92,12 @@ async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = nu
     for (const e of entries) if (e.location) candidates.add(e.location.replace(/^"|"$/g, ''));
     const removedDirs = [];
     for (const dir of candidates) {
-      if (!dir || norm(dir) === current || !fs.existsSync(dir) || !isOurInstall(dir)) continue;
+      if (!dir || norm(dir) === current || !fs.existsSync(dir)) continue;
+      if (!isOurInstall(dir)) { log(`уборка: ${dir} — не похоже на копию программы, пропускаю`); continue; }
       try {
         const freed = removePath(dir);
-        if (!fs.existsSync(dir)) { removedDirs.push(norm(dir)); add(`Старая копия программы: ${dir}`, freed); }
-      } catch (e) { /* занята */ }
+        if (!fs.existsSync(dir)) { removedDirs.push(norm(dir)); add(`Старая копия программы: ${dir}`, freed); } else log(`уборка: ${dir} занята`);
+      } catch (e) { log(`уборка: ${dir} — ${e.message}`); }
     }
     // Записи «PC Full Control» в списке программ, которые указывают на удалённые или несуществующие папки
     for (const e of entries) {
@@ -131,7 +125,17 @@ async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = nu
       } catch (e) { /* занят */ }
     }
   }
+  // 5. Кэши старой версии программы (в последнюю очередь и с ограничением по времени)
+  if (electronSession) {
+    const limit = (p) => Promise.race([p, new Promise((r) => setTimeout(r, 5000))]);
+    try {
+      await limit(electronSession.clearCache());
+      await limit(electronSession.clearCodeCaches({}));
+      add('Кэш старой версии программы', 0);
+    } catch (e) { log('уборка: кэш не очищен — ' + e.message); }
+  }
   const total = items.reduce((s, x) => s + (x.freed || 0), 0);
+  log(`уборка завершена: ${items.length} поз., ${total} байт`);
   return { items, total };
 }
 
