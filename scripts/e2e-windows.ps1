@@ -47,8 +47,9 @@ for ($i = 0; $i -lt 60; $i++) { if ((Invoke-RestMethod 'http://127.0.0.1:8765/ap
 Write-Host "Помощник ввода готов через $i с после открытия экрана"
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"move","x":0.25,"y":0.5,"monitor":1}' | Out-Null
-Write-Host "Первое касание обработано за $($sw.ElapsedMilliseconds) мс"
-if ($sw.ElapsedMilliseconds -gt 3000) { throw 'Первое касание слишком долгое — помощник ввода не запущен заранее' }
+$firstTap = $sw.ElapsedMilliseconds
+Write-Host "Первое касание обработано за $firstTap мс"
+if ($firstTap -gt 3000) { throw 'Первое касание слишком долгое — помощник ввода не запущен заранее' }
 Start-Sleep 2
 Add-Type -AssemblyName System.Windows.Forms
 $pos = [System.Windows.Forms.Cursor]::Position
