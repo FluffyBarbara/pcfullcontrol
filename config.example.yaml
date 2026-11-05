@@ -1,0 +1,55 @@
+# Скопируйте этот файл в config.yaml и заполните.
+# Все данные (база, логи, скриншоты) хранятся локально в папке data_dir.
+
+pc_name: ""            # имя ПК в уведомлениях (пусто = имя компьютера)
+data_dir: data         # папка для базы SQLite и логов (относительно проекта)
+
+telegram:
+  enabled: true
+  token: ""            # токен бота от @BotFather
+  # ID пользователей, которым разрешено управление. Узнать свой ID: отправьте боту /myid.
+  # Можно оставить пустым и привязаться кодом: /pair <код из консоли/лога>.
+  allowed_user_ids: []
+  confirm_dangerous: true      # спрашивать подтверждение перед выключением, kill и т.п.
+  notify_web_actions: true     # сообщать в Telegram о командах из веб-панели
+  proxy: ""                    # например socks5://127.0.0.1:1080 (нужен PySocks)
+
+web:
+  enabled: true
+  host: 0.0.0.0        # 127.0.0.1 — только с этого ПК; 0.0.0.0 — из домашней сети
+  port: 8765
+  session_days: 30
+
+security:
+  allow_shell: false           # разрешить выполнение произвольных команд (/cmd, «Терминал»)
+  max_login_attempts: 5        # неудачных входов в веб-панель до блокировки IP
+  lockout_minutes: 15
+
+files:
+  allowed_roots: []            # ограничить файловый менеджер папками; пусто = весь диск
+  upload_dir: ""               # куда сохранять файлы из Telegram/веба (пусто = ~/Downloads/PCControl)
+
+# Кнопки быстрого запуска программ (название: команда или путь)
+apps:
+  Блокнот: notepad
+  Браузер: https://google.com
+  # Steam: "C:\\Program Files (x86)\\Steam\\steam.exe"
+
+monitor:
+  interval_seconds: 30
+  metrics_retention_days: 7
+  cpu_percent: 90              # тревога, если загрузка CPU выше...
+  cpu_checks: 4                # ...столько проверок подряд
+  ram_percent: 90
+  disk_free_percent: 10        # тревога, если свободно меньше
+  temp_celsius: 85
+  battery_low_percent: 20
+  alert_cooldown_minutes: 30   # не повторять одинаковую тревогу чаще
+  notify_on_start: true        # «компьютер включён»
+  notify_on_login: true        # вход пользователя в систему
+  notify_ip_change: true
+  notify_power_source: true    # подключение/отключение зарядки (ноутбук)
+  watch_processes: []          # уведомлять о запуске/закрытии, например ["steam.exe", "chrome.exe"]
+
+updates:
+  daily_check_time: "12:00"    # ежедневная проверка обновлений (пусто = выключено)
