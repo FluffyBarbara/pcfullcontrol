@@ -104,6 +104,7 @@ async function init() {
     },
   });
   trackVersion();
+  if (process.env.PCFC_TEST_HOOKS) global.__pcfc = ctx; // только для автоматических проверок
   ctx.monitor = new Monitor(ctx);
   ctx.monitor.start();
   ctx.scheduler.start();

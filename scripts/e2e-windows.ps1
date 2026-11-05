@@ -25,6 +25,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Правило брандмауэра не с�
 
 Write-Host '=== 2. Запуск ==='
 $env:PCFC_TEST_PAIR_CODE = '246810'
+$env:PCFC_TEST_HOOKS = '1'
 Start-Process $exe
 $hello = Wait-Hello 90
 Write-Host "Ответ: $($hello | ConvertTo-Json -Compress)"
@@ -118,6 +119,8 @@ if (!(Test-Path $data)) { throw 'Удалена папка, которую по�
 if (-not ($rm | Where-Object { $_.backup -and (Test-Path $_.backup) })) { throw 'Нет резервной копии реестра' }
 Remove-Item -Recurse -Force $data
 Write-Host 'Удаление программ работает: только выбранное, с резервной копией реестра'
+
+& ./scripts/e2e-v17.ps1 -J $J
 
 Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
 $res = Join-Path (Split-Path $exe) 'resources\app-update.yml'

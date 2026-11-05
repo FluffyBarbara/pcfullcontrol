@@ -409,6 +409,13 @@ class LanServer {
     if (p === '/api/internet' && m === 'GET') return ctx.tunnel.state();
     if (p === '/api/internet' && m === 'POST') { const b = await readJson(req); try { return await ctx.tunnel.setEnabled(!!b.enabled); } catch (e) { throw new HttpError(400, e.message); } }
     if (p === '/api/internet/link' && m === 'POST') { try { return ctx.tunnel.loginLink(device.name); } catch (e) { throw new HttpError(400, e.message); } }
+    // Только для автоматических проверок: распознать присланный звуковой файл (как голосовое из Telegram)
+    if (process.env.PCFC_TEST_HOOKS && p === '/api/test/transcribe' && m === 'POST') {
+      const body = await readJson(req);
+      const r = await ctx.speech.transcribe(Buffer.from(String(body.audio || ''), 'base64'));
+      const { parseVoiceCommand } = require('./voice-commands');
+      return { ...r, command: parseVoiceCommand(r.text) };
+    }
     // --- отчёт за неделю ---
     if (p === '/api/weekly') return { text: require('./weekly').build(ctx).text };
     if (p === '/api/weekly/send' && m === 'POST') { ctx.notifier.notify(require('./weekly').build(ctx).text, { category: 'report' }); return { ok: true }; }

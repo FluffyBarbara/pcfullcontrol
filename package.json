@@ -1,7 +1,7 @@
 {
   "name": "pc-full-control",
   "productName": "PC Full Control",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Управление компьютером с телефона через Telegram",
   "main": "src/main/main.js",
   "author": "PC Full Control",
@@ -80,8 +80,10 @@
     ],
     "asarUnpack": [
       "node_modules/onnxruntime-node/**",
+      "node_modules/onnxruntime-common/**",
       "node_modules/sharp/**",
-      "node_modules/@img/**"
+      "node_modules/@img/**",
+      "node_modules/@huggingface/**"
     ],
     "extraResources": [
       {

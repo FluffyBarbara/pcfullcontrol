@@ -96,7 +96,7 @@ function subnetHosts(ip, netmask) {
   let mask = ipToInt(netmask);
   const size = (~mask >>> 0) + 1;
   if (size > 1024) mask = ipToInt('255.255.252.0');
-  const net = ipn & mask;
+  const net = (ipn & mask) >>> 0;
   const bc = (net | (~mask >>> 0)) >>> 0;
   const out = [];
   for (let n = net + 1; n < bc; n++) out.push(intToIp(n >>> 0));
@@ -107,7 +107,7 @@ function subnetHosts(ip, netmask) {
 function parseArp(text) {
   const res = [];
   for (const line of String(text).split(/\r?\n/)) {
-    const m = /(\d{1,3}(?:\.\d{1,3}){3})\D+?([0-9a-f]{2}(?:[-:][0-9a-f]{2}){5})/i.exec(line);
+    const m = /(\d{1,3}(?:\.\d{1,3}){3})\s.*?([0-9a-f]{2}(?:[-:][0-9a-f]{2}){5})/i.exec(line);
     if (!m) continue;
     const mac = m[2].toUpperCase().replace(/-/g, ':');
     if (/^(FF:FF:FF:FF:FF:FF|00:00:00:00:00:00)$/.test(mac) || /^01:00:5E/.test(mac) || /^33:33/.test(mac)) continue;
