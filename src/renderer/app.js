@@ -1,17 +1,16 @@
 'use strict';
-// Интерфейс приложения PC Full Control.
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s));
+// PC Full Control — интерфейс программы на ПК.
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const api = (channel, data) => window.pcc.invoke(channel, data);
 
 let STATE = null;
 let ACTIONS = {};
 let page = 'overview';
-let logMode = 'events';
-let statusTimer = null;
+let timers = {};
 
-// ================= Утилиты =================
-function el(tag, attrs = {}, ...children) {
+// ===================== утилиты =====================
+function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v === null || v === undefined || v === false) continue;
@@ -20,9 +19,10 @@ function el(tag, attrs = {}, ...children) {
     else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
     else n.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) if (c !== null && c !== undefined) n.append(c instanceof Node ? c : String(c));
+  for (const c of kids.flat()) if (c !== null && c !== undefined && c !== false) n.append(c instanceof Node ? c : String(c));
   return n;
 }
+const ic = (name, size = 18) => Icons.el(name, size);
 
 function fmtBytes(n) {
   if (n === null || n === undefined) return '—';
@@ -31,114 +31,435 @@ function fmtBytes(n) {
   while (Math.abs(n) >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return (i ? n.toFixed(1) : n.toFixed(0)) + ' ' + u[i];
 }
-
-function fmtDuration(sec) {
+function fmtDur(sec) {
   sec = Math.max(0, Math.floor(sec));
   const d = Math.floor(sec / 86400); const h = Math.floor((sec % 86400) / 3600); const m = Math.floor((sec % 3600) / 60);
   return (d ? d + ' д ' : '') + (h ? h + ' ч ' : '') + m + ' мин';
 }
-
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-
-function confirmDialog(text) {
-  return new Promise((resolve) => {
-    $('#modal-text').textContent = text;
-    $('#modal').classList.remove('hidden');
-    const done = (v) => { $('#modal').classList.add('hidden'); resolve(v); };
-    $('#modal-yes').onclick = () => done(true);
-    $('#modal-no').onclick = () => done(false);
-  });
+const fmtDate = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 90) return 'только что';
+  if (s < 3600) return `${Math.round(s / 60)} мин назад`;
+  if (s < 86400) return `${Math.round(s / 3600)} ч назад`;
+  return fmtTime(ts);
 }
 
-function showResult(sel, text, ok = true) {
-  const n = $(sel);
-  n.textContent = text;
-  n.className = 'toast-line ' + (ok ? 'ok' : 'err');
+function toast(text, kind = 'ok') {
+  const t = el('div', { class: 'toast ' + kind }, ic(kind === 'err' ? 'alert' : kind === 'info' ? 'info' : 'check', 18), el('span', { text }));
+  $('#toasts').append(t);
+  setTimeout(() => t.remove(), Math.min(8000, 2500 + text.length * 30));
 }
 
-// ================= Навигация =================
-$$('.nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.page)));
+// ===================== окна =====================
+let modalResolve = null;
+function openModal(content, cls = '') {
+  const card = $('#modal-card');
+  card.className = 'modal-card ' + cls;
+  card.replaceChildren(...[].concat(content));
+  $('#modal').classList.remove('hidden');
+  return new Promise((r) => { modalResolve = r; });
+}
+function closeModal(v = null) {
+  $('#modal').classList.add('hidden');
+  if (modalResolve) { const r = modalResolve; modalResolve = null; r(v); }
+}
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(null); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').classList.contains('hidden')) closeModal(null); });
+
+function confirmModal(title, text, yes = 'Да', danger = true) {
+  return openModal([
+    el('h3', { text: title }), el('p', { text }),
+    el('div', { class: 'row end' },
+      el('button', { class: 'btn', onclick: () => closeModal(false) }, 'Отмена'),
+      el('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => closeModal(true) }, yes)),
+  ]);
+}
+
+function promptModal(title, hint) {
+  const input = el('input', { class: 'input', placeholder: hint });
+  const ok = () => { if (input.value.trim()) closeModal(input.value.trim()); };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+  const p = openModal([el('h3', { text: title }), input, el('div', { class: 'row end mt' },
+    el('button', { class: 'btn', onclick: () => closeModal(null) }, 'Отмена'), el('button', { class: 'btn primary', onclick: ok }, 'Готово'))]);
+  setTimeout(() => input.focus(), 50);
+  return p;
+}
+
+function changeList(items) {
+  return items.map(([icon, text]) => el('div', { class: 'change' }, ic(icon, 18), el('span', { text })));
+}
+
+async function showWhatsNew(from, to) {
+  const versions = Changelog.between(from, to);
+  if (!versions.length) return;
+  const body = el('div', { class: 'wn-body' });
+  for (const v of versions) {
+    body.append(el('div', { class: 'wn-version', text: `Версия ${v.version} · ${v.title}` }), ...changeList(v.items));
+  }
+  await openModal([
+    el('div', { class: 'wn-hero' }, el('div', { class: 'wn-ic' }, ic('sparkles', 28)),
+      el('h3', { text: 'Что нового' }),
+      el('p', { class: 'muted', text: from ? `PC Full Control обновлён: ${from} → ${to}` : `PC Full Control ${to}` })),
+    body,
+    el('div', { class: 'wn-foot' }, el('button', { class: 'btn primary lg', onclick: () => closeModal(true) }, 'Отлично')),
+  ], 'whatsnew');
+}
+
+// ===================== навигация =====================
+$$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.page)));
 document.addEventListener('click', (e) => {
   const g = e.target.closest('[data-goto]');
   if (g) go(g.dataset.goto);
   const link = e.target.closest('[data-link]');
-  if (link) { e.preventDefault(); api('open-external', { url: link.dataset.link }); }
+  if (link) { e.preventDefault(); api('open-external', { url: link.dataset.link }).catch((er) => toast(er.message, 'err')); }
 });
 
 function go(p) {
   page = p;
-  $$('.page').forEach((s) => s.classList.add('hidden'));
-  $('#page-' + p).classList.remove('hidden');
-  $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.page === p));
-  clearInterval(statusTimer);
+  $$('.page').forEach((s) => s.classList.toggle('hidden', s.id !== 'page-' + p));
+  $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.page === p));
+  Object.values(timers).forEach(clearInterval);
+  timers = {};
+  $('#content').scrollTop = 0;
   if (p === 'overview') {
     loadStatus(); loadChart();
-    statusTimer = setInterval(() => { if (!document.hidden) loadStatus(); }, 5000);
-  } else if (p === 'tasks') loadTasks();
+    timers.s = setInterval(() => { if (!document.hidden) loadStatus(); }, 4000);
+  } else if (p === 'phone') {
+    loadMobile();
+    timers.m = setInterval(loadMobile, 5000);
+  } else if (p === 'control') loadVolume();
+  else if (p === 'processes') { loadProcesses(); timers.p = setInterval(() => { if (!document.hidden) loadProcesses(); }, 5000); }
+  else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();
   else if (p === 'settings') fillSettings();
+  else if (p === 'about') renderAbout();
 }
 
-// ================= Состояние =================
+// ===================== состояние =====================
 async function loadState() {
   STATE = await api('get-state');
   ACTIONS = Object.fromEntries(STATE.actions.map((a) => [a.name, a]));
-  $('#pc-name').textContent = STATE.pcName;
-  $('#version').textContent = STATE.version;
-  $$('.win-only').forEach((b) => b.classList.toggle('hidden', !STATE.isWin));
-  renderBot();
-  renderPhone();
+  $('#brand-sub').textContent = STATE.pcName;
+  $('#hero-name').textContent = STATE.pcName;
+  $('#about-version').textContent = STATE.version;
+  $('#terminal-card').classList.toggle('hidden', !STATE.config.security.allowShell);
+  renderSideStatus();
+  renderTelegram();
+  renderHeroPills();
   if (!$('#task-action').options.length) fillTaskForm();
+  renderControlTiles();
+  renderQuickTiles();
+  const upd = STATE.update && STATE.update.hasUpdate;
+  $('#title-update').classList.toggle('hidden', !upd);
+  $('#about-dot').classList.toggle('hidden', !upd);
 }
 
-function renderBot() {
+function botInfo() {
   const b = STATE.bot;
-  const status = !b.configured ? 'stopped' : b.status;
-  const text = !b.configured ? 'Telegram не подключён'
-    : { online: `@${b.username} на связи`, connecting: 'Подключение…', error: b.error || 'Ошибка' }[status] || 'Остановлен';
-  $('#bot-pill .dot').className = 'dot ' + status;
-  $('#bot-pill-text').textContent = text;
-  $('#setup-banner').classList.toggle('hidden', b.configured && STATE.users.length > 0);
+  if (!b.configured) return { cls: '', text: 'Telegram не подключён' };
+  if (b.status === 'online') return { cls: 'online', text: `@${b.username} на связи` };
+  if (b.status === 'error') return { cls: 'error', text: b.error || 'Ошибка Telegram' };
+  return { cls: 'connecting', text: 'Подключение к Telegram…' };
 }
 
-function renderPhone() {
+function renderSideStatus() {
+  const b = botInfo();
+  $('#s-tg-dot').className = 'dot ' + b.cls;
+  $('#s-tg').textContent = b.text;
+  const m = STATE.mobile;
+  const n = m.devices;
+  $('#s-app-dot').className = 'dot ' + (m.status === 'running' ? (n ? 'online' : 'connecting') : m.status === 'error' ? 'error' : '');
+  $('#s-app').textContent = m.status === 'error' ? m.error : !m.enabled ? 'Приложение выключено' : n ? `Телефонов: ${n}` : 'Телефон не привязан';
+  const needSetup = !(b.cls === 'online' && STATE.users.length) && !n;
+  $('#phone-dot').classList.toggle('hidden', !needSetup);
+  $('#setup-banner').classList.toggle('hidden', !needSetup);
+}
+
+function renderHeroPills() {
+  const b = botInfo();
+  const n = STATE.mobile.devices;
+  $('#hero-pills').replaceChildren(
+    el('span', { class: 'pill ' + (b.cls === 'online' ? 'ok' : b.cls === 'error' ? 'err' : '') }, ic('telegram', 14), b.cls === 'online' ? 'Telegram' : 'Telegram выкл.'),
+    el('span', { class: 'pill ' + (n ? 'ok' : '') }, ic('phone', 14), n ? `Телефонов: ${n}` : 'Нет телефонов'),
+    el('span', { class: 'pill ' + (STATE.muted ? 'warn' : 'ok') }, ic(STATE.muted ? 'bellOff' : 'bell', 14), STATE.muted ? 'Уведомления выкл.' : 'Уведомления'),
+  );
+}
+
+// ===================== обзор =====================
+const RING_GRADS = {
+  cpu: ['#6d7cff', '#8b9bff'], ram: ['#a855f7', '#e879f9'], disk: ['#06b6d4', '#22d3ee'], temp: ['#f97316', '#fbbf24'], gpu: ['#10b981', '#34d399'],
+};
+function ringCard(key, icon, label, percent, value, sub, display) {
+  const r = 38; const c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, percent || 0));
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 92 92');
+  const id = 'g-' + key;
+  const defs = document.createElementNS(ns, 'defs');
+  const lg = document.createElementNS(ns, 'linearGradient');
+  lg.setAttribute('id', id); lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0'); lg.setAttribute('x2', '1'); lg.setAttribute('y2', '1');
+  RING_GRADS[key].forEach((col, i) => { const st = document.createElementNS(ns, 'stop'); st.setAttribute('offset', String(i)); st.setAttribute('stop-color', col); lg.append(st); });
+  defs.append(lg);
+  const mk = (attrs) => { const n = document.createElementNS(ns, 'circle'); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); return n; };
+  svg.append(defs, mk({ cx: 46, cy: 46, r, fill: 'none', 'stroke-width': 9, class: 'track' }),
+    mk({ cx: 46, cy: 46, r, fill: 'none', 'stroke-width': 9, 'stroke-linecap': 'round', class: 'val', stroke: `url(#${id})`, 'stroke-dasharray': c, 'stroke-dashoffset': c * (1 - p / 100) }));
+  return el('div', { class: 'card gauge' },
+    el('div', { class: 'ring' }, svg, el('div', { class: 'ring-num' }, el('span', {}, display ?? Math.round(p), el('small', { text: display ? '' : '%' })))),
+    el('div', { class: 'g-info' }, el('div', { class: 'g-label' }, ic(icon, 15), label), el('div', { class: 'g-value', text: value }), el('div', { class: 'g-sub', text: sub || '' })));
+}
+
+async function loadStatus() {
+  let s;
+  try { s = await api('get-status'); } catch (e) { return; }
+  $('#hero-sub').textContent = `${s.os} · работает ${fmtDur(s.uptime)}`;
+  const disk = s.disks.length ? s.disks.reduce((a, b) => (b.total > a.total ? b : a)) : null;
+  const cards = [
+    ringCard('cpu', 'cpu', 'Процессор', s.cpu.percent, `${s.cpu.threads} потоков`, s.cpu.mhz ? `${s.cpu.mhz} МГц` : ''),
+    ringCard('ram', 'memory', 'Память', s.ram.percent, fmtBytes(s.ram.used), `из ${fmtBytes(s.ram.total)}`),
+    ringCard('disk', 'disk', 'Диск ' + (disk ? disk.mount : ''), disk ? disk.percent : 0, disk ? fmtBytes(disk.free) : '—', disk ? `свободно из ${fmtBytes(disk.total)}` : ''),
+  ];
+  if (s.temp !== null && s.temp !== undefined) cards.push(ringCard('temp', 'temp', 'Температура', s.temp, `${Math.round(s.temp)}°C`, 'процессор', Math.round(s.temp) + '°'));
+  else if (s.gpus && s.gpus[0]) cards.push(ringCard('gpu', 'gpu', 'Видеокарта', s.gpus[0].util, s.gpus[0].name, s.gpus[0].temp !== null ? `${Math.round(s.gpus[0].temp)}°C` : ''));
+  else if (s.battery) cards.push(ringCard('gpu', 'battery', 'Батарея', s.battery.percent, `${s.battery.percent}%`, s.battery.plugged ? 'заряжается' : 'от батареи'));
+  else cards.push(ringCard('gpu', 'clock', 'Работает', Math.min(100, (s.uptime / 86400) * 100), fmtDur(s.uptime), 'с ' + fmtTime(s.bootTime), Math.floor(s.uptime / 3600) + 'ч'));
+  $('#gauges').replaceChildren(...cards);
+
+  $('#disks').replaceChildren(...s.disks.slice(0, 6).map((d) => {
+    const fill = el('i');
+    fill.style.width = d.percent + '%';
+    return el('div', { class: 'disk' },
+      el('div', { class: 'disk-top' }, el('b', { text: d.mount }), el('span', { class: 'muted', text: `${fmtBytes(d.free)} свободно из ${fmtBytes(d.total)}` })),
+      el('div', { class: 'bar ' + (d.percent >= 90 ? 'hot' : d.percent >= 75 ? 'mid' : '') }, fill));
+  }));
+  const kv = (k, v) => el('div', { class: 'kv' }, el('span', { text: k }), el('b', { text: v }));
+  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips.join(', ') || '—'), kv('Пользователь', s.users.join(', ') || '—'), kv('Включён', fmtTime(s.bootTime))];
+  for (const g of s.gpus || []) rows.push(kv('Видеокарта', `${g.name} · ${Math.round(g.util)}%`));
+  if (s.battery) rows.push(kv('Батарея', `${s.battery.percent}% ${s.battery.plugged ? '· заряжается' : ''}`));
+  $('#sysinfo').replaceChildren(...rows);
+}
+
+let chartHours = 1;
+let chartData = [];
+$$('#chart-range button').forEach((b) => b.addEventListener('click', () => {
+  chartHours = Number(b.dataset.h);
+  $$('#chart-range button').forEach((x) => x.classList.toggle('active', x === b));
+  loadChart();
+}));
+window.addEventListener('resize', drawChart);
+window.pcc.on('metrics', () => { if (page === 'overview') loadChart(); });
+
+async function loadChart() {
+  try { chartData = await api('get-metrics', { hours: chartHours }); } catch (e) { return; }
+  drawChart();
+}
+
+function drawChart() {
+  const c = $('#chart');
+  if (!c.offsetParent) return;
+  const dpr = devicePixelRatio || 1;
+  const w = c.clientWidth; const h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const v = (n) => css.getPropertyValue(n).trim();
+  const L = 32; const T = 8; const B = 22;
+  const y = (val) => T + (h - T - B) * (1 - Math.max(0, Math.min(100, val)) / 100);
+  g.font = '11px "Segoe UI", sans-serif';
+  g.fillStyle = v('--dim');
+  g.strokeStyle = 'rgba(255,255,255,.05)';
+  for (const val of [0, 25, 50, 75, 100]) {
+    g.beginPath(); g.moveTo(L, y(val)); g.lineTo(w, y(val)); g.stroke();
+    g.fillText(String(val), 4, y(val) + 4);
+  }
+  if (chartData.length < 2) { g.fillText('Данные собираются (каждые 30 секунд)…', L + 12, h / 2); return; }
+  const t0 = chartData[0].ts; const t1 = chartData[chartData.length - 1].ts;
+  const x = (ts) => L + (w - L - 4) * ((ts - t0) / Math.max(1, t1 - t0));
+  // подписи времени
+  for (let i = 0; i <= 4; i++) {
+    const ts = t0 + ((t1 - t0) * i) / 4;
+    const d = new Date(ts * 1000);
+    const label = chartHours > 24 ? d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    g.fillText(label, Math.min(w - 36, x(ts) - (i ? 14 : 0)), h - 4);
+  }
+  for (const [key, color, fill] of [['ram', '--ram', true], ['cpu', '--cpu', true], ['temp', '--temp', false]]) {
+    const col = v(color);
+    const pts = chartData.filter((p) => p[key] !== null && p[key] !== undefined);
+    if (pts.length < 2) continue;
+    g.beginPath();
+    pts.forEach((p, i) => (i ? g.lineTo(x(p.ts), y(p[key])) : g.moveTo(x(p.ts), y(p[key]))));
+    g.strokeStyle = col; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+    if (fill) {
+      g.lineTo(x(pts[pts.length - 1].ts), y(0)); g.lineTo(x(pts[0].ts), y(0)); g.closePath();
+      const grad = g.createLinearGradient(0, T, 0, h - B);
+      grad.addColorStop(0, col + '40'); grad.addColorStop(1, col + '00');
+      g.fillStyle = grad; g.fill();
+    }
+  }
+}
+
+// ===================== действия =====================
+async function runAction(name, arg = '', tileEl = null) {
+  const a = ACTIONS[name];
+  if (!a) return null;
+  if (a.argRequired && !arg) {
+    arg = await promptModal(a.title, a.argHint);
+    if (!arg) return null;
+  }
+  if (a.dangerous && !(await confirmModal(a.title + '?', arg ? `Параметр: ${arg}` : 'Действие будет выполнено на этом компьютере.', a.title))) return null;
+  if (tileEl) tileEl.classList.add('busy');
+  try {
+    const r = await api('run-action', { name, arg });
+    if (name === 'clipboard_get' && r.ok) openModal([el('h3', { text: 'Буфер обмена' }), el('pre', { class: 'output', text: r.result }), el('div', { class: 'row end mt' }, el('button', { class: 'btn', onclick: () => closeModal() }, 'Закрыть'))]);
+    else toast(r.result, r.ok ? 'ok' : 'err');
+    if (a.category === 'media') setTimeout(loadVolume, 400);
+    return r;
+  } catch (e) {
+    toast(e.message, 'err');
+    return null;
+  } finally {
+    if (tileEl) tileEl.classList.remove('busy');
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const arg = b.dataset.arg ? document.getElementById(b.dataset.arg).value.trim() : '';
+  runAction(b.dataset.act, arg);
+});
+
+const SHORT = {
+  shutdown: 'Выключить', reboot: 'Перезагрузить', cancel_shutdown: 'Отменить выключение', monitor_off: 'Выключить монитор',
+  check_updates: 'Проверить обновления', upgrade_all: 'Обновить все программы', win_update_check: 'Windows Update',
+  win_update_install: 'Установить обновления Windows', app_update: 'Обновить PC Full Control', status_report: 'Отчёт в Telegram',
+  screenshot: 'Скриншот в Telegram', webcam: 'Камера в Telegram', open_url: 'Открыть ссылку', launch: 'Запустить программу',
+  clipboard_get: 'Буфер обмена', clipboard_set: 'Записать в буфер', notify: 'Напоминание', empty_recycle_bin: 'Очистить корзину',
+  restart_app: 'Перезапустить программу', message: 'Сообщение на экран', say: 'Озвучить текст', lock: 'Заблокировать',
+  logoff: 'Выйти из системы', sleep: 'Спящий режим', hibernate: 'Гибернация',
+};
+const CONTROL = [
+  ['Питание', [['shutdown', 'danger'], ['reboot', 'warn'], ['sleep'], ['hibernate'], ['lock'], ['logoff'], ['monitor_off'], ['cancel_shutdown']]],
+  ['Обновление ПО', [['check_updates', 'cyan'], ['upgrade_all', 'cyan'], ['win_update_check', 'cyan'], ['win_update_install', 'cyan'], ['app_update', 'green']]],
+  ['В Telegram', [['screenshot'], ['webcam'], ['status_report']]],
+  ['Разное', [['open_url'], ['launch'], ['clipboard_get'], ['clipboard_set'], ['notify'], ['empty_recycle_bin', 'warn'], ['restart_app']]],
+];
+function tile(name, tone = '', sub = '') {
+  if (!ACTIONS[name]) return null;
+  const t = el('button', { class: 'tile ' + tone }, el('span', { class: 'tile-ic' }, ic(Icons.ACTION_ICONS[name] || 'zap', 19)),
+    el('span', {}, SHORT[name] || ACTIONS[name].title, sub ? el('small', { text: sub }) : null));
+  t.addEventListener('click', () => runAction(name, '', t));
+  return t;
+}
+function renderControlTiles() {
+  const box = $('#control-tiles');
+  box.replaceChildren();
+  for (const [title, items] of CONTROL) {
+    const tiles = items.map(([n, tone]) => tile(n, tone)).filter(Boolean);
+    if (tiles.length) box.append(el('div', { class: 'section-label mt22', text: title }), el('div', { class: 'tiles' }, tiles));
+  }
+}
+function renderQuickTiles() {
+  $('#quick-tiles').replaceChildren(...[['lock'], ['monitor_off'], ['screenshot'], ['check_updates', 'cyan'], ['empty_recycle_bin', 'warn'], ['shutdown', 'danger']]
+    .map(([n, t]) => tile(n, t)).filter(Boolean));
+}
+
+let volDrag = false;
+async function loadVolume() {
+  try {
+    const s = await api('get-status');
+    if (s.volume && !volDrag) setVol(s.volume.level, s.volume.muted);
+  } catch (e) { /* ignore */ }
+}
+function setVol(level, muted) {
+  const v = $('#volume');
+  v.value = level;
+  v.style.setProperty('--p', level + '%');
+  $('#vol-num').textContent = muted ? 'выкл.' : level + '%';
+}
+$('#volume').addEventListener('input', (e) => { volDrag = true; setVol(e.target.value, false); });
+$('#volume').addEventListener('change', async (e) => { await runAction('set_volume', e.target.value); volDrag = false; });
+
+$('#terminal-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cmd = $('#terminal-input').value.trim();
+  if (!cmd) return;
+  const out = $('#terminal-output');
+  out.classList.remove('hidden');
+  out.textContent = 'PS> ' + cmd + '\nВыполняется…';
+  try { out.textContent = (await api('run-action', { name: 'shell', arg: cmd })).result; } catch (err) { out.textContent = err.message; }
+});
+
+// ===================== телефон =====================
+$$('#phone-tabs button').forEach((b) => b.addEventListener('click', () => {
+  $$('#phone-tabs button').forEach((x) => x.classList.toggle('active', x === b));
+  $('#phone-app').classList.toggle('hidden', b.dataset.tab !== 'app');
+  $('#phone-tg').classList.toggle('hidden', b.dataset.tab !== 'tg');
+}));
+
+let lastCode = '';
+async function loadMobile() {
+  let m;
+  try { m = await api('mobile-info'); } catch (e) { return; }
+  const st = $('#m-status');
+  st.className = 'pill ' + (m.status === 'running' ? 'ok' : m.status === 'error' ? 'err' : 'warn');
+  st.replaceChildren(el('span', { class: 'dot ' + (m.status === 'running' ? 'ok' : m.status === 'error' ? 'err' : 'warn') }),
+    m.status === 'running' ? 'Ожидает подключения' : m.status === 'error' ? m.error : 'Выключено в настройках');
+  if (m.qr) $('#m-qr').src = m.qr;
+  if (m.code !== lastCode) {
+    lastCode = m.code;
+    $('#m-code').replaceChildren(...m.code.split('').map((d) => el('span', { text: d })));
+  }
+  const left = Math.max(0, Math.round((m.expires - Date.now()) / 1000));
+  $('#m-code-meta').textContent = `Код действует ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  $('#m-addrs').replaceChildren(...(m.addresses.length ? m.addresses : ['нет сети']).map((a) => el('div', { class: 'addr' }, ic('wifi', 16), el('code', { text: a.replace(/^http:\/\//, '') }))));
+  $('#m-step3').classList.toggle('done', m.devices.length > 0);
+  const box = $('#m-devices');
+  if (!m.devices.length) box.replaceChildren(el('div', { class: 'empty' }, ic('phone', 28), 'Пока ни один телефон не привязан'));
+  else {
+    box.replaceChildren(...m.devices.map((d) => el('div', { class: 'item' },
+      el('div', { class: 'item-ic' }, ic(d.platform === 'ios' ? 'apple' : d.platform === 'android' ? 'android' : 'phone', 18)),
+      el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: d.name }),
+        el('div', { class: 'item-sub', text: `в сети ${ago(d.last_seen)} · ${d.ip || ''} · привязан ${fmtTime(d.created)}` })),
+      el('button', { class: 'btn sm danger', onclick: async () => {
+        if (!(await confirmModal('Отвязать телефон?', `«${d.name}» больше не сможет управлять компьютером.`, 'Отвязать'))) return;
+        await api('remove-device', { id: d.id });
+        loadMobile(); loadState();
+      } }, 'Отвязать'))));
+  }
+}
+$('#m-regen').addEventListener('click', async () => { await api('mobile-regen'); loadMobile(); });
+
+function renderTelegram() {
   const b = STATE.bot;
-  $('#token-setup').classList.toggle('hidden', b.configured);
-  $('#token-done').classList.toggle('hidden', !b.configured);
-  $('#step1-num').classList.toggle('done', b.configured && b.status === 'online');
-  $('#bot-name').textContent = b.username ? '@' + b.username : '…';
-  $('#bot-state').textContent = b.status === 'online' ? '🟢 на связи' : b.status === 'error' ? '🔴 ' + b.error : '🟡 подключение…';
-
-  const pair = STATE.pairing;
-  $('#pair-box').classList.toggle('hidden', !pair.qr);
-  $('#pair-wait').classList.toggle('hidden', !!pair.qr);
-  $('#pair-wait').textContent = b.configured ? 'Подключаюсь к Telegram…' : 'Сначала подключите бота (шаг 1).';
-  if (pair.qr) {
-    $('#pair-qr').src = pair.qr;
-    $('#pair-cmd').textContent = '/pair ' + pair.code;
+  const bi = botInfo();
+  const st = $('#tg-status');
+  st.className = 'pill ' + (bi.cls === 'online' ? 'ok' : bi.cls === 'error' ? 'err' : bi.cls ? 'warn' : '');
+  st.replaceChildren(el('span', { class: 'dot ' + bi.cls }), bi.text);
+  $('#tg-setup').classList.toggle('hidden', b.configured);
+  $('#tg-done').classList.toggle('hidden', !b.configured);
+  $('#tg-name').textContent = b.username ? '@' + b.username : '';
+  $('#tg-state').textContent = bi.text;
+  if (STATE.pairing.qr) { $('#tg-qr').src = STATE.pairing.qr; $('#tg-cmd').textContent = '/pair ' + STATE.pairing.code; }
+  const box = $('#tg-users');
+  if (!STATE.users.length) box.replaceChildren(el('div', { class: 'empty' }, ic('telegram', 28), 'Пока ни один аккаунт не привязан'));
+  else {
+    box.replaceChildren(...STATE.users.map((u) => el('div', { class: 'item' },
+      el('div', { class: 'item-ic' }, ic('telegram', 18)),
+      el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: (u.name || 'Без имени') + (u.username ? ' · @' + u.username : '') }),
+        el('div', { class: 'item-sub', text: `ID ${u.user_id} · привязан ${fmtTime(u.added)}` })),
+      el('button', { class: 'btn sm danger', onclick: async () => {
+        if (!(await confirmModal('Отвязать аккаунт?', 'Этот аккаунт Telegram больше не сможет управлять компьютером.', 'Отвязать'))) return;
+        await api('remove-user', { userId: u.user_id });
+        loadState();
+      } }, 'Отвязать'))));
   }
-  const users = $('#users');
-  if (!STATE.users.length) {
-    users.replaceChildren(el('div', { class: 'empty', text: 'Пока ни один телефон не привязан.' }));
-  } else {
-    users.replaceChildren(...STATE.users.map((u) => el('div', { class: 'item' },
-      el('span', { text: '📱' }),
-      el('div', { class: 'main' },
-        el('div', { text: (u.name || 'Без имени') + (u.username ? ' · @' + u.username : '') }),
-        el('div', { class: 'meta', text: `ID ${u.user_id} · привязан ${fmtTime(u.added)}` })),
-      el('button', {
-        class: 'btn small danger', text: 'Отвязать',
-        onclick: async () => {
-          if (!(await confirmDialog('Отвязать этот телефон? Он больше не сможет управлять компьютером.'))) return;
-          await api('remove-user', { userId: u.user_id });
-          await loadState();
-        },
-      }))));
-  }
-  $('#test-notify').disabled = !STATE.users.length;
+  $('#tg-test').disabled = !STATE.users.length;
 }
 
-// ================= Телефон =================
 $('#token-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#token-error').textContent = '';
@@ -149,6 +470,7 @@ $('#token-form').addEventListener('submit', async (e) => {
     await api('set-token', { token: $('#token-input').value });
     $('#token-input').value = '';
     await loadState();
+    toast('Бот подключён');
   } catch (err) {
     $('#token-error').textContent = err.message;
   } finally {
@@ -156,116 +478,51 @@ $('#token-form').addEventListener('submit', async (e) => {
     btn.textContent = 'Подключить';
   }
 });
-
-$('#change-token').addEventListener('click', async () => {
-  if (!(await confirmDialog('Отключить текущего бота? Привязанные телефоны останутся в списке.'))) return;
+$('#tg-change').addEventListener('click', async () => {
+  if (!(await confirmModal('Отключить бота?', 'Привязанные аккаунты останутся в списке.', 'Отключить'))) return;
   await api('set-token', { token: '' });
-  await loadState();
+  loadState();
 });
-$('#open-bot').addEventListener('click', () => STATE.bot.username && api('open-external', { url: `https://t.me/${STATE.bot.username}` }));
-$('#regen-pair').addEventListener('click', async () => { await api('regen-pair'); await loadState(); });
-$('#test-notify').addEventListener('click', async () => {
-  try { await api('test-notify'); $('#test-notify').textContent = '✅ Отправлено — проверьте Telegram'; } catch (e) { $('#test-notify').textContent = '❌ ' + e.message; }
-  setTimeout(() => { $('#test-notify').textContent = '🔔 Отправить тестовое уведомление'; }, 4000);
+$('#tg-open').addEventListener('click', () => STATE.bot.username && api('open-external', { url: `https://t.me/${STATE.bot.username}` }));
+$('#tg-regen').addEventListener('click', async () => { await api('regen-pair'); loadState(); });
+$('#tg-test').addEventListener('click', async () => {
+  try { await api('test-notify'); toast('Отправлено — проверьте Telegram'); } catch (e) { toast(e.message, 'err'); }
 });
 
-// ================= Обзор =================
-function statCard(label, value, sub, percent) {
-  const c = el('div', { class: 'stat' }, el('div', { class: 'label', text: label }), el('div', { class: 'value', text: value }));
-  if (percent !== null && percent !== undefined) {
+// ===================== процессы =====================
+let procSort = 'cpu';
+let procTimer;
+$('#proc-search').addEventListener('input', () => { clearTimeout(procTimer); procTimer = setTimeout(loadProcesses, 300); });
+$('#proc-refresh').addEventListener('click', loadProcesses);
+$$('#proc-sort button').forEach((b) => b.addEventListener('click', () => {
+  procSort = b.dataset.sort;
+  $$('#proc-sort button').forEach((x) => x.classList.toggle('active', x === b));
+  loadProcesses();
+}));
+
+async function loadProcesses() {
+  let list;
+  try { list = await api('get-processes', { sort: procSort, query: $('#proc-search').value.trim() }); } catch (e) { toast(e.message, 'err'); return; }
+  $('#proc-count').textContent = `Показано ${list.length} процессов`;
+  const maxCpu = Math.max(10, ...list.map((p) => p.cpu));
+  $('#proc-body').replaceChildren(...list.map((p) => {
     const fill = el('i');
-    fill.style.width = Math.min(100, percent) + '%';
-    c.append(el('div', { class: percent >= 90 ? 'bar hot' : percent >= 70 ? 'bar mid' : 'bar' }, fill));
-  }
-  if (sub) c.append(el('div', { class: 'sub', text: sub }));
-  return c;
+    fill.style.width = Math.min(100, (p.cpu / maxCpu) * 100) + '%';
+    return el('tr', {},
+      el('td', { class: 'name', text: p.name, title: p.name }),
+      el('td', { class: 'num dim', text: String(p.pid) }),
+      el('td', { class: 'num' }, el('div', { class: 'cpu-cell' }, el('div', { class: 'bar' }, fill), el('span', { text: p.cpu.toFixed(1) + '%' }))),
+      el('td', { class: 'num', text: fmtBytes(p.mem) }),
+      el('td', { class: 'dim', text: p.user || '' }),
+      el('td', { class: 'num' }, el('button', { class: 'btn sm danger', title: 'Завершить', onclick: async () => {
+        const r = await runAction('kill', String(p.pid));
+        if (r && r.ok) loadProcesses();
+      } }, ic('x', 14))));
+  }));
 }
 
-async function loadStatus() {
-  let s;
-  try { s = await api('get-status'); } catch (e) { return; }
-  $('#os-name').textContent = s.os;
-  const cards = [
-    statCard('Процессор', s.cpu.percent.toFixed(0) + '%', `${s.cpu.threads} потоков`, s.cpu.percent),
-    statCard('Память', s.ram.percent.toFixed(0) + '%', `${fmtBytes(s.ram.used)} из ${fmtBytes(s.ram.total)}`, s.ram.percent),
-  ];
-  for (const d of s.disks.slice(0, 4)) cards.push(statCard('Диск ' + d.mount, d.percent.toFixed(0) + '%', 'свободно ' + fmtBytes(d.free), d.percent));
-  if (s.temp !== null) cards.push(statCard('Температура CPU', Math.round(s.temp) + '°C', null, s.temp));
-  for (const g of s.gpus) cards.push(statCard('Видеокарта', Math.round(g.util) + '%', g.name, g.util));
-  if (s.battery) cards.push(statCard('Батарея', s.battery.percent + '%', s.battery.plugged ? 'заряжается' : 'от батареи', s.battery.percent));
-  cards.push(statCard('Работает', fmtDuration(s.uptime), 'с ' + fmtTime(s.bootTime)));
-  cards.push(statCard('Сеть', s.ips[0] || '—', s.ips.slice(1).join(', ') || 'локальный IP'));
-  $('#stats').replaceChildren(...cards);
-}
-
-let chartData = [];
-$('#chart-range').addEventListener('change', loadChart);
-window.addEventListener('resize', drawChart);
-window.pcc.on('metrics', () => { if (page === 'overview') loadChart(); });
-
-async function loadChart() {
-  try { chartData = await api('get-metrics', { hours: Number($('#chart-range').value) }); } catch (e) { return; }
-  drawChart();
-}
-
-function drawChart() {
-  const c = $('#chart');
-  if (!c.offsetParent) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = c.clientWidth; const h = c.clientHeight;
-  c.width = w * dpr; c.height = h * dpr;
-  const g = c.getContext('2d');
-  g.scale(dpr, dpr);
-  const css = getComputedStyle(document.documentElement);
-  const v = (n) => css.getPropertyValue(n).trim();
-  g.font = '11px "Segoe UI", sans-serif';
-  g.fillStyle = v('--muted');
-  g.strokeStyle = v('--border');
-  const L = 30; const T = 6; const B = 4;
-  const y = (val) => T + (h - T - B) * (1 - Math.max(0, Math.min(100, val)) / 100);
-  for (const val of [0, 50, 100]) {
-    g.beginPath(); g.moveTo(L, y(val)); g.lineTo(w, y(val)); g.stroke();
-    g.fillText(String(val), 2, y(val) + 4);
-  }
-  if (chartData.length < 2) { g.fillText('Данные собираются (каждые 30 секунд)…', L + 10, h / 2); return; }
-  const t0 = chartData[0].ts; const t1 = chartData[chartData.length - 1].ts;
-  const x = (ts) => L + (w - L) * ((ts - t0) / Math.max(1, t1 - t0));
-  for (const [key, color] of [['ram', '--ram'], ['cpu', '--cpu'], ['temp', '--temp']]) {
-    g.strokeStyle = v(color); g.lineWidth = 2; g.lineJoin = 'round';
-    g.beginPath();
-    let started = false;
-    for (const p of chartData) {
-      if (p[key] === null || p[key] === undefined) { started = false; continue; }
-      if (started) g.lineTo(x(p.ts), y(p[key])); else { g.moveTo(x(p.ts), y(p[key])); started = true; }
-    }
-    g.stroke();
-  }
-}
-
-// ================= Управление =================
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-act]');
-  if (!btn) return;
-  const name = btn.dataset.act;
-  const a = ACTIONS[name];
-  if (!a) return;
-  const arg = btn.dataset.arg ? document.getElementById(btn.dataset.arg).value.trim() : '';
-  if (a.argRequired && !arg) { showResult('#action-result', 'Введите ' + a.argHint, false); return; }
-  if (a.dangerous && !(await confirmDialog(a.title + '?'))) return;
-  btn.disabled = true;
-  try {
-    const r = await api('run-action', { name, arg });
-    showResult('#action-result', r.result, r.ok);
-  } catch (err) {
-    showResult('#action-result', err.message, false);
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-// ================= Задачи =================
+// ===================== задачи =====================
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-
 function fillTaskForm() {
   const cats = { power: 'Питание', media: 'Звук', updates: 'Обновления', system: 'Система', misc: 'Разное' };
   const sel = $('#task-action');
@@ -281,7 +538,6 @@ function fillTaskForm() {
   $('#task-at').value = dt.toISOString().slice(0, 16);
   updateTaskForm();
 }
-
 function updateTaskForm() {
   const a = ACTIONS[$('#task-action').value];
   $('#task-arg-wrap').classList.toggle('hidden', !(a && a.argHint));
@@ -294,7 +550,6 @@ function updateTaskForm() {
 }
 $('#task-action').addEventListener('change', updateTaskForm);
 $('#task-kind').addEventListener('change', updateTaskForm);
-
 $('#task-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#task-error').textContent = '';
@@ -302,78 +557,78 @@ $('#task-form').addEventListener('submit', async (e) => {
   const t = { action: $('#task-action').value, arg: $('#task-arg').value.trim(), kind };
   if (kind === 'in') t.delayMinutes = Number($('#task-delay').value);
   if (kind === 'at') t.runAt = $('#task-at').value;
-  if (kind === 'daily') {
-    t.timeOfDay = $('#task-time').value;
-    t.weekdays = $$('#task-days input:checked').map((i) => Number(i.value));
-  }
+  if (kind === 'daily') { t.timeOfDay = $('#task-time').value; t.weekdays = $$('#task-days input:checked').map((i) => Number(i.value)); }
   try {
     await api('add-task', t);
     $('#task-arg').value = '';
+    toast('Задача добавлена');
     loadTasks();
-  } catch (err) {
-    $('#task-error').textContent = err.message;
-  }
+  } catch (err) { $('#task-error').textContent = err.message; }
 });
-
 async function loadTasks() {
   const tasks = await api('get-tasks');
   const box = $('#tasks');
-  if (!tasks.length) { box.replaceChildren(el('div', { class: 'card empty', text: 'Задач пока нет.' })); return; }
-  box.replaceChildren(...tasks.map((t) => el('div', { class: 'item' + (t.enabled ? '' : ' off') },
-    el('div', { class: 'main' },
-      el('div', { text: t.description }),
-      t.last_run ? el('div', { class: 'meta', text: 'последний запуск: ' + fmtTime(t.last_run) }) : null),
-    el('button', { class: 'btn small', text: t.enabled ? '⏸ Выключить' : '▶ Включить', onclick: async () => { await api('toggle-task', { id: t.id }); loadTasks(); } }),
-    el('button', { class: 'btn small danger', text: '🗑', title: 'Удалить', onclick: async () => { await api('delete-task', { id: t.id }); loadTasks(); } }))));
+  if (!tasks.length) { box.replaceChildren(el('div', { class: 'empty' }, ic('calendar', 30), 'Задач пока нет')); return; }
+  box.replaceChildren(...tasks.map((t) => {
+    const sw = el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!t.enabled }), el('span'));
+    sw.querySelector('input').addEventListener('change', async () => { await api('toggle-task', { id: t.id }); loadTasks(); });
+    return el('div', { class: 'item' + (t.enabled ? '' : ' off') },
+      el('div', { class: 'item-ic' }, ic(Icons.ACTION_ICONS[t.action] || 'clock', 18)),
+      el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: t.description.replace(/^#\d+\s*(🔁|🕐)?\s*/u, '') }),
+        el('div', { class: 'item-sub', text: (t.kind === 'daily' ? 'повторяется' : 'один раз') + (t.last_run ? ' · последний запуск ' + fmtTime(t.last_run) : '') })),
+      sw,
+      el('button', { class: 'btn sm ghost', title: 'Удалить', onclick: async () => { await api('delete-task', { id: t.id }); loadTasks(); } }, ic('trash', 15)));
+  }));
 }
 
-// ================= Журнал =================
+// ===================== журнал =====================
+let logMode = 'events';
 $$('#log-tabs button').forEach((b) => b.addEventListener('click', () => {
   logMode = b.dataset.mode;
   $$('#log-tabs button').forEach((x) => x.classList.toggle('active', x === b));
   loadLog();
 }));
-
 async function loadLog() {
   const rows = await api('get-log', { mode: logMode });
   const box = $('#log');
-  if (!rows.length) { box.replaceChildren(el('div', { class: 'empty', text: 'Пока пусто' })); return; }
-  const icons = { info: 'ℹ️', warning: '⚠️', critical: '🚨', running: '⏳', done: '✅', error: '❌' };
-  const src = { telegram: 'Telegram', app: 'ПК', scheduler: 'планировщик' };
+  if (!rows.length) { box.replaceChildren(el('div', { class: 'empty' }, ic('list', 30), 'Пока пусто')); return; }
+  const src = { telegram: 'Telegram', app: 'ПК', scheduler: 'планировщик', mobile: 'телефон' };
   if (logMode === 'jobs') {
-    const open = new Set($$('#log details[open]').map((d) => d.dataset.id));
-    box.replaceChildren(...rows.map((j) => el('details', { class: 'log-row', 'data-id': String(j.id), open: open.has(String(j.id)) },
-      el('summary', {}, el('time', { text: fmtTime(j.started) }), `${icons[j.status] || ''} #${j.id} ${j.title}`),
+    const open = new Set($$('details.job[open]').map((d) => d.dataset.id));
+    box.replaceChildren(...rows.map((j) => el('details', { class: 'job', 'data-id': String(j.id), open: open.has(String(j.id)) },
+      el('summary', {}, ic(j.status === 'running' ? 'hourglass' : j.status === 'done' ? 'check' : 'alert', 17),
+        el('b', { text: j.title }), el('span', { class: 'spacer' }),
+        el('span', { class: 'pill ' + (j.status === 'done' ? 'ok' : j.status === 'error' ? 'err' : 'warn'), text: j.status === 'done' ? 'готово' : j.status === 'error' ? 'ошибка' : 'выполняется' }),
+        el('span', { class: 'dim small', text: fmtTime(j.started) })),
       el('pre', { class: 'output', text: j.status === 'running' ? 'Выполняется…' : (j.output || '(нет вывода)') }))));
   } else if (logMode === 'commands') {
-    box.replaceChildren(...rows.map((r) => el('div', { class: 'log-row' }, el('time', { text: fmtTime(r.ts) }),
-      `${r.ok ? '✅' : '❌'} [${src[r.source] || r.source}] ${ACTIONS[r.action] ? ACTIONS[r.action].title : r.action}${r.arg ? ' «' + r.arg.slice(0, 80) + '»' : ''}`)));
+    box.replaceChildren(...rows.map((r) => el('div', { class: 'log-row ' + (r.ok ? 'success' : 'fail') },
+      ic(Icons.ACTION_ICONS[r.action] || 'zap', 16), el('time', { text: fmtTime(r.ts) }),
+      el('div', { class: 'msg' }, (ACTIONS[r.action] ? ACTIONS[r.action].title : r.action) + (r.arg ? ` «${r.arg.slice(0, 80)}»` : ''), el('span', { class: 'dim small', text: '  · ' + (src[r.source] || r.source) + (r.user ? ' · ' + r.user : '') })))));
   } else {
-    box.replaceChildren(...rows.map((r) => el('div', { class: 'log-row' }, el('time', { text: fmtTime(r.ts) }), `${icons[r.level] || ''} ${r.message}`)));
+    box.replaceChildren(...rows.map((r) => el('div', { class: 'log-row ' + r.level },
+      ic(r.level === 'info' ? 'info' : 'alert', 16), el('time', { text: fmtTime(r.ts) }), el('div', { class: 'msg', text: r.message }))));
   }
 }
 
-// ================= Настройки =================
-const getPath = (obj, p) => p.split('.').reduce((o, k) => (o ? o[k] : undefined), obj);
-function setPath(obj, p, val) {
-  const keys = p.split('.');
-  let o = obj;
-  keys.slice(0, -1).forEach((k) => { o[k] = o[k] || {}; o = o[k]; });
-  o[keys[keys.length - 1]] = val;
+// ===================== настройки =====================
+const getPath = (o, p) => p.split('.').reduce((x, k) => (x ? x[k] : undefined), o);
+function setPath(o, p, v) {
+  const ks = p.split('.');
+  let x = o;
+  ks.slice(0, -1).forEach((k) => { x[k] = x[k] || {}; x = x[k]; });
+  x[ks[ks.length - 1]] = v;
 }
-
-function appRow(app = { name: '', cmd: '' }) {
+function appRow(a = { name: '', cmd: '' }) {
   return el('div', { class: 'row app-row' },
-    el('input', { placeholder: 'Название', value: app.name, class: 'app-name' }),
-    el('input', { placeholder: 'Программа или путь, например chrome.exe', value: app.cmd, class: 'app-cmd' }),
-    el('button', { class: 'btn small danger', type: 'button', text: '✖', onclick: (e) => e.target.closest('.app-row').remove() }));
+    el('input', { class: 'input app-name', placeholder: 'Название', value: a.name }),
+    el('input', { class: 'input app-cmd', placeholder: 'Программа или путь, например steam.exe', value: a.cmd }),
+    el('button', { class: 'btn sm ghost', type: 'button', onclick: (e) => e.target.closest('.app-row').remove() }, ic('x', 15)));
 }
 $('#add-app').addEventListener('click', () => $('#apps').append(appRow()));
-
 function fillSettings() {
-  const cfg = STATE.config;
   $$('[data-cfg]').forEach((inp) => {
-    const v = getPath(cfg, inp.dataset.cfg);
+    const v = getPath(STATE.config, inp.dataset.cfg);
     if (inp.type === 'checkbox') inp.checked = !!v;
     else if ('list' in inp.dataset) inp.value = (v || []).join(', ');
     else if ('lines' in inp.dataset) inp.value = (v || []).join('\n');
@@ -381,10 +636,9 @@ function fillSettings() {
   });
   $('#autostart').checked = STATE.autostart.enabled;
   $('#notif-enabled').checked = !STATE.muted;
-  $('#apps').replaceChildren(...cfg.apps.map(appRow));
+  $('#apps').replaceChildren(...STATE.config.apps.map(appRow));
   $('#settings-result').textContent = '';
 }
-
 $('#save-settings').addEventListener('click', async () => {
   const patch = {};
   $$('[data-cfg]').forEach((inp) => {
@@ -396,41 +650,55 @@ $('#save-settings').addEventListener('click', async () => {
     else v = inp.value.trim();
     setPath(patch, inp.dataset.cfg, v);
   });
-  patch.apps = $$('.app-row').map((r) => ({ name: r.querySelector('.app-name').value.trim(), cmd: r.querySelector('.app-cmd').value.trim() }))
-    .filter((a) => a.name && a.cmd);
+  patch.apps = $$('.app-row').map((r) => ({ name: $('.app-name', r).value.trim(), cmd: $('.app-cmd', r).value.trim() })).filter((a) => a.name && a.cmd);
   try {
     await api('save-config', patch);
     await api('set-muted', { muted: !$('#notif-enabled').checked });
     if ($('#autostart').checked !== STATE.autostart.enabled) await api('set-autostart', { enabled: $('#autostart').checked });
     await loadState();
     fillSettings();
-    showResult('#settings-result', '✅ Настройки сохранены');
-  } catch (e) {
-    showResult('#settings-result', e.message, false);
-  }
+    $('#settings-result').textContent = 'Сохранено';
+    toast('Настройки сохранены');
+  } catch (e) { toast(e.message, 'err'); }
 });
 
+// ===================== о программе =====================
+function renderAbout() {
+  const box = $('#changelog');
+  box.replaceChildren(...Changelog.CHANGELOG.map((v) => el('div', { class: 'tl-item' + (v.version === STATE.version ? ' current' : '') },
+    el('div', { class: 'tl-head' }, el('b', { text: 'Версия ' + v.version }), v.version === STATE.version ? el('span', { class: 'pill ok', text: 'установлена' }) : null,
+      el('span', { class: 'dim small', text: fmtDate(v.date) })),
+    el('div', { class: 'muted small mb6', text: v.title }), ...changeList(v.items))));
+  renderUpdate(STATE.update);
+}
+function renderUpdate(u) {
+  if (!u) return;
+  $('#install-update').classList.toggle('hidden', !u.hasUpdate);
+  $('#update-result').textContent = u.hasUpdate ? `Доступна версия ${u.latest}. Установка займёт около минуты, программа перезапустится сама.`
+    : u.latest ? `Установлена последняя версия (${u.current}).` : (u.message || '');
+}
 $('#check-update').addEventListener('click', async () => {
   $('#update-result').textContent = 'Проверяю…';
-  try {
-    const r = await api('check-app-update');
-    $('#update-result').textContent = r.hasUpdate
-      ? `Доступна версия ${r.latest}. Установить можно из Telegram: «🔄 Обновления → 🤖 Обновить PC Full Control».`
-      : r.latest ? `Установлена последняя версия (${r.current}).` : (r.message || 'Релизы не найдены');
-  } catch (e) {
-    $('#update-result').textContent = 'Не удалось проверить: ' + e.message;
-  }
+  try { STATE.update = await api('check-app-update'); renderUpdate(STATE.update); loadState(); } catch (e) { $('#update-result').textContent = 'Не удалось проверить: ' + e.message; }
 });
+$('#install-update').addEventListener('click', async () => {
+  if (!(await confirmModal('Установить обновление?', 'Программа скачает новую версию, установит её и перезапустится.', 'Установить', false))) return;
+  $('#install-update').disabled = true;
+  $('#update-result').textContent = 'Скачиваю обновление…';
+  try { const r = await api('run-action', { name: 'app_update' }); $('#update-result').textContent = r.result; } catch (e) { $('#update-result').textContent = e.message; $('#install-update').disabled = false; }
+});
+$('#title-update').addEventListener('click', () => go('about'));
+$('#show-whatsnew').addEventListener('click', () => showWhatsNew(null, STATE.version));
 $('#open-data').addEventListener('click', () => api('open-data-dir'));
 $('#quit-app').addEventListener('click', async () => {
-  if (await confirmDialog('Выйти из приложения? Управление с телефона перестанет работать до следующего запуска.')) api('quit');
+  if (await confirmModal('Выйти из программы?', 'Управление с телефона перестанет работать до следующего запуска.', 'Выйти')) api('quit');
 });
 
-// ================= Обновления от главного процесса =================
-let refreshTimer = null;
+// ===================== события от главного процесса =====================
+let refreshT;
 window.pcc.on('refresh', () => {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(async () => {
+  clearTimeout(refreshT);
+  refreshT = setTimeout(async () => {
     await loadState();
     if (page === 'log') loadLog();
     if (page === 'tasks') loadTasks();
@@ -438,6 +706,13 @@ window.pcc.on('refresh', () => {
 });
 
 (async () => {
+  Icons.hydrate();
   await loadState();
-  go(STATE.bot.configured && STATE.users.length ? 'overview' : 'phone');
+  const needSetup = !STATE.mobile.devices && !(STATE.bot.configured && STATE.users.length);
+  go(needSetup ? 'phone' : 'overview');
+  const wn = await api('whatsnew-state');
+  if (wn && wn.pending) {
+    await showWhatsNew(wn.pending.from, wn.pending.to);
+    api('whatsnew-ack');
+  }
 })();

@@ -8,7 +8,12 @@ const { AppContext } = require('./context');
 const { Monitor } = require('./monitor');
 const { TelegramBot } = require('./bot');
 const { TelegramAPI } = require('./telegram-api');
+const { LanServer } = require('./lan-server');
 const info = require('./system/info');
+const processes = require('./system/processes');
+const media = require('./system/media');
+const { between: changesBetween } = require('../shared/changelog');
+const { E } = require('./telegram-api');
 const { run, IS_WIN } = require('./system/exec');
 
 const TASK_NAME = 'PCFullControl';
@@ -54,9 +59,12 @@ async function init() {
       app.exit(0);
     },
   });
+  trackVersion();
   ctx.monitor = new Monitor(ctx);
   ctx.monitor.start();
   ctx.scheduler.start();
+  ctx.lan = new LanServer(ctx);
+  ctx.lan.start();
   startBot();
   createTray();
   registerIpc();
@@ -67,7 +75,38 @@ async function init() {
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
 
-  if (!process.argv.includes('--hidden')) showWindow();
+  if (!process.argv.includes('--hidden') || ctx.db.getSetting('pendingWhatsNew')) showWindow();
+  setTimeout(checkAppUpdate, 30 * 1000);
+  setInterval(checkAppUpdate, 6 * 3600 * 1000);
+}
+
+// ================= Версии и обновления =================
+function trackVersion() {
+  const db = ctx.db;
+  const version = app.getVersion();
+  const prev = db.getSetting('lastSeenVersion');
+  // В версии 1.0.0 lastSeenVersion ещё не сохранялась — узнаём её по другим настройкам
+  const from = prev || (db.getSetting('autostartInitialized') ? '1.0.0' : null);
+  db.setSetting('lastSeenVersion', version);
+  if (!from || from === version) return;
+  db.setSetting('pendingWhatsNew', { from, to: version });
+  const changes = changesBetween(from, version);
+  const lines = changes.flatMap((v) => v.items.map(([, t]) => `• ${E(t)}`));
+  ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
+}
+
+async function checkAppUpdate() {
+  try {
+    ctx.updateInfo = await ctx.appUpdater.check();
+  } catch (e) {
+    return;
+  }
+  const u = ctx.updateInfo;
+  if (u.hasUpdate && ctx.db.getSetting('notifiedUpdate') !== u.latest) {
+    ctx.db.setSetting('notifiedUpdate', u.latest);
+    ctx.notifier.notify(`✨ Доступна новая версия PC Full Control <b>${E(u.latest)}</b>.\nУстановить: «🔄 Обновления → 🤖 Обновить PC Full Control» или в программе на ПК.`, { category: 'update' });
+  }
+  send('refresh');
 }
 
 function startBot() {
@@ -91,8 +130,10 @@ function showWindow() {
     return;
   }
   mainWindow = new BrowserWindow({
-    width: 1100, height: 760, minWidth: 820, minHeight: 560,
-    title: 'PC Full Control', icon: ICON, backgroundColor: '#101318', show: false, autoHideMenuBar: true,
+    width: 1240, height: 820, minWidth: 900, minHeight: 600,
+    title: 'PC Full Control', icon: ICON, backgroundColor: '#090b10', show: false, autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0d1017', symbolColor: '#cfd6e4', height: 44 },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   mainWindow.removeMenu();
@@ -152,6 +193,7 @@ async function quit() {
       ctx.monitor && ctx.monitor.stop();
       ctx.scheduler.stop();
       ctx.bot && ctx.bot.stop();
+      ctx.lan && ctx.lan.stop();
       await ctx.notifier.flush(3000);
       ctx.db.close();
     }
@@ -244,9 +286,21 @@ function registerIpc() {
     autostart: await getAutostart(),
     actions: ctx.actions.available().map((a) => ctx.actions.toJSON(a)),
     dataDir: app.getPath('userData'),
+    mobile: {
+      enabled: !!ctx.config.mobile.enabled, status: ctx.lan ? ctx.lan.status : 'stopped',
+      error: ctx.lan ? ctx.lan.error : '', devices: ctx.db.listDevices().length,
+    },
+    update: ctx.updateInfo || null,
   }));
 
-  handle('get-status', () => info.getStatus());
+  handle('get-status', async () => {
+    const s = await info.getStatus();
+    s.volume = await media.getVolume();
+    return s;
+  });
+  handle('get-processes', ({ sort = 'cpu', query = '' }) => processes.listProcesses({ sort, query, limit: 150 }));
+  handle('whatsnew-state', () => ({ pending: ctx.db.getSetting('pendingWhatsNew') }));
+  handle('whatsnew-ack', () => { ctx.db.setSetting('pendingWhatsNew', null); return true; });
   handle('get-metrics', ({ hours = 1 }) => {
     const rows = ctx.db.metricsSince(Date.now() / 1000 - Math.min(Math.max(hours, 0.1), 168) * 3600);
     const step = Math.max(1, Math.floor(rows.length / 400));
@@ -279,6 +333,19 @@ function registerIpc() {
   });
 
   handle('regen-pair', () => { ctx.pairingCode(true); return pairingInfo(); });
+
+  // --- приложение на телефоне ---
+  handle('mobile-info', async () => {
+    const i = ctx.lan.pairInfo();
+    const qr = i.pairUrl ? await QRCode.toDataURL(i.pairUrl, { margin: 1, width: 260, color: { dark: '#0b0d12', light: '#ffffff' } }) : null;
+    return { ...i, qr, devices: ctx.db.listDevices(), enabled: !!ctx.config.mobile.enabled };
+  });
+  handle('mobile-regen', () => { ctx.lan.pairCode(true); return true; });
+  handle('remove-device', ({ id }) => {
+    ctx.db.removeDevice(id);
+    ctx.db.addEvent('warning', 'security', `Телефон с приложением отвязан (#${id})`);
+    return true;
+  });
   handle('remove-user', ({ userId }) => {
     ctx.db.removeTgUser(userId);
     ctx.db.addEvent('warning', 'security', `Телефон отвязан: ${userId}`);
@@ -292,8 +359,10 @@ function registerIpc() {
 
   handle('save-config', (patch) => {
     const before = ctx.config.monitor.intervalSec;
+    const mobileBefore = JSON.stringify(ctx.config.mobile);
     const cfg = ctx.updateConfig(patch);
     if (cfg.monitor.intervalSec !== before) { ctx.monitor.stop(); ctx.monitor.start(); }
+    if (JSON.stringify(cfg.mobile) !== mobileBefore) ctx.lan.start();
     updateTray();
     return cfg;
   });
@@ -328,7 +397,7 @@ function registerIpc() {
     if (mode === 'jobs') return ctx.db.recentJobs(30);
     return ctx.db.recentEvents(limit);
   });
-  handle('check-app-update', () => ctx.appUpdater.check());
+  handle('check-app-update', async () => { ctx.updateInfo = await ctx.appUpdater.check(); return ctx.updateInfo; });
   handle('open-external', ({ url }) => {
     if (!/^https:\/\/(t\.me|telegram\.me|github\.com)\//.test(url)) throw new Error('Ссылка не разрешена');
     return shell.openExternal(url);

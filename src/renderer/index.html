@@ -7,289 +7,366 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div class="titlebar">
+  <img src="../../build/icon.png" alt="">
+  <span class="t-name">PC Full Control</span>
+  <span class="pill t-pill hidden" id="title-update"><i data-ic="sparkles" data-size="14"></i>Доступно обновление</span>
+</div>
+
 <div class="layout">
-  <!-- Боковое меню -->
   <aside class="sidebar">
     <div class="brand">
       <img src="../../build/icon.png" alt="" class="brand-logo">
       <div>
         <div class="brand-name">PC Full Control</div>
-        <div class="muted small" id="pc-name"></div>
+        <div class="brand-sub" id="brand-sub"></div>
       </div>
     </div>
-    <nav class="nav">
-      <button data-page="overview" class="active"><span>📊</span>Обзор</button>
-      <button data-page="phone"><span>📱</span>Телефон</button>
-      <button data-page="control"><span>🎛</span>Управление</button>
-      <button data-page="tasks"><span>⏰</span>Задачи</button>
-      <button data-page="log"><span>📜</span>Журнал</button>
-      <button data-page="settings"><span>⚙️</span>Настройки</button>
+    <nav class="nav" id="nav">
+      <button data-page="overview" class="active"><i data-ic="dashboard"></i><span class="lbl">Обзор</span></button>
+      <button data-page="phone"><i data-ic="phone"></i><span class="lbl">Телефон</span><span class="badge-dot hidden" id="phone-dot"></span></button>
+      <button data-page="control"><i data-ic="grid"></i><span class="lbl">Управление</span></button>
+      <button data-page="processes"><i data-ic="activity"></i><span class="lbl">Процессы</span></button>
+      <button data-page="tasks"><i data-ic="calendar"></i><span class="lbl">Задачи</span></button>
+      <button data-page="log"><i data-ic="list"></i><span class="lbl">Журнал</span></button>
+      <button data-page="settings"><i data-ic="sliders"></i><span class="lbl">Настройки</span></button>
+      <button data-page="about"><i data-ic="info"></i><span class="lbl">О программе</span><span class="badge-dot hidden" id="about-dot"></span></button>
     </nav>
-    <div class="bot-pill" id="bot-pill"><span class="dot"></span><span id="bot-pill-text">—</span></div>
+    <div class="side-status">
+      <div class="side-row"><span class="dot" id="s-tg-dot"></span><span id="s-tg">Telegram</span></div>
+      <div class="side-row"><span class="dot" id="s-app-dot"></span><span id="s-app">Приложение</span></div>
+    </div>
   </aside>
 
-  <main class="content">
-    <!-- ============ ОБЗОР ============ -->
-    <section class="page" id="page-overview">
-      <header class="page-head">
-        <h1>Обзор</h1>
-        <span class="muted" id="os-name"></span>
-      </header>
+  <main class="content" id="content">
 
-      <div class="card setup-banner hidden" id="setup-banner">
-        <div>
-          <h2>Подключите телефон</h2>
-          <p class="muted">Создайте бота в Telegram и отсканируйте QR-код — это займёт пару минут.</p>
+    <!-- ================= ОБЗОР ================= -->
+    <section class="page" id="page-overview">
+      <div class="hero">
+        <div class="hero-left">
+          <div class="hero-ic"><i data-ic="monitor" data-size="30"></i></div>
+          <div>
+            <h2 id="hero-name">Компьютер</h2>
+            <p id="hero-sub">…</p>
+          </div>
+        </div>
+        <div class="hero-pills" id="hero-pills"></div>
+      </div>
+
+      <div class="banner hidden" id="setup-banner">
+        <div class="b-ic"><i data-ic="phone" data-size="22"></i></div>
+        <div class="spacer">
+          <h3>Подключите телефон</h3>
+          <p>Приложение на телефоне по Wi-Fi или Telegram-бот из любой точки — настройка займёт минуту.</p>
         </div>
         <button class="btn primary" data-goto="phone">Настроить</button>
       </div>
 
-      <div class="stats" id="stats"></div>
+      <div class="grid g4" id="gauges"></div>
 
-      <div class="card">
-        <div class="card-head">
-          <h2>Нагрузка</h2>
-          <select id="chart-range" class="mini">
-            <option value="1">1 час</option>
-            <option value="6">6 часов</option>
-            <option value="24">24 часа</option>
-            <option value="168">7 дней</option>
-          </select>
-        </div>
-        <canvas id="chart"></canvas>
-        <div class="legend"><i class="lg cpu"></i>CPU <i class="lg ram"></i>Память <i class="lg temp"></i>Температура, °C</div>
-      </div>
-    </section>
-
-    <!-- ============ ТЕЛЕФОН ============ -->
-    <section class="page hidden" id="page-phone">
-      <header class="page-head"><h1>Подключение телефона</h1></header>
-
-      <div class="card step">
-        <div class="step-num" id="step1-num">1</div>
-        <div class="step-body">
-          <h2>Создайте Telegram-бота</h2>
-          <div id="token-setup">
-            <ol class="howto">
-              <li>Откройте в Telegram <a href="#" data-link="https://t.me/BotFather">@BotFather</a>.</li>
-              <li>Отправьте ему команду <code>/newbot</code>, придумайте имя и логин бота (логин заканчивается на <code>bot</code>).</li>
-              <li>BotFather пришлёт токен вида <code>123456789:AAH…</code> — скопируйте его сюда.</li>
-            </ol>
-            <form id="token-form" class="row">
-              <input id="token-input" type="password" placeholder="Токен бота" autocomplete="off" spellcheck="false">
-              <button class="btn primary" type="submit">Подключить</button>
-            </form>
-            <p class="error" id="token-error"></p>
-          </div>
-          <div id="token-done" class="hidden">
-            <p>Бот <b id="bot-name"></b> подключён. <span class="muted" id="bot-state"></span></p>
+      <div class="grid g-main mt">
+        <div class="card">
+          <div class="card-head">
+            <h3 class="card-title"><i data-ic="activity" data-size="18"></i>Нагрузка</h3>
             <div class="row">
-              <button class="btn" id="open-bot">Открыть бота</button>
-              <button class="btn" id="change-token">Сменить бота</button>
+              <div class="legend"><span><i class="lg-cpu"></i>CPU</span><span><i class="lg-ram"></i>Память</span><span><i class="lg-temp"></i>°C</span></div>
+              <div class="seg" id="chart-range">
+                <button data-h="1" class="active">1 ч</button><button data-h="6">6 ч</button><button data-h="24">24 ч</button><button data-h="168">7 д</button>
+              </div>
             </div>
+          </div>
+          <canvas id="chart"></canvas>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3 class="card-title mb6"><i data-ic="disk" data-size="18"></i>Диски</h3>
+            <div id="disks"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title mb6"><i data-ic="info" data-size="18"></i>Система</h3>
+            <div id="sysinfo"></div>
           </div>
         </div>
       </div>
 
-      <div class="card step" id="step2">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <h2>Привяжите телефон</h2>
-          <div class="pair hidden" id="pair-box">
-            <img id="pair-qr" alt="QR-код для привязки" class="qr">
-            <div class="pair-text">
-              <p><b>Наведите камеру телефона на QR-код</b> — откроется ваш бот. Нажмите «Запустить» (Start), и телефон привяжется.</p>
-              <p class="muted">Или отправьте боту команду:<br><code id="pair-cmd"></code></p>
-              <p class="muted small">Код одноразовый. После привязки появится новый.</p>
-              <button class="btn small" id="regen-pair">Новый код</button>
-            </div>
-          </div>
-          <p class="muted" id="pair-wait">Сначала подключите бота (шаг 1).</p>
+      <div class="section-label mt22">Быстрые действия</div>
+      <div class="tiles" id="quick-tiles"></div>
+    </section>
+
+    <!-- ================= ТЕЛЕФОН ================= -->
+    <section class="page hidden" id="page-phone">
+      <div class="page-head">
+        <div><h1>Телефон</h1><p>Два способа управлять компьютером с телефона — можно использовать оба.</p></div>
+        <div class="seg" id="phone-tabs">
+          <button data-tab="app" class="active">Приложение на телефоне</button><button data-tab="tg">Telegram-бот</button>
         </div>
       </div>
 
-      <div class="card step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <h2>Привязанные телефоны</h2>
-          <div id="users" class="list"></div>
-          <div class="row mt">
-            <button class="btn" id="test-notify">🔔 Отправить тестовое уведомление</button>
+      <!-- приложение -->
+      <div id="phone-app">
+        <div class="card">
+          <div class="pair-grid">
+            <div class="qr-col">
+              <div class="qr-box"><img id="m-qr" alt="QR-код для привязки"></div>
+              <div class="code-big" id="m-code"></div>
+              <div class="code-meta" id="m-code-meta"></div>
+              <div class="row center mt10"><button class="btn sm" id="m-regen"><i data-ic="restart" data-size="15"></i>Новый код</button></div>
+            </div>
+            <div>
+              <div class="row mb16">
+                <h3 class="card-title"><i data-ic="phone" data-size="18"></i>Приложение по Wi-Fi</h3>
+                <span class="spacer"></span><span class="pill" id="m-status"></span>
+              </div>
+              <div class="steps">
+                <div class="step"><div class="step-n">1</div><div>
+                  <h4>Установите приложение</h4>
+                  <div class="platforms">
+                    <div class="platform"><i data-ic="android" data-size="22"></i><div><b>Android</b><span>Скачайте <a href="#" data-link="https://github.com/FluffyBarbara/pcfullcontrol/releases/latest/download/PCControl-Android.apk">PCControl-Android.apk</a> и установите.</span></div></div>
+                    <div class="platform"><i data-ic="apple" data-size="22"></i><div><b>iPhone</b><span>Отсканируйте QR камерой → Safari → «Поделиться» → «На экран Домой».</span></div></div>
+                  </div>
+                </div></div>
+                <div class="step"><div class="step-n">2</div><div>
+                  <h4>Отсканируйте QR-код</h4>
+                  <p>В приложении нажмите «Сканировать QR-код» (на iPhone — просто камерой). Или введите код вручную.</p>
+                </div></div>
+                <div class="step"><div class="step-n" id="m-step3">3</div><div>
+                  <h4>Готово</h4>
+                  <p>Телефон и компьютер должны быть в одной сети Wi-Fi. Вне дома пользуйтесь Telegram-ботом.</p>
+                </div></div>
+              </div>
+              <div class="section-label">Адрес компьютера</div>
+              <div class="list" id="m-addrs"></div>
+            </div>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 class="card-title"><i data-ic="shield" data-size="18"></i>Привязанные телефоны</h3></div>
+          <div class="list" id="m-devices"></div>
+        </div>
+      </div>
+
+      <!-- telegram -->
+      <div id="phone-tg" class="hidden">
+        <div class="card">
+          <div class="row mb16">
+            <h3 class="card-title"><i data-ic="telegram" data-size="18"></i>Telegram-бот</h3>
+            <span class="spacer"></span><span class="pill" id="tg-status"></span>
+          </div>
+          <div id="tg-setup">
+            <div class="steps">
+              <div class="step"><div class="step-n">1</div><div><h4>Создайте бота</h4>
+                <p>Откройте в Telegram <a href="#" data-link="https://t.me/BotFather">@BotFather</a>, отправьте <code>/newbot</code>, придумайте имя и логин (заканчивается на <code>bot</code>).</p></div></div>
+              <div class="step"><div class="step-n">2</div><div><h4>Вставьте токен</h4>
+                <p>BotFather пришлёт токен вида <code>123456789:AAH…</code></p>
+                <form id="token-form" class="row mt">
+                  <input id="token-input" class="input" type="password" placeholder="Токен бота" autocomplete="off" spellcheck="false">
+                  <button class="btn primary" type="submit">Подключить</button>
+                </form>
+                <p class="error" id="token-error"></p></div></div>
+            </div>
+          </div>
+          <div id="tg-done" class="hidden">
+            <div class="pair-grid">
+              <div class="qr-col">
+                <div class="qr-box"><img id="tg-qr" alt="QR-код бота"></div>
+                <div class="code-meta">или команда <code id="tg-cmd"></code></div>
+              </div>
+              <div>
+                <div class="steps">
+                  <div class="step"><div class="step-n done"><i data-ic="check" data-size="15"></i></div><div><h4>Бот <span id="tg-name"></span> подключён</h4><p id="tg-state"></p></div></div>
+                  <div class="step"><div class="step-n">2</div><div><h4>Привяжите Telegram</h4><p>Наведите камеру телефона на QR-код — откроется бот. Нажмите «Запустить». Код одноразовый.</p></div></div>
+                </div>
+                <div class="row mt">
+                  <button class="btn" id="tg-open"><i data-ic="telegram" data-size="16"></i>Открыть бота</button>
+                  <button class="btn" id="tg-regen"><i data-ic="restart" data-size="16"></i>Новый код</button>
+                  <button class="btn" id="tg-test"><i data-ic="bell" data-size="16"></i>Тестовое уведомление</button>
+                  <button class="btn ghost" id="tg-change">Сменить бота</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 class="card-title"><i data-ic="user" data-size="18"></i>Привязанные аккаунты Telegram</h3></div>
+          <div class="list" id="tg-users"></div>
         </div>
       </div>
     </section>
 
-    <!-- ============ УПРАВЛЕНИЕ ============ -->
+    <!-- ================= УПРАВЛЕНИЕ ================= -->
     <section class="page hidden" id="page-control">
-      <header class="page-head"><h1>Управление</h1><span class="muted">То же, что доступно с телефона</span></header>
-      <div class="grid2">
-        <div class="card">
-          <h2>Питание</h2>
-          <div class="btn-grid">
-            <button class="btn danger" data-act="shutdown">⏻ Выключить</button>
-            <button class="btn warn" data-act="reboot">🔄 Перезагрузить</button>
-            <button class="btn" data-act="sleep">😴 Сон</button>
-            <button class="btn" data-act="lock">🔒 Блокировка</button>
-            <button class="btn" data-act="monitor_off">🌑 Монитор</button>
-            <button class="btn" data-act="cancel_shutdown">🚫 Отмена выкл.</button>
-          </div>
-        </div>
-        <div class="card">
-          <h2>Обновление ПО</h2>
-          <div class="btn-grid">
-            <button class="btn" data-act="check_updates">🔍 Проверить</button>
-            <button class="btn primary" data-act="upgrade_all">⬆️ Обновить всё</button>
-            <button class="btn win-only" data-act="win_update_check">🪟 Windows Update</button>
-            <button class="btn win-only" data-act="win_update_install">🪟 Установить</button>
-          </div>
-          <p class="muted small mt">Результат появится в «Журнал → Задания» и придёт в Telegram.</p>
-        </div>
-        <div class="card">
-          <h2>Звук</h2>
-          <div class="btn-grid six">
-            <button class="btn" data-act="volume_down">🔉</button>
-            <button class="btn" data-act="mute">🔇</button>
-            <button class="btn" data-act="volume_up">🔊</button>
-            <button class="btn" data-act="prev_track">⏮</button>
-            <button class="btn" data-act="play_pause">⏯</button>
-            <button class="btn" data-act="next_track">⏭</button>
-          </div>
-        </div>
-        <div class="card">
-          <h2>В Telegram</h2>
-          <div class="btn-grid">
-            <button class="btn" data-act="screenshot">📸 Скриншот</button>
-            <button class="btn" data-act="status_report">📊 Отчёт</button>
-            <button class="btn" data-act="webcam">📷 Веб-камера</button>
-          </div>
+      <div class="page-head"><div><h1>Управление</h1><p>Всё то же самое доступно с телефона.</p></div></div>
+      <div class="card">
+        <h3 class="card-title mb12"><i data-ic="volUp" data-size="18"></i>Громкость</h3>
+        <div class="vol-row">
+          <button class="btn icon-btn" data-act="mute" title="Без звука"><i data-ic="mute" data-size="17"></i></button>
+          <input type="range" class="slider" id="volume" min="0" max="100">
+          <span class="vol-num" id="vol-num">—</span>
+          <button class="btn icon-btn" data-act="prev_track" title="Назад"><i data-ic="prev" data-size="17"></i></button>
+          <button class="btn icon-btn" data-act="play_pause" title="Пауза"><i data-ic="playPause" data-size="17"></i></button>
+          <button class="btn icon-btn" data-act="next_track" title="Вперёд"><i data-ic="next" data-size="17"></i></button>
         </div>
       </div>
-      <div class="card">
-        <h2>Проверить функции</h2>
-        <div class="quick">
-          <div class="row"><input id="q-message" placeholder="Сообщение на экран"><button class="btn" data-act="message" data-arg="q-message">💬 Показать</button></div>
-          <div class="row"><input id="q-say" placeholder="Текст для озвучки"><button class="btn" data-act="say" data-arg="q-say">🗣 Озвучить</button></div>
+      <div id="control-tiles"></div>
+      <div class="grid g2 mt">
+        <div class="card">
+          <h3 class="card-title mb12"><i data-ic="message" data-size="18"></i>Проверить функции</h3>
+          <div class="stack gap10">
+            <div class="row"><input class="input" id="q-message" placeholder="Сообщение на экран"><button class="btn" data-act="message" data-arg="q-message">Показать</button></div>
+            <div class="row"><input class="input" id="q-say" placeholder="Текст для озвучки"><button class="btn" data-act="say" data-arg="q-say">Озвучить</button></div>
+          </div>
         </div>
-        <p class="toast-line" id="action-result"></p>
+        <div class="card hidden" id="terminal-card">
+          <h3 class="card-title mb12"><i data-ic="terminal" data-size="18"></i>Терминал</h3>
+          <form class="row" id="terminal-form"><input class="input mono" id="terminal-input" placeholder="Команда PowerShell" spellcheck="false"><button class="btn primary" type="submit">Выполнить</button></form>
+          <pre class="output hidden" id="terminal-output"></pre>
+        </div>
       </div>
     </section>
 
-    <!-- ============ ЗАДАЧИ ============ -->
+    <!-- ================= ПРОЦЕССЫ ================= -->
+    <section class="page hidden" id="page-processes">
+      <div class="page-head">
+        <div><h1>Процессы</h1><p id="proc-count">Запущенные программы</p></div>
+        <div class="row">
+          <input class="input" id="proc-search" placeholder="Поиск по имени или PID">
+          <div class="seg" id="proc-sort"><button data-sort="cpu" class="active">CPU</button><button data-sort="mem">Память</button><button data-sort="name">Имя</button></div>
+          <button class="btn icon-btn" id="proc-refresh" title="Обновить"><i data-ic="restart" data-size="16"></i></button>
+        </div>
+      </div>
+      <div class="card pad6">
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Процесс</th><th class="num">PID</th><th class="num">CPU</th><th class="num">Память</th><th>Пользователь</th><th></th></tr></thead>
+            <tbody id="proc-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ЗАДАЧИ ================= -->
     <section class="page hidden" id="page-tasks">
-      <header class="page-head"><h1>Задачи по расписанию</h1></header>
+      <div class="page-head"><div><h1>Задачи по расписанию</h1><p>Выполняются автоматически, результат приходит в Telegram.</p></div></div>
       <div class="card">
-        <h2>Новая задача</h2>
+        <h3 class="card-title mb14"><i data-ic="plus" data-size="18"></i>Новая задача</h3>
         <form id="task-form" class="task-form">
-          <label>Действие <select id="task-action"></select></label>
-          <label id="task-arg-wrap" class="hidden">Параметр <input id="task-arg"></label>
-          <label>Когда
-            <select id="task-kind">
-              <option value="in">Через N минут</option>
-              <option value="at">В указанное время</option>
-              <option value="daily">По расписанию</option>
-            </select>
+          <label class="field">Действие <select class="input" id="task-action"></select></label>
+          <label class="field hidden" id="task-arg-wrap">Параметр <input class="input" id="task-arg"></label>
+          <label class="field">Когда
+            <select class="input" id="task-kind"><option value="in">Через N минут</option><option value="at">В указанное время</option><option value="daily">По расписанию</option></select>
           </label>
-          <label id="task-in-wrap">Через, минут <input type="number" id="task-delay" min="1" value="60"></label>
-          <label id="task-at-wrap" class="hidden">Дата и время <input type="datetime-local" id="task-at"></label>
-          <label id="task-time-wrap" class="hidden">Время <input type="time" id="task-time" value="23:00"></label>
-          <div id="task-days" class="weekdays hidden"></div>
-          <button class="btn primary" type="submit">➕ Добавить</button>
+          <label class="field" id="task-in-wrap">Через, минут <input class="input" type="number" id="task-delay" min="1" value="60"></label>
+          <label class="field hidden" id="task-at-wrap">Дата и время <input class="input" type="datetime-local" id="task-at"></label>
+          <label class="field hidden" id="task-time-wrap">Время <input class="input" type="time" id="task-time" value="23:00"></label>
+          <div class="weekdays hidden" id="task-days"></div>
+          <button class="btn primary" type="submit"><i data-ic="plus" data-size="16"></i>Добавить</button>
         </form>
         <p class="error" id="task-error"></p>
       </div>
-      <div id="tasks" class="list"></div>
+      <div class="card"><div class="list" id="tasks"></div></div>
     </section>
 
-    <!-- ============ ЖУРНАЛ ============ -->
+    <!-- ================= ЖУРНАЛ ================= -->
     <section class="page hidden" id="page-log">
-      <header class="page-head">
-        <h1>Журнал</h1>
-        <div class="tabs" id="log-tabs">
-          <button data-mode="events" class="active">События</button>
-          <button data-mode="commands">Команды</button>
-          <button data-mode="jobs">Задания</button>
-        </div>
-      </header>
-      <div class="card"><div id="log" class="log"></div></div>
+      <div class="page-head">
+        <div><h1>Журнал</h1><p>Всё хранится только на этом компьютере.</p></div>
+        <div class="seg" id="log-tabs"><button data-mode="events" class="active">События</button><button data-mode="commands">Команды</button><button data-mode="jobs">Задания</button></div>
+      </div>
+      <div class="card"><div id="log"></div></div>
     </section>
 
-    <!-- ============ НАСТРОЙКИ ============ -->
+    <!-- ================= НАСТРОЙКИ ================= -->
     <section class="page hidden" id="page-settings">
-      <header class="page-head">
-        <h1>Настройки</h1>
-        <button class="btn primary" id="save-settings">💾 Сохранить</button>
-      </header>
-      <form id="settings-form" class="settings">
+      <div class="page-head"><div><h1>Настройки</h1></div></div>
+      <div class="grid g2">
         <div class="card">
-          <h2>Основное</h2>
-          <label class="field">Имя компьютера в уведомлениях <input data-cfg="pcName" placeholder="по умолчанию — имя ПК"></label>
-          <label class="switch"><input type="checkbox" id="autostart"><span>Запускать вместе с Windows</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="telegram.confirmDangerous"><span>Спрашивать подтверждение перед выключением, завершением процессов и т.п.</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="security.allowShell"><span>Разрешить выполнение команд с телефона (<code>/cmd</code>) — только если вы понимаете риск</span></label>
+          <h3 class="card-title mb6"><i data-ic="monitor" data-size="18"></i>Основное</h3>
+          <label class="field mt">Имя компьютера в уведомлениях <input class="input" data-cfg="pcName" placeholder="по умолчанию — имя ПК"></label>
+          <div class="set-row"><span class="set-ic"><i data-ic="zap" data-size="17"></i></span><span class="set-text"><b>Запускать вместе с Windows</b><small>Работает в трее, окно не открывается</small></span><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="shield" data-size="17"></i></span><span class="set-text"><b>Подтверждение опасных действий</b><small>Выключение, завершение процессов и т.п.</small></span><label class="switch"><input type="checkbox" data-cfg="telegram.confirmDangerous"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="terminal" data-size="17"></i></span><span class="set-text"><b>Выполнение команд с телефона</b><small>Терминал PowerShell. Включайте, только если понимаете риск</small></span><label class="switch"><input type="checkbox" data-cfg="security.allowShell"><span></span></label></div>
         </div>
-
         <div class="card">
-          <h2>Уведомления</h2>
-          <label class="switch"><input type="checkbox" id="notif-enabled"><span>Присылать уведомления в Telegram (критические приходят всегда)</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="monitor.notifyStart"><span>Компьютер включён / сколько был выключен</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="monitor.notifyLogin"><span>Вход в систему и разблокировка</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="monitor.notifyIp"><span>Смена сети / IP-адреса</span></label>
-          <label class="switch"><input type="checkbox" data-cfg="monitor.notifyPower"><span>Подключение и отключение зарядки</span></label>
-          <div class="fields">
-            <label class="field">Загрузка CPU выше, % <input type="number" min="10" max="100" data-cfg="monitor.cpuPercent" data-num></label>
-            <label class="field">Память занята выше, % <input type="number" min="10" max="100" data-cfg="monitor.ramPercent" data-num></label>
-            <label class="field">Свободно на диске меньше, % <input type="number" min="1" max="90" data-cfg="monitor.diskFreePercent" data-num></label>
-            <label class="field">Температура CPU выше, °C <input type="number" min="40" max="120" data-cfg="monitor.tempCelsius" data-num></label>
-            <label class="field">Заряд батареи ниже, % <input type="number" min="5" max="90" data-cfg="monitor.batteryLowPercent" data-num></label>
-            <label class="field">Повторять тревогу не чаще, мин <input type="number" min="1" max="1440" data-cfg="monitor.cooldownMin" data-num></label>
+          <h3 class="card-title mb6"><i data-ic="phone" data-size="18"></i>Приложение на телефоне</h3>
+          <div class="set-row"><span class="set-ic"><i data-ic="wifi" data-size="17"></i></span><span class="set-text"><b>Разрешить подключение по Wi-Fi</b><small>Только для привязанных телефонов</small></span><label class="switch"><input type="checkbox" data-cfg="mobile.enabled"><span></span></label></div>
+          <label class="field mt">Порт <input class="input" type="number" min="1024" max="65535" data-cfg="mobile.port" data-num></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title mb6"><i data-ic="bell" data-size="18"></i>Уведомления в Telegram</h3>
+        <div class="grid g2 gap-cols">
+          <div class="set-row"><span class="set-text"><b>Присылать уведомления</b><small>Критические тревоги приходят всегда</small></span><label class="switch"><input type="checkbox" id="notif-enabled"><span></span></label></div>
+          <div class="set-row"><span class="set-text"><b>Компьютер включён</b><small>и сколько был выключен</small></span><label class="switch"><input type="checkbox" data-cfg="monitor.notifyStart"><span></span></label></div>
+          <div class="set-row"><span class="set-text"><b>Вход в систему и разблокировка</b><small>Кто-то сел за компьютер</small></span><label class="switch"><input type="checkbox" data-cfg="monitor.notifyLogin"><span></span></label></div>
+          <div class="set-row"><span class="set-text"><b>Смена сети</b><small>Новый IP-адрес</small></span><label class="switch"><input type="checkbox" data-cfg="monitor.notifyIp"><span></span></label></div>
+          <div class="set-row"><span class="set-text"><b>Зарядка</b><small>Подключение и отключение (ноутбук)</small></span><label class="switch"><input type="checkbox" data-cfg="monitor.notifyPower"><span></span></label></div>
+        </div>
+        <div class="fields">
+          <label class="field">Загрузка CPU выше, % <input class="input" type="number" min="10" max="100" data-cfg="monitor.cpuPercent" data-num></label>
+          <label class="field">Память занята выше, % <input class="input" type="number" min="10" max="100" data-cfg="monitor.ramPercent" data-num></label>
+          <label class="field">Свободно на диске меньше, % <input class="input" type="number" min="1" max="90" data-cfg="monitor.diskFreePercent" data-num></label>
+          <label class="field">Температура CPU выше, °C <input class="input" type="number" min="40" max="120" data-cfg="monitor.tempCelsius" data-num></label>
+          <label class="field">Заряд батареи ниже, % <input class="input" type="number" min="5" max="90" data-cfg="monitor.batteryLowPercent" data-num></label>
+          <label class="field">Повторять тревогу не чаще, мин <input class="input" type="number" min="1" max="1440" data-cfg="monitor.cooldownMin" data-num></label>
+        </div>
+        <label class="field mt">Сообщать о запуске и закрытии программ (через запятую) <input class="input" data-cfg="monitor.watchProcesses" data-list placeholder="steam.exe, chrome.exe"></label>
+      </div>
+
+      <div class="grid g2 mt">
+        <div class="card">
+          <h3 class="card-title"><i data-ic="rocket" data-size="18"></i>Мои программы</h3>
+          <p class="muted small mt6">Кнопки быстрого запуска на телефоне и в Telegram.</p>
+          <div class="apps-list" id="apps"></div>
+          <button class="btn sm" type="button" id="add-app"><i data-ic="plus" data-size="15"></i>Добавить программу</button>
+        </div>
+        <div class="card">
+          <h3 class="card-title mb6"><i data-ic="folder" data-size="18"></i>Файлы</h3>
+          <label class="field mt">Папка для файлов с телефона <input class="input" data-cfg="files.uploadDir" placeholder="по умолчанию — Загрузки\PCControl"></label>
+          <label class="field mt">Доступ только к папкам (по одной в строке; пусто — весь диск)
+            <textarea class="input" rows="3" data-cfg="files.allowedRoots" data-lines placeholder="C:\Users\Имя\Documents"></textarea></label>
+        </div>
+      </div>
+
+      <div class="save-bar"><span class="muted" id="settings-result"></span><button class="btn primary lg" id="save-settings"><i data-ic="check" data-size="17"></i>Сохранить</button></div>
+    </section>
+
+    <!-- ================= О ПРОГРАММЕ ================= -->
+    <section class="page hidden" id="page-about">
+      <div class="card">
+        <div class="about-hero">
+          <img src="../../build/icon.png" alt="">
+          <div class="spacer">
+            <h2>PC Full Control</h2>
+            <p class="muted mt4">Версия <b id="about-version"></b> · данные хранятся только на этом компьютере</p>
           </div>
-          <label class="field">Сообщать о запуске и закрытии программ (через запятую) <input data-cfg="monitor.watchProcesses" data-list placeholder="steam.exe, chrome.exe"></label>
-        </div>
-
-        <div class="card">
-          <h2>Мои программы</h2>
-          <p class="muted small">Кнопки быстрого запуска в Telegram: «🛠 Ещё → ⭐ Мои программы».</p>
-          <div id="apps" class="apps"></div>
-          <button class="btn small" type="button" id="add-app">➕ Добавить программу</button>
-        </div>
-
-        <div class="card">
-          <h2>Файлы и обновления</h2>
-          <label class="field">Папка для файлов с телефона <input data-cfg="files.uploadDir" placeholder="по умолчанию — Загрузки\PCControl"></label>
-          <label class="field">Разрешить доступ только к папкам (по одной в строке; пусто — весь диск)
-            <textarea rows="3" data-cfg="files.allowedRoots" data-lines placeholder="C:\Users\Имя\Documents"></textarea></label>
-          <label class="field">Ежедневная проверка обновлений программ в <input type="time" data-cfg="updates.dailyCheckTime"></label>
-          <p class="muted small">Время проверки применяется к задаче, созданной при первом запуске; её можно изменить на вкладке «Задачи».</p>
-        </div>
-
-        <div class="card">
-          <h2>О программе</h2>
-          <p>PC Full Control <b id="version"></b></p>
-          <div class="row">
-            <button class="btn" type="button" id="check-update">Проверить обновление приложения</button>
-            <button class="btn" type="button" id="open-data">Папка с данными</button>
-            <button class="btn danger" type="button" id="quit-app">Выйти из приложения</button>
+          <div class="stack end gap8">
+            <button class="btn" id="check-update"><i data-ic="restart" data-size="16"></i>Проверить обновления</button>
+            <button class="btn primary hidden" id="install-update"><i data-ic="download" data-size="16"></i>Установить обновление</button>
           </div>
-          <p class="muted small mt" id="update-result"></p>
-          <p class="muted small">Все данные (журнал, задачи, настройки) хранятся только на этом компьютере в локальной базе SQLite.</p>
         </div>
-      </form>
-      <p class="toast-line" id="settings-result"></p>
+        <p class="muted small mt" id="update-result"></p>
+      </div>
+      <div class="card">
+        <h3 class="card-title mb18"><i data-ic="sparkles" data-size="18"></i>История изменений</h3>
+        <div class="timeline" id="changelog"></div>
+      </div>
+      <div class="row mt">
+        <button class="btn" id="open-data"><i data-ic="folder" data-size="16"></i>Папка с данными</button>
+        <button class="btn" id="show-whatsnew"><i data-ic="sparkles" data-size="16"></i>Что нового</button>
+        <span class="spacer"></span>
+        <button class="btn danger" id="quit-app"><i data-ic="power" data-size="16"></i>Выйти из программы</button>
+      </div>
     </section>
   </main>
 </div>
 
-<div id="modal" class="modal hidden">
-  <div class="modal-card">
-    <p id="modal-text"></p>
-    <div class="row end">
-      <button class="btn" id="modal-no">Отмена</button>
-      <button class="btn danger" id="modal-yes">Да</button>
-    </div>
-  </div>
-</div>
+<div class="modal hidden" id="modal"><div class="modal-card" id="modal-card"></div></div>
+<div class="toasts" id="toasts"></div>
 
+<script src="../shared/icons.js"></script>
+<script src="../shared/changelog.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

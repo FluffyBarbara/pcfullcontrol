@@ -131,3 +131,11 @@ test('сравнение версий', () => {
   assert.equal(cmpVersions('1.0.0', '1.0.0'), 0);
   assert.equal(cmpVersions('1.0.0', '1.0.1'), -1);
 });
+
+test('у текущей версии есть запись в истории изменений', () => {
+  const { CHANGELOG, between } = require('../src/shared/changelog');
+  const { version } = require('../package.json');
+  assert.ok(CHANGELOG.some((v) => v.version === version), `нет записи для ${version}`);
+  assert.deepEqual(between('1.0.0', '1.1.0').map((v) => v.version), ['1.1.0']);
+  assert.equal(between(null, '1.0.0').length, 1);
+});

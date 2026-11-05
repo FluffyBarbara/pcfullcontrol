@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <title>PC Control</title>
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<section id="home" class="screen">
+  <header class="hero">
+    <img src="icon-192.png" alt="" class="logo">
+    <h1>PC Control</h1>
+    <p class="muted">Управление компьютером по Wi-Fi</p>
+  </header>
+
+  <h2 class="section-title" id="pcs-title">Мои компьютеры</h2>
+  <div class="list" id="pcs"></div>
+
+  <div class="actions">
+    <button class="btn primary big" id="scan"><i data-ic="qr" data-size="20"></i>Сканировать QR-код</button>
+    <button class="btn big" id="manual"><i data-ic="plus" data-size="20"></i>Ввести адрес вручную</button>
+  </div>
+
+  <div class="help">
+    <i data-ic="info" data-size="16"></i>
+    <span>На компьютере откройте <b>PC Full Control</b> → «Телефон» → «Приложение на телефоне» и отсканируйте QR-код.
+      Телефон и компьютер должны быть в одной сети Wi-Fi.</span>
+  </div>
+</section>
+
+<section id="scanner" class="scanner hidden">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas" class="hidden"></canvas>
+  <div class="frame"><span></span></div>
+  <p class="scan-hint">Наведите камеру на QR-код на экране компьютера</p>
+  <button class="icon-btn close" id="scan-close" aria-label="Закрыть"><i data-ic="x"></i></button>
+</section>
+
+<section id="manual-sheet" class="sheet-wrap hidden">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>Адрес компьютера</h3>
+    <p class="muted">Указан в программе на ПК, например <b>192.168.1.5:8765</b></p>
+    <input id="addr" class="input" inputmode="url" placeholder="192.168.1.5:8765" autocapitalize="off" autocomplete="off">
+    <p class="error" id="addr-error"></p>
+    <button class="btn primary big" id="addr-ok">Подключиться</button>
+    <button class="btn big" id="addr-cancel">Отмена</button>
+  </div>
+</section>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="icons.js"></script>
+<script src="jsQR.js"></script>
+<script src="shell.js"></script>
+</body>
+</html>

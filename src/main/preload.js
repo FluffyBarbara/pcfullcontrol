@@ -6,6 +6,7 @@ const INVOKE = new Set([
   'get-state', 'get-status', 'get-metrics', 'set-token', 'regen-pair', 'remove-user', 'test-notify',
   'save-config', 'set-muted', 'set-autostart', 'run-action', 'get-tasks', 'add-task', 'toggle-task',
   'delete-task', 'get-log', 'check-app-update', 'open-external', 'open-data-dir', 'quit',
+  'mobile-info', 'mobile-regen', 'remove-device', 'get-processes', 'whatsnew-state', 'whatsnew-ack',
 ]);
 const EVENTS = new Set(['refresh', 'metrics']);
 

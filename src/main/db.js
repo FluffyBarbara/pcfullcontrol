@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, title TEXT, status TEXT,
   started REAL, finished REAL, output TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS tg_users (user_id INTEGER PRIMARY KEY, username TEXT, name TEXT, added REAL);
+CREATE TABLE IF NOT EXISTS devices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, platform TEXT, token_hash TEXT UNIQUE,
+  created REAL, last_seen REAL, ip TEXT);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(ts);
 `;
@@ -198,6 +201,22 @@ class Database {
 
   removeTgUser(userId) { return this.run('DELETE FROM tg_users WHERE user_id=?', [userId]) > 0; }
   listTgUsers() { return this.all('SELECT * FROM tg_users ORDER BY added'); }
+
+  // ---------- телефоны с приложением ----------
+  addDevice(name, platform, tokenHash, ip) {
+    return this.insert('INSERT INTO devices(name, platform, token_hash, created, last_seen, ip) VALUES(?,?,?,?,?,?)',
+      [name, platform, tokenHash, now(), now(), ip]);
+  }
+
+  deviceByToken(tokenHash) { return this.get('SELECT * FROM devices WHERE token_hash=?', [tokenHash]); }
+
+  touchDevice(id, ip) {
+    // Без пометки «изменено»: last_seen обновляется часто, база сохранится вместе с другими изменениями
+    this.db.run('UPDATE devices SET last_seen=?, ip=? WHERE id=?', [now(), ip, id]);
+  }
+
+  listDevices() { return this.all('SELECT id, name, platform, created, last_seen, ip FROM devices ORDER BY last_seen DESC'); }
+  removeDevice(id) { return this.run('DELETE FROM devices WHERE id=?', [id]) > 0; }
 }
 
 module.exports = { Database, now };

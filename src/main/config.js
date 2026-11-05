@@ -7,6 +7,10 @@ const DEFAULTS = {
     token: '',
     confirmDangerous: true,
   },
+  mobile: {
+    enabled: true,               // приложение на телефоне (по Wi-Fi)
+    port: 8765,
+  },
   security: {
     allowShell: false,           // разрешить /cmd (выполнение команд)
   },

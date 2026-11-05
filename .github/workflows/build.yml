@@ -1,16 +1,16 @@
-name: Сборка установщика Windows
+name: Сборка PC Full Control
 
 on:
   push:
     branches: [main, pc-control]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  windows:
+    name: Установщик Windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,33 +31,76 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Установщик как артефакт сборки
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: PCFullControl-Setup
-          path: dist/*.exe
+          name: windows
+          path: dist/PCFullControl-Setup.exe
           if-no-files-found: error
 
-      - name: Версия приложения
-        id: ver
-        shell: bash
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+  android:
+    name: Приложение Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      # Каждый push в main публикует релиз v<версия из package.json>.
-      # Ссылка .../releases/latest/download/PCFullControl-Setup.exe всегда ведёт на последний установщик.
-      - name: Публикация релиза
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: android-app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Один и тот же отладочный ключ между сборками, чтобы обновления ставились поверх
+      - name: Отладочный ключ подписи
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Сборка APK
+        run: bash android-app/scripts/ci-build.sh
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist-android/PCControl-Android.apk
+          if-no-files-found: error
+
+  release:
+    name: Публикация релиза
+    if: github.ref == 'refs/heads/main'
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия и список изменений
+        id: ver
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          node scripts/release-notes.js > release-notes.md
+          cat release-notes.md
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+
+      - name: Релиз
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           target_commitish: ${{ github.sha }}
           name: PC Full Control ${{ steps.ver.outputs.version }}
-          files: dist/PCFullControl-Setup.exe
+          body_path: release-notes.md
           make_latest: true
-          body: |
-            ## Установка
-            1. Скачайте **PCFullControl-Setup.exe** ниже и запустите.
-            2. Если Windows покажет «Неизвестный издатель» — «Подробнее» → «Выполнить в любом случае».
-            3. В открывшемся приложении на вкладке «Телефон» вставьте токен бота от @BotFather и отсканируйте QR-код телефоном.
-
-            Подробнее — в README репозитория.
+          files: |
+            out/windows/PCFullControl-Setup.exe
+            out/android/PCControl-Android.apk

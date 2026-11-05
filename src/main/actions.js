@@ -10,7 +10,7 @@ const info = require('./system/info');
 const screen = require('./system/screen');
 const { E } = require('./telegram-api');
 
-const SOURCE_NAMES = { telegram: 'Telegram', app: 'окно приложения', scheduler: 'планировщик' };
+const SOURCE_NAMES = { telegram: 'Telegram', app: 'окно приложения', scheduler: 'планировщик', mobile: 'приложение на телефоне' };
 
 class ActionRegistry {
   constructor(ctx) {

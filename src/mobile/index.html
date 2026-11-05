@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PC Control">
+  <title>PC Full Control</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<!-- ================= Привязка ================= -->
+<section id="pair" class="pair hidden">
+  <div class="pair-card">
+    <img src="icon-192.png" alt="" class="pair-logo">
+    <h1>PC Full Control</h1>
+    <p class="muted">Управление компьютером с телефона</p>
+
+    <div id="pair-auto" class="pair-auto hidden">
+      <div class="spinner"></div>
+      <p>Подключаюсь к компьютеру…</p>
+    </div>
+
+    <form id="pair-form" class="pair-form">
+      <label class="field-label">Код с экрана компьютера</label>
+      <div class="otp" id="otp">
+        <input inputmode="numeric" maxlength="1" autocomplete="one-time-code"><input inputmode="numeric" maxlength="1">
+        <input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1">
+        <input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1">
+      </div>
+      <label class="field-label">Название телефона</label>
+      <input id="device-name" class="input" maxlength="40" placeholder="Мой телефон">
+      <button class="btn primary big" type="submit">Подключить</button>
+      <p class="error" id="pair-error"></p>
+    </form>
+
+    <div class="pair-help">
+      <i data-ic="info" data-size="16"></i>
+      <span>Откройте <b>PC Full Control</b> на компьютере → «Телефон» → «Приложение на телефоне». Отсканируйте QR-код камерой или введите код.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Приложение ================= -->
+<div id="app" class="hidden">
+  <header class="top">
+    <div class="pc">
+      <div class="pc-avatar"><i data-ic="monitor" data-size="20"></i></div>
+      <div class="pc-text">
+        <div class="pc-name" id="pc-name">Компьютер</div>
+        <div class="pc-sub"><span class="dot" id="online-dot"></span><span id="pc-sub">подключение…</span></div>
+      </div>
+    </div>
+    <button class="icon-btn" id="refresh" aria-label="Обновить"><i data-ic="restart"></i></button>
+  </header>
+
+  <main id="views">
+    <!-- ГЛАВНАЯ -->
+    <section class="view" data-view="home">
+      <div class="gauges" id="gauges"></div>
+      <div class="chips" id="chips"></div>
+
+      <div class="card">
+        <div class="card-title"><i data-ic="power" data-size="18"></i>Питание</div>
+        <div class="power-row">
+          <button class="power-btn danger" data-power="shutdown"><span class="pw-ic"><i data-ic="power" data-size="24"></i></span>Выключить</button>
+          <button class="power-btn warn" data-power="reboot"><span class="pw-ic"><i data-ic="restart" data-size="24"></i></span>Перезагрузка</button>
+          <button class="power-btn" data-act="sleep"><span class="pw-ic"><i data-ic="moon" data-size="24"></i></span>Сон</button>
+          <button class="power-btn" data-act="lock"><span class="pw-ic"><i data-ic="lock" data-size="24"></i></span>Блокировка</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><i data-ic="volUp" data-size="18"></i>Звук <span class="card-aside" id="vol-label"></span></div>
+        <input type="range" min="0" max="100" id="volume" class="slider">
+        <div class="media-row">
+          <button class="round-btn" data-act="mute" aria-label="Без звука"><i data-ic="mute"></i></button>
+          <button class="round-btn" data-act="prev_track" aria-label="Назад"><i data-ic="prev"></i></button>
+          <button class="round-btn accent" data-act="play_pause" aria-label="Пауза"><i data-ic="playPause" data-size="22"></i></button>
+          <button class="round-btn" data-act="next_track" aria-label="Вперёд"><i data-ic="next"></i></button>
+          <button class="round-btn" data-act="volume_up" aria-label="Громче"><i data-ic="volUp"></i></button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><i data-ic="image" data-size="18"></i>Экран
+          <label class="mini-switch card-aside"><input type="checkbox" id="auto-shot"><span></span>авто</label>
+        </div>
+        <div class="seg small hidden" id="monitor-seg"></div>
+        <div class="shot-box" id="shot-box">
+          <img id="shot" alt="" class="hidden">
+          <div class="shot-empty" id="shot-empty"><i data-ic="image" data-size="34"></i><span>Нажмите, чтобы увидеть экран</span></div>
+        </div>
+        <div class="row2">
+          <button class="btn" id="btn-shot"><i data-ic="image" data-size="18"></i>Скриншот</button>
+          <button class="btn" id="btn-cam"><i data-ic="camera" data-size="18"></i>Веб-камера</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><i data-ic="activity" data-size="18"></i>Нагрузка за час
+          <span class="legend card-aside"><b class="lg cpu"></b>CPU <b class="lg ram"></b>ОЗУ</span>
+        </div>
+        <canvas id="chart"></canvas>
+      </div>
+    </section>
+
+    <!-- ПУЛЬТ -->
+    <section class="view hidden" data-view="control">
+      <h2 class="view-title">Пульт</h2>
+      <div id="control-sections"></div>
+      <div class="card hidden" id="terminal-card">
+        <div class="card-title"><i data-ic="terminal" data-size="18"></i>Терминал</div>
+        <form id="terminal-form" class="row-input">
+          <input id="terminal-input" class="input mono" placeholder="Команда PowerShell" autocapitalize="off" autocomplete="off" spellcheck="false">
+          <button class="icon-btn accent" type="submit" aria-label="Выполнить"><i data-ic="play"></i></button>
+        </form>
+        <pre class="output hidden" id="terminal-output"></pre>
+      </div>
+    </section>
+
+    <!-- ПРОЦЕССЫ -->
+    <section class="view hidden" data-view="proc">
+      <h2 class="view-title">Процессы</h2>
+      <div class="sticky-tools">
+        <div class="search"><i data-ic="search" data-size="18"></i><input id="proc-search" type="search" placeholder="Поиск процесса"></div>
+        <div class="seg" id="proc-sort">
+          <button data-sort="cpu" class="active">CPU</button><button data-sort="mem">Память</button><button data-sort="name">Имя</button>
+        </div>
+      </div>
+      <div class="list" id="proc-list"></div>
+    </section>
+
+    <!-- ФАЙЛЫ -->
+    <section class="view hidden" data-view="files">
+      <h2 class="view-title">Файлы</h2>
+      <div class="path-bar">
+        <button class="icon-btn" id="files-up" aria-label="Вверх"><i data-ic="arrowUp"></i></button>
+        <button class="icon-btn" id="files-root" aria-label="Диски"><i data-ic="disk"></i></button>
+        <div class="path" id="files-path">Расположения</div>
+      </div>
+      <div class="upload-progress hidden" id="upload-progress"><div class="bar"><i id="upload-bar"></i></div><span id="upload-text"></span></div>
+      <div class="list" id="files-list"></div>
+      <label class="fab" aria-label="Загрузить на ПК"><i data-ic="upload" data-size="24"></i><input type="file" id="file-input" multiple hidden></label>
+    </section>
+
+    <!-- ЕЩЁ -->
+    <section class="view hidden" data-view="more">
+      <h2 class="view-title">Ещё</h2>
+      <div class="seg" id="more-seg">
+        <button data-more="tasks" class="active">Задачи</button><button data-more="log">Журнал</button><button data-more="settings">Настройки</button>
+      </div>
+
+      <div class="more-pane" data-pane="tasks">
+        <div class="list" id="tasks-list"></div>
+        <button class="btn primary big" id="add-task"><i data-ic="plus" data-size="18"></i>Новая задача</button>
+      </div>
+
+      <div class="more-pane hidden" data-pane="log">
+        <div class="seg small" id="log-seg">
+          <button data-log="events" class="active">События</button><button data-log="commands">Команды</button><button data-log="jobs">Задания</button>
+        </div>
+        <div class="list" id="log-list"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="settings">
+        <div class="card">
+          <label class="setting">
+            <span class="set-ic"><i data-ic="bell" data-size="18"></i></span>
+            <span class="set-text"><b>Уведомления в Telegram</b><small>Критические приходят всегда</small></span>
+            <span class="switch"><input type="checkbox" id="notif-toggle"><span></span></span>
+          </label>
+        </div>
+        <div class="card install-card hidden" id="install-card">
+          <div class="card-title"><i data-ic="phone" data-size="18"></i>Установить как приложение</div>
+          <p class="muted" id="install-text"></p>
+        </div>
+        <div class="card">
+          <div class="about-row"><span>Компьютер</span><b id="about-pc"></b></div>
+          <div class="about-row"><span>Система</span><b id="about-os"></b></div>
+          <div class="about-row"><span>Версия программы</span><b id="about-version"></b></div>
+          <div class="about-row"><span>Этот телефон</span><b id="about-device"></b></div>
+        </div>
+        <button class="btn big hidden" id="switch-pc"><i data-ic="monitor" data-size="18"></i>Другой компьютер</button>
+        <button class="btn danger big" id="unpair"><i data-ic="logout" data-size="18"></i>Отвязать телефон</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-tab="home" class="active"><i data-ic="home" data-size="22"></i><span>Главная</span></button>
+    <button data-tab="control"><i data-ic="grid" data-size="22"></i><span>Пульт</span></button>
+    <button data-tab="proc"><i data-ic="activity" data-size="22"></i><span>Процессы</span></button>
+    <button data-tab="files"><i data-ic="folder" data-size="22"></i><span>Файлы</span></button>
+    <button data-tab="more"><i data-ic="sliders" data-size="22"></i><span>Ещё</span></button>
+  </nav>
+</div>
+
+<!-- Нижняя панель (диалоги) -->
+<div class="sheet-backdrop hidden" id="sheet-backdrop"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="sheet-title"></div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<div class="viewer hidden" id="viewer"><img id="viewer-img" alt=""><button class="icon-btn viewer-close" id="viewer-close" aria-label="Закрыть"><i data-ic="x"></i></button></div>
+<div class="toast hidden" id="toast"></div>
+
+<script src="shared/icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

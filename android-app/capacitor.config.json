@@ -1,0 +1,21 @@
+{
+  "appId": "com.pcfullcontrol.mobile",
+  "appName": "PC Control",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "*",
+      "192.168.*.*",
+      "10.*.*.*",
+      "172.*.*.*",
+      "100.*.*.*",
+      "*.local"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0b0d12"
+  }
+}
