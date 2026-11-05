@@ -281,6 +281,7 @@ class TelegramBot {
     this.ctx.db.addTgUser(user.id, user.username || '', [user.first_name, user.last_name].filter(Boolean).join(' '));
     this.ctx.pairingCode(true);
     this.ctx.emit('event');
+    if (this.ctx.tunnel) this.ctx.tunnel.updateMenuButtons().catch(() => {});
     if (hadUsers) {
       this.ctx.notifier.notify(`🔗 Привязан новый телефон: ${E(TelegramBot.userName(user))}`, { category: 'security', level: 'warning' });
     } else {
@@ -516,8 +517,15 @@ class TelegramBot {
       return this.send(chatId, `🌍 Доступ из интернета включается… ${st.status === 'downloading' ? `скачиваю модуль ${st.progress}%` : ''}${st.error ? `\n${E(st.error)}` : ''}\nПовторите /remote через минуту.`);
     }
     const l = t.loginLink(TelegramBot.userName((msg && msg.from) || {}));
-    return this.send(chatId, '🌍 <b>Вход в приложение через интернет</b>\nНажмите кнопку на телефоне. Ссылка одноразовая и действует 15 минут.\nНа iPhone после входа можно «Поделиться → На экран Домой».',
-      inlineKb([[['📱 Открыть приложение', l.url]], [['⛔ Выключить доступ', 'roff']]]));
+    t.updateMenuButtons().catch(() => {});
+    const kb = { inline_keyboard: [
+      ...(t.menuUrl() ? [[{ text: '🖥 Открыть прямо в Telegram', web_app: { url: t.menuUrl() } }]] : []),
+      [{ text: '🌐 Открыть в браузере', url: l.url }],
+      [{ text: '⛔ Выключить доступ', callback_data: 'roff' }],
+    ] };
+    return this.send(chatId, '🌍 <b>Вход в приложение через интернет</b>\n'
+      + 'Проще всего — кнопка <b>«🖥 Мой ПК»</b> внизу чата: она всегда ведёт на актуальный адрес (он меняется после перезапуска ПК).\n'
+      + 'Ссылка «в браузере» одноразовая и действует 15 минут.', kb);
   }
 
   async cmdWeek(chatId) {

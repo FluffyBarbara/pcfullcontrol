@@ -1144,6 +1144,11 @@ async function loginFromHash() {
     await startApp();
     toast(`Подключено к «${res.pcName}» через интернет`);
   } catch (e) {
+    // Ссылку уже использовали, но этот телефон уже вошёл — просто открываем приложение
+    if (token) {
+      history.replaceState(null, '', location.pathname + location.search);
+      try { await startApp(); return true; } catch (err) { /* токен не подошёл — покажем ошибку */ }
+    }
     $('#pair-auto').classList.add('hidden');
     $('#pair-form').classList.remove('hidden');
     $('#pair-error').textContent = e.message;

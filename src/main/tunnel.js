@@ -25,6 +25,9 @@ class RemoteAccess {
     this.codes = new Map(); // код → { expires, by }
     this.restartTimer = null;
     this.fails = 0;
+    this.menuKey = null;       // ключ кнопки «Мой ПК» в Telegram — действует, пока не сменится адрес
+    this.healthTimer = null;
+    this.healthFails = 0;
   }
 
   get enabled() { return !!(this.ctx.config.remote && this.ctx.config.remote.enabled); }
@@ -96,8 +99,7 @@ class RemoteAccess {
         this.status = 'online';
         this.fails = 0;
         this.emit();
-        this.ctx.db.addEvent('info', 'remote', 'Доступ из интернета включён');
-        this.ctx.notifier.notify('🌍 <b>Доступ к компьютеру из интернета включён</b>\nСсылка для входа — командой /remote (каждый раз новая, действует 15 минут).', { category: 'security' });
+        this.onNewUrl().catch(() => {});
       }
     };
     p.stdout.on('data', onData);
@@ -120,8 +122,71 @@ class RemoteAccess {
     return this.state();
   }
 
+  /**
+   * Адрес бесплатного туннеля меняется при каждом перезапуске. Чтобы ссылка никогда не терялась,
+   * кнопка «🖥 Мой ПК» в чате бота (рядом с полем ввода) сразу перенастраивается на новый адрес.
+   */
+  async onNewUrl() {
+    this.menuKey = crypto.randomBytes(24).toString('base64url');
+    this.ctx.db.addEvent('info', 'remote', 'Доступ из интернета: новый адрес');
+    const ok = await this.updateMenuButtons();
+    this.ctx.notifier.notify(ok
+      ? '🌍 <b>Доступ из интернета работает</b>\nНажмите кнопку <b>«🖥 Мой ПК»</b> внизу этого чата — она всегда ведёт на актуальный адрес (он меняется после перезапуска ПК).'
+      : '🌍 <b>Доступ из интернета работает</b>\nСсылка для входа — командой /remote.', { category: 'security', level: 'info' });
+    this.startHealth();
+  }
+
+  /** Ссылка для кнопки «Мой ПК»: многоразовая, но только до следующей смены адреса. */
+  menuUrl() { return this.url && this.menuKey ? `${this.url}/#/login/${this.menuKey}` : null; }
+
+  async updateMenuButtons() {
+    const tg = this.ctx.tg;
+    if (!tg) return false;
+    const url = this.menuUrl();
+    let ok = false;
+    for (const id of this.ctx.authorizedIds()) {
+      try {
+        await tg.call('setChatMenuButton', { chat_id: id, menu_button: url ? { type: 'web_app', text: '🖥 Мой ПК', web_app: { url } } : { type: 'commands' } });
+        ok = true;
+      } catch (e) { /* чат недоступен */ }
+    }
+    return ok;
+  }
+
+  /** Раз в 3 минуты проверяем, что программу видно из интернета; завис туннель — перезапускаем. */
+  startHealth() {
+    clearInterval(this.healthTimer);
+    this.healthFails = 0;
+    this.healthTimer = setInterval(async () => {
+      if (!this.url || !this.proc) return;
+      // Считаем сбоем только явный ответ Cloudflare «туннель не найден» (530/502–504).
+      // Сетевые ошибки (нет интернета, DNS ещё не знает адрес) — не повод перезапускать.
+      let dead = false;
+      try {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), 15000);
+        const r = await fetch(`${this.url}/api/hello`, { signal: ac.signal, cache: 'no-store' });
+        clearTimeout(t);
+        dead = [502, 503, 504, 530].includes(r.status);
+      } catch (e) { return; }
+      this.healthFails = dead ? this.healthFails + 1 : 0;
+      if (this.healthFails >= 2) {
+        this.healthFails = 0;
+        this.ctx.db.addEvent('warning', 'remote', 'Туннель не отвечал — перезапускаю');
+        const p = this.proc;
+        this.proc = null;
+        this.url = null;
+        try { if (p) p.kill(); } catch (e) { /* ignore */ }
+        this.start().catch(() => {});
+      }
+    }, 3 * 60 * 1000);
+  }
+
   stop() {
     clearTimeout(this.restartTimer);
+    clearInterval(this.healthTimer);
+    this.menuKey = null;
+    this.updateMenuButtons().catch(() => {});
     const p = this.proc;
     this.proc = null;
     if (p) { try { p.kill(); } catch (e) { /* ignore */ } }
@@ -149,7 +214,9 @@ class RemoteAccess {
 
   /** Проверяет и «гасит» одноразовый код. */
   useCode(code) {
-    const v = this.codes.get(String(code || ''));
+    const c = String(code || '');
+    if (this.menuKey && c.length === this.menuKey.length && crypto.timingSafeEqual(Buffer.from(c), Buffer.from(this.menuKey))) return { by: 'кнопка «Мой ПК»' };
+    const v = this.codes.get(c);
     if (!v || v.expires < Date.now()) return null;
     this.codes.delete(String(code));
     return v;
