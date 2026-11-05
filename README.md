@@ -110,10 +110,10 @@ npm test           # тесты (node:test)
 npm run dist       # сборка установщика Windows (запускать на Windows)
 ```
 
-Установщик собирается автоматически в GitHub Actions (`.github/workflows/build.yml`) на Windows при каждом push.
-Чтобы опубликовать релиз, поставьте тег: `git tag v1.0.1 && git push --tags` — `.exe` прикрепится к релизу,
-а приложения у пользователей смогут обновиться командой «🤖 Обновить PC Full Control» в боте.
-Не забудьте поднять `version` в `package.json`.
+Установщик собирается автоматически в GitHub Actions (`.github/workflows/build.yml`) на Windows.
+Каждый push в `main` публикует релиз `v<version из package.json>` с `PCFullControl-Setup.exe`.
+Чтобы выпустить новую версию, поднимите `version` в `package.json` — после этого установленные приложения
+смогут обновиться командой «🤖 Обновить PC Full Control» в боте.
 
 ### Структура
 
