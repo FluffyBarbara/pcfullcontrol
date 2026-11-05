@@ -61,6 +61,64 @@ npm install --prefix $pw playwright-core@1.63.0 --no-audit --no-fund | Out-Host
 node scripts/e2e-rtc.js (Join-Path $pw 'node_modules\playwright-core') $pair.token
 if ($LASTEXITCODE -ne 0) { throw 'Трансляция экрана по WebRTC не работает' }
 
+Write-Host '=== 2г. Оптимизация: очищается только выбранное ==='
+$J = @{ Authorization = "Bearer $($pair.token)" }
+$oldTmp = Join-Path $env:TEMP 'pcfc-e2e-old.tmp'
+$newTmp = Join-Path $env:TEMP 'pcfc-e2e-new.tmp'
+Set-Content $oldTmp ('x' * 50000); (Get-Item $oldTmp).LastWriteTime = (Get-Date).AddHours(-3)
+Set-Content $newTmp 'fresh'
+$an = Invoke-RestMethod 'http://127.0.0.1:8765/api/clean/analyze' -Headers $J -TimeoutSec 120
+$an | ForEach-Object { Write-Host ("  {0,-38} {1,12:N0} байт  ({2} файлов)" -f $_.name, $_.size, $_.count) }
+if (-not ($an | Where-Object { $_.id -eq 'user-temp' -and $_.size -ge 50000 })) { throw 'Анализ не нашёл старый временный файл' }
+if (!(Test-Path $oldTmp)) { throw 'Анализ удалил файл — так нельзя' }
+try { Invoke-RestMethod 'http://127.0.0.1:8765/api/clean/run' -Method Post -Headers $J -ContentType 'application/json' -Body '{"ids":[]}' | Out-Null; throw 'Очистка без выбора должна быть запрещена' } catch { if ($_.Exception.Message -like '*должна быть*') { throw } }
+$rc = Invoke-RestMethod 'http://127.0.0.1:8765/api/clean/run' -Method Post -Headers $J -ContentType 'application/json' -Body '{"ids":["user-temp"]}' -TimeoutSec 300
+Write-Host "Очистка TEMP: освобождено $($rc[0].freed) байт, пропущено $($rc[0].skipped)"
+if (Test-Path $oldTmp) { throw 'Старый временный файл не удалён' }
+if (!(Test-Path $newTmp)) { throw 'Свежий временный файл удалён — так нельзя' }
+
+Write-Host '=== 2д. Удаление программы: деинсталлятор и остатки по выбору ==='
+$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PCFC-E2E-App'
+$loc = 'C:\PCFC E2E App'
+$data = Join-Path $env:APPDATA 'PCFC E2E App'
+New-Item -ItemType Directory -Force $loc, $data | Out-Null
+Set-Content (Join-Path $loc 'app.txt') 'app'; Set-Content (Join-Path $data 'settings.ini') 'cfg'
+New-Item -Force 'HKCU:\Software\PCFC E2E App' | Out-Null
+New-ItemProperty 'HKCU:\Software\PCFC E2E App' -Name 'Theme' -Value 'dark' -Force | Out-Null
+New-Item -Force $key | Out-Null
+# «Деинсталлятор» убирает только свою запись из списка программ — как многие настоящие, оставляя папки и настройки
+$un = "`"$env:SystemRoot\System32\cmd.exe`" /c reg delete `"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PCFC-E2E-App`" /f"
+Set-ItemProperty $key -Name DisplayName -Value 'PCFC E2E App 1.0'
+Set-ItemProperty $key -Name Publisher -Value 'PCFC Tests'
+Set-ItemProperty $key -Name InstallLocation -Value $loc
+Set-ItemProperty $key -Name UninstallString -Value $un
+$apps = Invoke-RestMethod 'http://127.0.0.1:8765/api/apps' -Headers $J -TimeoutSec 120
+Write-Host "Программ в списке: $($apps.apps.Count)"
+$app = $apps.apps | Where-Object { $_.name -eq 'PCFC E2E App 1.0' }
+if (!$app) { throw 'Тестовая программа не найдена в списке' }
+$r = Invoke-RestMethod "http://127.0.0.1:8765/api/apps/$($app.id)/uninstall" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
+Write-Host $r.message
+$job = $null
+for ($i = 0; $i -lt 30; $i++) { Start-Sleep 2; $job = Invoke-RestMethod "http://127.0.0.1:8765/api/apps/$($app.id)/job" -Headers $J; if ($job.state -eq 'done') { break } }
+Write-Host "Ход удаления: $($job | ConvertTo-Json -Compress)"
+if (-not $job.removed) { throw 'Деинсталлятор не отработал' }
+if (!(Test-Path $loc) -or !(Test-Path $data)) { throw 'Остатки удалены без выбора пользователя — так нельзя' }
+$left = Invoke-RestMethod "http://127.0.0.1:8765/api/apps/$($app.id)/leftovers" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
+$left | ForEach-Object { Write-Host "  остаток: [$($_.kind)] $($_.path)" }
+$pick = @($left | Where-Object { $_.path -eq $loc -or $_.path -eq $data -or $_.path -like '*\Software\PCFC E2E App' } | ForEach-Object { $_.token })
+if ($pick.Count -lt 3) { throw "Найдены не все остатки (папка программы, данные, реестр): $($pick.Count)" }
+# Удаляем только папку программы и реестр — папку данных НЕ выбираем, она должна остаться
+$pick2 = @($left | Where-Object { $_.path -eq $loc -or $_.path -like '*\Software\PCFC E2E App' } | ForEach-Object { $_.token })
+$body = @{ tokens = $pick2 } | ConvertTo-Json -Compress
+$rm = Invoke-RestMethod "http://127.0.0.1:8765/api/apps/$($app.id)/remove" -Method Post -Headers $J -ContentType 'application/json' -Body $body
+$rm | ForEach-Object { Write-Host "  удалено: $($_.path) ok=$($_.ok) $($_.backup)" }
+if (Test-Path $loc) { throw 'Папка программы не удалена' }
+if (Test-Path 'HKCU:\Software\PCFC E2E App') { throw 'Раздел реестра не удалён' }
+if (!(Test-Path $data)) { throw 'Удалена папка, которую пользователь не выбирал' }
+if (-not ($rm | Where-Object { $_.backup -and (Test-Path $_.backup) })) { throw 'Нет резервной копии реестра' }
+Remove-Item -Recurse -Force $data
+Write-Host 'Удаление программ работает: только выбранное, с резервной копией реестра'
+
 Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
 $res = Join-Path (Split-Path $exe) 'resources\app-update.yml'
 if (!(Test-Path $res)) { throw 'В установленной программе нет app-update.yml — обновление не найдёт релизы' }
@@ -77,6 +135,17 @@ Set-Content -Path (Join-Path $feed 'latest.yml') -Value $yml -Encoding utf8
 Write-Host $yml
 $server = Start-Process node -ArgumentList @('scripts/e2e-feed-server.js', $feed) -PassThru -NoNewWindow
 Start-Sleep 2
+
+# Следы «старых версий» для проверки уборки после обновления
+$oldDir = Join-Path ${env:ProgramFiles(x86)} 'PC Full Control'
+New-Item -ItemType Directory -Force (Join-Path $oldDir 'resources') | Out-Null
+Set-Content (Join-Path $oldDir 'PCFullControl.exe') 'old'; Set-Content (Join-Path $oldDir 'resources\app.asar') 'old'
+$dl = Join-Path $env:USERPROFILE 'Downloads'
+New-Item -ItemType Directory -Force $dl | Out-Null
+$oldSetup = Join-Path $dl 'PCFullControl-Setup (2).exe'
+$decoy = Join-Path $dl 'OtherProgram-Setup.exe'
+Set-Content $oldSetup 'old installer'; Set-Content $decoy 'not ours'
+$env:PCFC_TEST_PREV_VERSION = '1.5.0'
 
 $env:PCFC_UPDATE_FEED = 'http://127.0.0.1:9999/'
 $env:PCFC_UPDATE_AUTO = '1'
@@ -100,5 +169,14 @@ $hello2 = Wait-Hello 90
 Write-Host "Ответ после обновления: $($hello2 | ConvertTo-Json -Compress)"
 if (!$log -or -not (Select-String -Path $log.FullName -Pattern 'quitAndInstall|Install:' -Quiet)) { throw 'В журнале обновления нет установки' }
 Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+
+Write-Host '=== 4. Уборка после обновления: старые копии и установщики программы ==='
+for ($i = 0; $i -lt 30 -and ((Test-Path $oldDir) -or (Test-Path $oldSetup)); $i++) { Start-Sleep 2 }
+if (Test-Path $oldDir) { throw 'Старая копия программы не удалена' }
+if (Test-Path $oldSetup) { throw 'Старый установщик не удалён' }
+if (!(Test-Path $decoy)) { throw 'Удалён чужой файл из «Загрузок» — так нельзя' }
+if (!(Test-Path $exe)) { throw 'Удалена текущая программа!' }
+Remove-Item $decoy -Force
+Write-Host 'Уборка после обновления работает: удалено только своё'
 
 Write-Host '=== Готово: установка, запуск и обновление внутри программы работают ==='

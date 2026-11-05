@@ -212,6 +212,33 @@ async function startApp() {
   renderMonitors();
   renderInstallHint();
   switchTab(tab);
+  setTimeout(autoUpdatePrompt, 1200);
+}
+
+/** При каждом входе в приложение: есть ли новая версия программы на ПК — и предложение обновить. */
+let updatePrompted = false;
+async function autoUpdatePrompt() {
+  if (updatePrompted) return;
+  updatePrompted = true;
+  let u;
+  try { u = await api('/api/update/check'); } catch (e) { return; }
+  renderUpdateCard(u);
+  if (!u.hasUpdate || $('#sheet').classList.contains('open') || document.body.classList.contains('rc-open')) return;
+  const items = (u.notes && u.notes.items) || [];
+  const ok = await openSheet(`Доступна версия ${u.latest}`, [
+    el('p', { text: `На компьютере установлена ${u.current}. Программа скачает обновление, установит его и перезапустится — это 1–2 минуты.` }),
+    items.length ? el('div', { class: 'upd-notes' }, items.slice(0, 6).map((t) => el('div', { class: 'upd-note' }, ic('check', 16), el('span', { text: t })))) : null,
+    el('div', { class: 'sheet-options' },
+      el('button', { class: 'btn primary', onclick: () => closeSheet(true) }, ic('download', 18), 'Обновить сейчас'),
+      el('button', { class: 'btn', onclick: () => closeSheet(false) }, 'Позже')),
+  ].filter(Boolean));
+  if (!ok) return;
+  haptic(20);
+  try {
+    const r = await api('/api/action/app_update', { json: { arg: '' } });
+    toast(r.result, r.ok ? 'ok' : 'err');
+    if (r.ok) watchUpdate(u.latest, u.current);
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function stopTimers() { Object.values(timers).forEach(clearInterval); timers = {}; }
@@ -311,19 +338,34 @@ function ring(label, percent, sub, color) {
     el('div', { class: 'gauge-sub', text: sub || '' }));
 }
 
-// Скрытые данные (IP, пользователь): размыты, по нажатию видны 10 секунд
+// Скрытые данные (IP, MAC, пользователь): размыты, по нажатию видны 10 секунд, затем снова скрываются
 const revealedUntil = {};
-function secret(text, key) {
-  const n = el('span', { class: 'secret', text, title: 'Нажмите, чтобы показать на 10 секунд', 'data-key': key });
-  if ((revealedUntil[key] || 0) > Date.now()) n.classList.add('revealed');
-  n.addEventListener('click', (e) => {
-    e.stopPropagation();
-    revealedUntil[key] = Date.now() + 10000;
-    document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.add('revealed'));
-    setTimeout(() => {
-      if ((revealedUntil[key] || 0) <= Date.now()) document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.remove('revealed'));
-    }, 10050);
+const revealTimers = {};
+function setRevealed(key, on) {
+  document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => {
+    x.classList.toggle('revealed', on);
+    x.querySelector('.secret-eye').replaceChildren(ic(on ? 'eyeOff' : 'eye', 14));
+    x.setAttribute('aria-label', on ? 'Скрыть' : 'Показать на 10 секунд');
   });
+}
+function secret(text, key) {
+  const n = el('span', { class: 'secret', 'data-key': key, role: 'button', tabindex: '0', 'data-tip': 'Нажмите, чтобы показать на 10 секунд. Нажмите ещё раз, чтобы скрыть сразу' },
+    el('span', { class: 'secret-val', text }), el('span', { class: 'secret-eye' }, ic('eye', 14)), el('i', { class: 'secret-timer' }));
+  if ((revealedUntil[key] || 0) > Date.now()) {
+    n.classList.add('revealed');
+    n.querySelector('.secret-eye').replaceChildren(ic('eyeOff', 14));
+  }
+  const toggle = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    clearTimeout(revealTimers[key]);
+    if ((revealedUntil[key] || 0) > Date.now()) { revealedUntil[key] = 0; setRevealed(key, false); return; }
+    revealedUntil[key] = Date.now() + 10000;
+    setRevealed(key, true);
+    revealTimers[key] = setTimeout(() => setRevealed(key, false), 10000);
+  };
+  n.addEventListener('click', toggle);
+  n.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') toggle(e); });
   return n;
 }
 
@@ -461,7 +503,7 @@ const SHORT = {
 function tile(name, tone = '') {
   const a = ACTIONS[name];
   if (!a) return null;
-  const t = el('button', { class: 'tile ' + tone },
+  const t = el('button', { class: 'tile ' + tone, 'data-act': name },
     el('span', { class: 'tile-ic' }, ic(Icons.ACTION_ICONS[name] || 'zap', 22)), el('span', { text: SHORT[name] || a.title }));
   t.addEventListener('click', () => {
     if (name === 'shutdown' || name === 'reboot') powerSheet(name);
@@ -684,6 +726,8 @@ function loadMore() {
   $$('.more-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== morePane));
   if (morePane === 'tasks') loadTasks();
   else if (morePane === 'log') loadLog();
+  else if (morePane === 'optimize') MOptimize.showClean();
+  else if (morePane === 'apps') MOptimize.showApps();
   else loadStatus();
 }
 
@@ -836,7 +880,7 @@ async function updateFlow(btn = null) {
   if (btn) btn.classList.add('busy');
   let u;
   try {
-    u = await api('/api/update/check');
+    u = await api('/api/update/check?force=1');
   } catch (e) {
     toast('Не удалось проверить обновления: ' + e.message, 'err');
     return;
@@ -931,6 +975,61 @@ document.addEventListener('visibilitychange', () => {
 
 // ===================== старт =====================
 Icons.hydrate();
+
+// ===================== описания кнопок =====================
+// Удерживайте любую кнопку — появится подсказка, что она делает (нажатие при этом не срабатывает).
+const tipBubble = el('div', { class: 'tip-bubble hidden', role: 'tooltip' });
+document.body.append(tipBubble);
+let tipPress = null;
+let tipHideT = null;
+function showTipFor(t) {
+  tipBubble.textContent = t.dataset.tip;
+  tipBubble.classList.remove('hidden', 'below');
+  const r = t.getBoundingClientRect();
+  const w = tipBubble.offsetWidth;
+  const h = tipBubble.offsetHeight;
+  const x = Math.max(10, Math.min(innerWidth - w - 10, r.left + r.width / 2 - w / 2));
+  let y = r.top - h - 10;
+  if (y < 10) { y = r.bottom + 10; tipBubble.classList.add('below'); }
+  tipBubble.style.left = x + 'px';
+  tipBubble.style.top = y + 'px';
+  tipBubble.style.setProperty('--arrow-x', Math.max(14, Math.min(w - 14, r.left + r.width / 2 - x)) + 'px');
+  haptic(12);
+  clearTimeout(tipHideT);
+  tipHideT = setTimeout(() => tipBubble.classList.add('hidden'), 3200);
+}
+document.addEventListener('touchstart', (e) => {
+  const t = e.target.closest('[data-tip]');
+  tipBubble.classList.add('hidden');
+  if (!t || e.touches.length > 1) { tipPress = null; return; }
+  const p = e.touches[0];
+  tipPress = { t, x: p.clientX, y: p.clientY, shown: false };
+  tipPress.timer = setTimeout(() => { if (tipPress && tipPress.t === t) { tipPress.shown = true; showTipFor(t); } }, 550);
+}, { passive: true, capture: true });
+document.addEventListener('touchmove', (e) => {
+  if (!tipPress || tipPress.shown) return;
+  const p = e.touches[0];
+  if (Math.hypot(p.clientX - tipPress.x, p.clientY - tipPress.y) > 10) { clearTimeout(tipPress.timer); tipPress = null; }
+}, { passive: true, capture: true });
+document.addEventListener('touchend', (e) => {
+  if (!tipPress) return;
+  clearTimeout(tipPress.timer);
+  // Подсказку показали — само нажатие отменяем
+  if (tipPress.shown) { e.preventDefault(); e.stopPropagation(); }
+  tipPress = null;
+}, { passive: false, capture: true });
+document.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-tip]')) e.preventDefault(); });
+let mTipsQueued = false;
+new MutationObserver(() => {
+  if (mTipsQueued) return;
+  mTipsQueued = true;
+  requestAnimationFrame(() => { mTipsQueued = false; Tips.apply(Tips.MOBILE); });
+}).observe(document.body, { childList: true, subtree: true });
+Tips.apply(Tips.MOBILE);
+if (!store.get('tipsHinted')) {
+  store.set('tipsHinted', '1');
+  setTimeout(() => toast('Подсказка: удерживайте любую кнопку — появится описание, что она делает', 'info'), 4000);
+}
 
 async function pairFromHash() {
   const m = location.hash.match(/#\/pair\/(\d{6})/);

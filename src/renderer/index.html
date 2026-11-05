@@ -28,6 +28,7 @@
       <button data-page="phone"><i data-ic="phone"></i><span class="lbl">Телефон</span><span class="badge-dot hidden" id="phone-dot"></span></button>
       <button data-page="control"><i data-ic="grid"></i><span class="lbl">Управление</span></button>
       <button data-page="processes"><i data-ic="activity"></i><span class="lbl">Процессы</span></button>
+      <button data-page="optimize"><i data-ic="broom"></i><span class="lbl">Оптимизация</span></button>
       <button data-page="tasks"><i data-ic="calendar"></i><span class="lbl">Задачи</span></button>
       <button data-page="log"><i data-ic="list"></i><span class="lbl">Журнал</span></button>
       <button data-page="settings"><i data-ic="sliders"></i><span class="lbl">Настройки</span></button>
@@ -245,6 +246,49 @@
       </div>
     </section>
 
+    <!-- ================= ОПТИМИЗАЦИЯ ================= -->
+    <section class="page hidden" id="page-optimize">
+      <div class="page-head">
+        <div><h1>Оптимизация</h1><p>Ничего не удаляется, пока вы сами не отметите пункты и не подтвердите удаление.</p></div>
+        <div class="seg" id="opt-tabs"><button data-tab="clean" class="active">Очистка диска</button><button data-tab="apps">Удаление программ</button></div>
+      </div>
+
+      <div id="opt-clean">
+        <div class="card clean-hero">
+          <div class="clean-hero-ic"><i data-ic="broom" data-size="28"></i></div>
+          <div class="spacer">
+            <h3 id="clean-title">Найдите, что можно удалить</h3>
+            <p class="muted" id="clean-sub">Программа посчитает размер временных файлов, корзины и кэшей. На этом шаге ничего не удаляется.</p>
+          </div>
+          <button class="btn primary lg" id="clean-scan"><i data-ic="search" data-size="17"></i>Найти мусор</button>
+        </div>
+        <div class="card hidden" id="clean-list-card">
+          <div class="card-head">
+            <h3 class="card-title"><i data-ic="check" data-size="18"></i>Отметьте, что очистить</h3>
+            <div class="row"><button class="btn sm ghost" id="clean-all">Выбрать всё</button><button class="btn sm ghost" id="clean-none">Снять выбор</button></div>
+          </div>
+          <div class="clean-list" id="clean-list"></div>
+          <div class="clean-foot">
+            <span class="muted" id="clean-total">Ничего не выбрано</span><span class="spacer"></span>
+            <button class="btn danger" id="clean-run" disabled><i data-ic="trash" data-size="16"></i>Очистить выбранное</button>
+          </div>
+        </div>
+        <div class="card hidden" id="clean-result"></div>
+      </div>
+
+      <div id="opt-apps" class="hidden">
+        <div class="card">
+          <div class="row">
+            <input class="input" id="apps-search" placeholder="Поиск по названию или издателю">
+            <span class="spacer"></span>
+            <button class="btn" id="apps-refresh"><i data-ic="restart" data-size="16"></i>Обновить список</button>
+          </div>
+          <p class="muted small mt6" id="apps-count">Загрузка…</p>
+        </div>
+        <div class="card pad6"><div class="list" id="apps-list"></div></div>
+      </div>
+    </section>
+
     <!-- ================= ЗАДАЧИ ================= -->
     <section class="page hidden" id="page-tasks">
       <div class="page-head"><div><h1>Задачи по расписанию</h1><p>Выполняются автоматически, результат приходит в Telegram.</p></div></div>
@@ -397,9 +441,12 @@
 
 <div class="modal hidden" id="modal"><div class="modal-card" id="modal-card"></div></div>
 <div class="toasts" id="toasts"></div>
+<div class="tip hidden" id="tip" role="tooltip"></div>
 
 <script src="../shared/icons.js"></script>
 <script src="../shared/changelog.js"></script>
+<script src="../shared/tips.js"></script>
 <script src="app.js"></script>
+<script src="optimize.js"></script>
 </body>
 </html>

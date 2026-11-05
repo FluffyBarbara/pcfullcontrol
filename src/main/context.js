@@ -13,6 +13,8 @@ const { Scheduler } = require('./scheduler');
 const { AppUpdater } = require('./app-updater');
 const { RemoteControl } = require('./remote');
 const { ScreenStream } = require('./stream');
+const { Cleaner } = require('./system/cleaner');
+const { AppsManager } = require('./system/apps');
 
 class AppContext extends EventEmitter {
   constructor(db, { version = '0.0.0', quitApp = () => {}, restartApp = () => {}, dataDir = null, prepareForUpdate = () => {} } = {}) {
@@ -35,6 +37,8 @@ class AppContext extends EventEmitter {
     this.appUpdater = new AppUpdater(this);
     this.remote = new RemoteControl(this);
     this.stream = new ScreenStream(this);
+    this.cleaner = new Cleaner();
+    this.apps = new AppsManager(this);
     this.monitor = null;
     this.bot = null;
   }

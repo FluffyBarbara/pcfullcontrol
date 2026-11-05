@@ -103,7 +103,7 @@ class AppUpdater {
     }
     const latest = r && r.updateInfo ? r.updateInfo.version : null;
     const hasUpdate = !!latest && cmpVersions(latest, current) > 0;
-    const info = { current, latest, hasUpdate, notes: (r && r.updateInfo && r.updateInfo.releaseNotes) || '' };
+    const info = { current, latest, hasUpdate, notes: parseNotes(r && r.updateInfo && r.updateInfo.releaseNotes), checkedAt: Date.now() };
     this.ctx.updateInfo = info;
     if (!busy) this.setState({ status: hasUpdate ? 'available' : 'latest', latest });
     return info;
@@ -134,4 +134,31 @@ class AppUpdater {
   }
 }
 
-module.exports = { AppUpdater, cmpVersions, humanError };
+/**
+ * Описание релиза с GitHub (HTML или Markdown) → заголовок и список изменений для окна «Доступно обновление».
+ * Раздел «Скачать» отбрасывается.
+ */
+function parseNotes(raw) {
+  if (Array.isArray(raw)) raw = raw.map((n) => (n && n.note) || '').join('\n');
+  let s = String(raw || '');
+  const cut = s.search(/(<h\d[^>]*>|#+\s*)Скачать/i);
+  if (cut >= 0) s = s.slice(0, cut);
+  const decode = (t) => t.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  let title = '';
+  const items = [];
+  const h = /<h\d[^>]*>([\s\S]*?)<\/h\d>/i.exec(s) || /^#+\s*(.+)$/m.exec(s);
+  if (h) title = decode(h[1]);
+  const li = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let m;
+  while ((m = li.exec(s))) items.push(decode(m[1]));
+  if (!items.length) {
+    for (const line of s.split(/\r?\n/)) {
+      const mm = /^\s*[-*•]\s+(.+)$/.exec(line);
+      if (mm) items.push(decode(mm[1]));
+    }
+  }
+  return { title, items: items.filter(Boolean).slice(0, 12) };
+}
+
+module.exports = { AppUpdater, cmpVersions, humanError, parseNotes };

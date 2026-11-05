@@ -165,8 +165,25 @@
     <!-- ЕЩЁ -->
     <section class="view hidden" data-view="more">
       <h2 class="view-title">Ещё</h2>
-      <div class="seg" id="more-seg">
-        <button data-more="tasks" class="active">Задачи</button><button data-more="log">Журнал</button><button data-more="settings">Настройки</button>
+      <div class="seg scroll" id="more-seg">
+        <button data-more="tasks" class="active">Задачи</button><button data-more="optimize">Очистка</button><button data-more="apps">Программы</button><button data-more="log">Журнал</button><button data-more="settings">Настройки</button>
+      </div>
+
+      <div class="more-pane hidden" data-pane="optimize">
+        <div class="card m-clean-hero">
+          <div class="m-clean-ic"><i data-ic="broom" data-size="24"></i></div>
+          <div class="card-title" id="m-clean-title">Очистка компьютера</div>
+          <p class="muted" id="m-clean-sub">Программа посчитает, сколько места занимают временные файлы, корзина и кэши. Ничего не удаляется без вашего выбора.</p>
+          <button class="btn primary big" id="m-clean-scan"><i data-ic="search" data-size="18"></i>Найти мусор</button>
+        </div>
+        <div class="list hidden" id="m-clean-list"></div>
+        <button class="btn danger big hidden" id="m-clean-run" disabled><i data-ic="trash" data-size="18"></i>Очистить выбранное</button>
+      </div>
+
+      <div class="more-pane hidden" data-pane="apps">
+        <input class="input" id="m-apps-search" placeholder="Поиск программы">
+        <p class="muted small m-apps-count" id="m-apps-count"></p>
+        <div class="list" id="m-apps-list"></div>
       </div>
 
       <div class="more-pane" data-pane="tasks">
@@ -287,7 +304,9 @@
 <div class="toast hidden" id="toast"></div>
 
 <script src="shared/icons.js"></script>
+<script src="shared/tips.js"></script>
 <script src="app.js"></script>
+<script src="optimize.js"></script>
 <script src="remote.js"></script>
 </body>
 </html>

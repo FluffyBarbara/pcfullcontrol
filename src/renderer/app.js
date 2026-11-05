@@ -46,19 +46,34 @@ function ago(ts) {
   return fmtTime(ts);
 }
 
-// Скрытые данные (IP, пользователь): размыты, по клику видны 10 секунд
+// Скрытые данные (IP, MAC, пользователь): размыты, по нажатию видны 10 секунд, затем снова скрываются
 const revealedUntil = {};
-function secret(text, key) {
-  const n = el('span', { class: 'secret', text, title: 'Нажмите, чтобы показать на 10 секунд', 'data-key': key });
-  if ((revealedUntil[key] || 0) > Date.now()) n.classList.add('revealed');
-  n.addEventListener('click', (e) => {
-    e.stopPropagation();
-    revealedUntil[key] = Date.now() + 10000;
-    document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.add('revealed'));
-    setTimeout(() => {
-      if ((revealedUntil[key] || 0) <= Date.now()) document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => x.classList.remove('revealed'));
-    }, 10050);
+const revealTimers = {};
+function setRevealed(key, on) {
+  document.querySelectorAll(`.secret[data-key="${key}"]`).forEach((x) => {
+    x.classList.toggle('revealed', on);
+    x.querySelector('.secret-eye').replaceChildren(ic(on ? 'eyeOff' : 'eye', 14));
+    x.setAttribute('aria-label', on ? 'Скрыть' : 'Показать на 10 секунд');
   });
+}
+function secret(text, key) {
+  const n = el('span', { class: 'secret', 'data-key': key, role: 'button', tabindex: '0', 'data-tip': 'Нажмите, чтобы показать на 10 секунд. Нажмите ещё раз, чтобы скрыть сразу' },
+    el('span', { class: 'secret-val', text }), el('span', { class: 'secret-eye' }, ic('eye', 14)), el('i', { class: 'secret-timer' }));
+  if ((revealedUntil[key] || 0) > Date.now()) {
+    n.classList.add('revealed');
+    n.querySelector('.secret-eye').replaceChildren(ic('eyeOff', 14));
+  }
+  const toggle = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    clearTimeout(revealTimers[key]);
+    if ((revealedUntil[key] || 0) > Date.now()) { revealedUntil[key] = 0; setRevealed(key, false); return; }
+    revealedUntil[key] = Date.now() + 10000;
+    setRevealed(key, true);
+    revealTimers[key] = setTimeout(() => setRevealed(key, false), 10000);
+  };
+  n.addEventListener('click', toggle);
+  n.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') toggle(e); });
   return n;
 }
 
@@ -88,8 +103,8 @@ function confirmModal(title, text, yes = 'Да', danger = true) {
   return openModal([
     el('h3', { text: title }), el('p', { text }),
     el('div', { class: 'row end' },
-      el('button', { class: 'btn', onclick: () => closeModal(false) }, 'Отмена'),
-      el('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => closeModal(true) }, yes)),
+      el('button', { class: 'btn', 'data-tip': 'Закрыть окно, ничего не меняя', onclick: () => closeModal(false) }, 'Отмена'),
+      el('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), 'data-tip': text, onclick: () => closeModal(true) }, yes)),
   ]);
 }
 
@@ -107,12 +122,18 @@ function changeList(items) {
   return items.map(([icon, text]) => el('div', { class: 'change' }, ic(icon, 18), el('span', { text })));
 }
 
-async function showWhatsNew(from, to) {
+async function showWhatsNew(from, to, cleanup = null) {
   const versions = Changelog.between(from, to);
   if (!versions.length) return;
   const body = el('div', { class: 'wn-body' });
   for (const v of versions) {
     body.append(el('div', { class: 'wn-version', text: `Версия ${v.version} · ${v.title}` }), ...changeList(v.items));
+  }
+  // Что программа сама удалила после обновления (данные старой версии, старые установщики)
+  if (cleanup && cleanup.items && cleanup.items.length) {
+    body.append(el('div', { class: 'wn-cleanup' },
+      el('div', {}, el('b', { text: `Удалены данные старой версии${cleanup.total ? ` — освобождено ${fmtBytes(cleanup.total)}` : ''}` })),
+      ...cleanup.items.slice(0, 8).map((x) => el('div', { class: 'muted', text: '• ' + x.what + (x.freed ? ` (${fmtBytes(x.freed)})` : '') }))));
   }
   await openModal([
     el('div', { class: 'wn-hero' }, el('div', { class: 'wn-ic' }, ic('sparkles', 28)),
@@ -147,6 +168,7 @@ function go(p) {
     timers.m = setInterval(loadMobile, 5000);
   } else if (p === 'control') loadVolume();
   else if (p === 'processes') { loadProcesses(); timers.p = setInterval(() => { if (!document.hidden) loadProcesses(); }, 5000); }
+  else if (p === 'optimize') Optimize.show();
   else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();
   else if (p === 'settings') fillSettings();
@@ -251,8 +273,10 @@ async function loadStatus() {
       el('div', { class: 'disk-top' }, el('b', { text: d.mount }), el('span', { class: 'muted', text: `${fmtBytes(d.free)} свободно из ${fmtBytes(d.total)}` })),
       el('div', { class: 'bar ' + (d.percent >= 90 ? 'hot' : d.percent >= 75 ? 'mid' : '') }, fill));
   }));
-  const kv = (k, v, key) => el('div', { class: 'kv' }, el('span', { text: k }), key ? el('b', {}, secret(v, key)) : el('b', { text: v }));
-  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips.join(', ') || '—', 'ip'), kv('Пользователь', s.users.join(', ') || '—', 'user'), kv('Включён', fmtTime(s.bootTime))];
+  const kv = (k, v, key, extra) => el('div', { class: 'kv' }, el('span', { text: k }), key ? el('b', {}, secret(v, key), extra || null) : el('b', { text: v, title: v }));
+  // Основной адрес — в капсуле, остальные — счётчиком «+N», чтобы строка не переносилась
+  const ipMore = s.ips.length > 1 ? el('span', { class: 'more', text: '+' + (s.ips.length - 1), 'data-tip': 'Ещё адреса компьютера — полный список в разделе «Телефон»' }) : null;
+  const rows = [kv('Имя', s.hostname), kv('Процессор', s.cpu.model || '—'), kv('IP-адрес', s.ips[0] || '—', 'ip', ipMore), kv('Пользователь', s.users.join(', ') || '—', 'user'), kv('Включён', fmtTime(s.bootTime))];
   for (const g of s.gpus || []) rows.push(kv('Видеокарта', `${g.name} · ${Math.round(g.util)}%`));
   if (s.battery) rows.push(kv('Батарея', `${s.battery.percent}% ${s.battery.plugged ? '· заряжается' : ''}`));
   $('#sysinfo').replaceChildren(...rows);
@@ -366,7 +390,7 @@ const CONTROL = [
 ];
 function tile(name, tone = '', sub = '') {
   if (!ACTIONS[name]) return null;
-  const t = el('button', { class: 'tile ' + tone }, el('span', { class: 'tile-ic' }, ic(Icons.ACTION_ICONS[name] || 'zap', 19)),
+  const t = el('button', { class: 'tile ' + tone, 'data-act': name }, el('span', { class: 'tile-ic' }, ic(Icons.ACTION_ICONS[name] || 'zap', 19)),
     el('span', {}, SHORT[name] || ACTIONS[name].title, sub ? el('small', { text: sub }) : null));
   t.addEventListener('click', () => runAction(name, '', t));
   return t;
@@ -441,7 +465,7 @@ async function loadMobile() {
       el('div', { class: 'item-ic' }, ic(d.platform === 'ios' ? 'apple' : d.platform === 'android' ? 'android' : 'phone', 18)),
       el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: d.name }),
         el('div', { class: 'item-sub' }, `в сети ${ago(d.last_seen)} · `, secret(d.ip || '—', 'ip'), ` · привязан ${fmtTime(d.created)}`)),
-      el('button', { class: 'btn sm danger', onclick: async () => {
+      el('button', { class: 'btn sm danger', 'data-tip': 'Отвязать телефон — он больше не сможет управлять компьютером', onclick: async () => {
         if (!(await confirmModal('Отвязать телефон?', `«${d.name}» больше не сможет управлять компьютером.`, 'Отвязать'))) return;
         await api('remove-device', { id: d.id });
         loadMobile(); loadState();
@@ -468,7 +492,7 @@ function renderTelegram() {
       el('div', { class: 'item-ic' }, ic('telegram', 18)),
       el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: (u.name || 'Без имени') + (u.username ? ' · @' + u.username : '') }),
         el('div', { class: 'item-sub', text: `ID ${u.user_id} · привязан ${fmtTime(u.added)}` })),
-      el('button', { class: 'btn sm danger', onclick: async () => {
+      el('button', { class: 'btn sm danger', 'data-tip': 'Отвязать этот аккаунт Telegram — он перестанет получать уведомления и управлять ПК', onclick: async () => {
         if (!(await confirmModal('Отвязать аккаунт?', 'Этот аккаунт Telegram больше не сможет управлять компьютером.', 'Отвязать'))) return;
         await api('remove-user', { userId: u.user_id });
         loadState();
@@ -531,7 +555,7 @@ async function loadProcesses() {
       el('td', { class: 'num' }, el('div', { class: 'cpu-cell' }, el('div', { class: 'bar' }, fill), el('span', { text: p.cpu.toFixed(1) + '%' }))),
       el('td', { class: 'num', text: fmtBytes(p.mem) }),
       el('td', { class: 'dim', text: p.user || '' }),
-      el('td', { class: 'num' }, el('button', { class: 'btn sm danger', title: 'Завершить', onclick: async () => {
+      el('td', { class: 'num' }, el('button', { class: 'btn sm danger', 'data-tip': 'Завершить этот процесс (несохранённые данные в нём пропадут)', onclick: async () => {
         const r = await runAction('kill', String(p.pid));
         if (r && r.ok) loadProcesses();
       } }, ic('x', 14))));
@@ -594,7 +618,7 @@ async function loadTasks() {
       el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: t.description.replace(/^#\d+\s*(🔁|🕐)?\s*/u, '') }),
         el('div', { class: 'item-sub', text: (t.kind === 'daily' ? 'повторяется' : 'один раз') + (t.last_run ? ' · последний запуск ' + fmtTime(t.last_run) : '') })),
       sw,
-      el('button', { class: 'btn sm ghost', title: 'Удалить', onclick: async () => { await api('delete-task', { id: t.id }); loadTasks(); } }, ic('trash', 15)));
+      el('button', { class: 'btn sm ghost', 'data-tip': 'Удалить задачу из расписания', onclick: async () => { await api('delete-task', { id: t.id }); loadTasks(); } }, ic('trash', 15)));
   }));
 }
 
@@ -640,7 +664,7 @@ function appRow(a = { name: '', cmd: '' }) {
   return el('div', { class: 'row app-row' },
     el('input', { class: 'input app-name', placeholder: 'Название', value: a.name }),
     el('input', { class: 'input app-cmd', placeholder: 'Программа или путь, например steam.exe', value: a.cmd }),
-    el('button', { class: 'btn sm ghost', type: 'button', onclick: (e) => e.target.closest('.app-row').remove() }, ic('x', 15)));
+    el('button', { class: 'btn sm ghost', type: 'button', 'data-tip': 'Убрать программу из списка быстрого запуска', onclick: (e) => e.target.closest('.app-row').remove() }, ic('x', 15)));
 }
 $('#add-app').addEventListener('click', () => $('#apps').append(appRow()));
 async function loadWol() {
@@ -783,6 +807,38 @@ $('#install-update').addEventListener('click', async () => {
     renderUpdateState(await api('update-state'));
   } catch (e) { $('#update-result').textContent = e.message; $('#install-update').disabled = false; }
 });
+// Новая версия найдена (при запуске программы, открытии окна или по расписанию) — предлагаем обновиться
+const updateDismissed = new Set();
+let updatePromptOpen = false;
+async function promptUpdate(u) {
+  if (!u || !u.hasUpdate || updateDismissed.has(u.latest) || updatePromptOpen) return;
+  if (['downloading', 'downloaded', 'installing'].includes(UPD.status)) return;
+  // Не перебиваем другое открытое окно — дождёмся, пока его закроют
+  while (!$('#modal').classList.contains('hidden')) await new Promise((r) => setTimeout(r, 500));
+  updatePromptOpen = true;
+  const notes = u.notes || {};
+  const list = (notes.items || []).map((t) => el('div', { class: 'change' }, ic('check', 18), el('span', { text: t })));
+  const ok = await openModal([
+    el('div', { class: 'wn-hero' }, el('div', { class: 'wn-ic' }, ic('download', 28)),
+      el('h3', { text: `Доступна версия ${u.latest}` }),
+      el('p', { class: 'muted', text: `Сейчас установлена ${u.current}. Обновление скачается, установится и программа сама откроется новой версией — 1–2 минуты.` })),
+    list.length ? el('div', { class: 'wn-body' }, notes.title ? el('div', { class: 'wn-version', text: notes.title }) : null, ...list) : null,
+    el('div', { class: 'wn-foot row center' },
+      el('button', { class: 'btn lg', 'data-tip': 'Напомнить при следующем запуске программы', onclick: () => closeModal(false) }, 'Позже'),
+      el('button', { class: 'btn primary lg', 'data-tip': 'Скачать и установить новую версию прямо сейчас', onclick: () => closeModal(true) }, ic('download', 17), 'Обновить сейчас')),
+  ], 'whatsnew');
+  updatePromptOpen = false;
+  if (!ok) { updateDismissed.add(u.latest); return; }
+  STATE.update = u;
+  go('about');
+  try {
+    const r = await api('update-start');
+    toast(r, 'info');
+    renderUpdateState(await api('update-state'));
+  } catch (e) { toast(e.message, 'err'); }
+}
+window.pcc.on('update-available', (u) => { if (STATE) { STATE.update = u; renderUpdate(u); } promptUpdate(u); });
+
 $('#title-update').addEventListener('click', () => go('about'));
 $('#show-whatsnew').addEventListener('click', () => showWhatsNew(null, STATE.version));
 $('#open-data').addEventListener('click', () => api('open-data-dir'));
@@ -801,15 +857,63 @@ window.pcc.on('refresh', () => {
   }, 300);
 });
 
+// ===================== подсказки к кнопкам =====================
+// Наведите курсор на любую кнопку — через полсекунды появится описание, что она делает.
+const tipEl = $('#tip');
+let tipTarget = null;
+let tipTimer = null;
+function placeTip(target) {
+  const r = target.getBoundingClientRect();
+  tipEl.classList.remove('hidden', 'below');
+  const tw = tipEl.offsetWidth;
+  const th = tipEl.offsetHeight;
+  let x = r.left + r.width / 2 - tw / 2;
+  x = Math.max(8, Math.min(window.innerWidth - tw - 8, x));
+  let y = r.top - th - 10;
+  if (y < 50) { y = r.bottom + 10; tipEl.classList.add('below'); }
+  tipEl.style.left = x + 'px';
+  tipEl.style.top = y + 'px';
+  tipEl.style.setProperty('--arrow-x', Math.max(12, Math.min(tw - 12, r.left + r.width / 2 - x)) + 'px');
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipTarget = null;
+  tipEl.classList.add('hidden');
+}
+document.addEventListener('mouseover', (e) => {
+  const t = e.target.closest('[data-tip]');
+  if (t === tipTarget) return;
+  hideTip();
+  if (!t || !t.dataset.tip) return;
+  tipTarget = t;
+  tipTimer = setTimeout(() => {
+    if (tipTarget !== t || !document.contains(t)) return;
+    tipEl.textContent = t.dataset.tip;
+    placeTip(t);
+  }, 450);
+});
+document.addEventListener('mousedown', hideTip, true);
+document.addEventListener('scroll', hideTip, true);
+window.addEventListener('blur', hideTip);
+// Новые кнопки (списки, окна) получают описания автоматически
+let tipsQueued = false;
+new MutationObserver(() => {
+  if (tipsQueued) return;
+  tipsQueued = true;
+  requestAnimationFrame(() => { tipsQueued = false; Tips.apply(Tips.PC); });
+}).observe(document.body, { childList: true, subtree: true });
+
 (async () => {
   Icons.hydrate();
+  Tips.apply(Tips.PC);
   await loadState();
   renderUpdateState(await api('update-state'));
   const needSetup = !STATE.mobile.devices && !(STATE.bot.configured && STATE.users.length);
   go(needSetup ? 'phone' : 'overview');
   const wn = await api('whatsnew-state');
   if (wn && wn.pending) {
-    await showWhatsNew(wn.pending.from, wn.pending.to);
+    await showWhatsNew(wn.pending.from, wn.pending.to, wn.cleanup);
     api('whatsnew-ack');
   }
+  if (STATE.update && STATE.update.hasUpdate) promptUpdate(STATE.update);
 })();

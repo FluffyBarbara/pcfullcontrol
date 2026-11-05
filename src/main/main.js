@@ -11,6 +11,7 @@ const { TelegramBot } = require('./bot');
 const { TelegramAPI } = require('./telegram-api');
 const { LanServer } = require('./lan-server');
 const poweron = require('./system/poweron');
+const { cleanupAfterUpdate } = require('./system/self-cleanup');
 const { lock: lockScreen } = require('./system/power');
 const info = require('./system/info');
 const processes = require('./system/processes');
@@ -129,15 +130,18 @@ async function init() {
     fs.writeFileSync(userFile('e2e-auto-update.done'), '1');
     setTimeout(() => ctx.appUpdater.startUpdate().then((m) => ctx.appUpdater.log('info', m)).catch((e) => ctx.appUpdater.log('error', e.message)), 8000);
   }
-  setTimeout(checkAppUpdate, 30 * 1000);
+  // Проверка новой версии сразу при запуске, затем каждые 6 часов и при каждом открытии окна
+  setTimeout(checkAppUpdate, 4000);
   setInterval(checkAppUpdate, 6 * 3600 * 1000);
 }
 
 // ================= Версии и обновления =================
+let cleanupPromise = null;
 function trackVersion() {
   const db = ctx.db;
   const version = app.getVersion();
-  const prev = db.getSetting('lastSeenVersion');
+  // PCFC_TEST_PREV_VERSION — только для автоматической проверки уборки после обновления
+  const prev = process.env.PCFC_TEST_PREV_VERSION || db.getSetting('lastSeenVersion');
   // В версии 1.0.0 lastSeenVersion ещё не сохранялась — узнаём её по другим настройкам
   const from = prev || (db.getSetting('autostartInitialized') ? '1.0.0' : null);
   db.setSetting('lastSeenVersion', version);
@@ -149,6 +153,18 @@ function trackVersion() {
   }
   if (!from || from === version) return;
   db.setSetting('pendingWhatsNew', { from, to: version });
+  // Уборка после обновления: данные старой версии, старые копии и скачанные установщики программы
+  if (IS_WIN && app.isPackaged) {
+    cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData') })
+      .then((report) => {
+        db.setSetting('lastCleanup', { ...report, ts: Date.now() / 1000, version });
+        const n = report.items.filter((x) => x.freed > 0 || /копия|запись/.test(x.what)).length;
+        db.addEvent('info', 'update', `После обновления удалены данные старой версии: ${report.items.length} поз., освобождено ${(report.total / 1048576).toFixed(1)} МБ`);
+        if (n) ctx.notifier.notify(`🧹 После обновления удалены данные старой версии и старые установщики — освобождено ${(report.total / 1048576).toFixed(0)} МБ`, { category: 'update' });
+        return report;
+      })
+      .catch(() => null);
+  }
   const changes = changesBetween(from, version);
   const lines = changes.flatMap((v) => v.items.map(([, t]) => `• ${E(t)}`));
   ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
@@ -184,13 +200,17 @@ function prepareForUpdate() {
   } catch (e) { /* ignore */ }
 }
 
+let lastUpdateCheck = 0;
 async function checkAppUpdate() {
+  lastUpdateCheck = Date.now();
   try {
     ctx.updateInfo = await ctx.appUpdater.check();
   } catch (e) {
     return;
   }
   const u = ctx.updateInfo;
+  // Окно программы предложит обновиться (если не идёт установка)
+  if (u.hasUpdate && !['downloading', 'downloaded', 'installing'].includes(ctx.appUpdater.state.status)) send('update-available', u);
   if (u.hasUpdate && ctx.db.getSetting('notifiedUpdate') !== u.latest) {
     ctx.db.setSetting('notifiedUpdate', u.latest);
     ctx.notifier.notify(`✨ Доступна новая версия PC Full Control <b>${E(u.latest)}</b>.\nУстановить: «🔄 Обновления → 🤖 Обновить PC Full Control» или в программе на ПК.`, { category: 'update' });
@@ -212,6 +232,7 @@ function send(channel, data) {
 
 // ================= Окно и трей =================
 function showWindow() {
+  if (ctx && Date.now() - lastUpdateCheck > 10 * 60 * 1000) setTimeout(checkAppUpdate, 1500);
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
@@ -393,7 +414,12 @@ function registerIpc() {
     return s;
   });
   handle('get-processes', ({ sort = 'cpu', query = '' }) => processes.listProcesses({ sort, query, limit: 150 }));
-  handle('whatsnew-state', () => ({ pending: ctx.db.getSetting('pendingWhatsNew') }));
+  handle('whatsnew-state', async () => {
+    const pending = ctx.db.getSetting('pendingWhatsNew');
+    let cleanup = null;
+    if (pending && cleanupPromise) cleanup = await Promise.race([cleanupPromise, new Promise((r) => setTimeout(() => r(null), 20000))]);
+    return { pending, cleanup };
+  });
   handle('whatsnew-ack', () => { ctx.db.setSetting('pendingWhatsNew', null); return true; });
   handle('get-metrics', ({ hours = 1 }) => {
     const rows = ctx.db.metricsSince(Date.now() / 1000 - Math.min(Math.max(hours, 0.1), 168) * 3600);
@@ -497,6 +523,24 @@ function registerIpc() {
   // --- включение с телефона ---
   handle('wol-info', async () => ({ iface: poweron.primaryInterface(), autologon: await poweron.autologonState(), isWin: IS_WIN }));
   handle('wol-setup', () => poweron.setupWindows());
+  // Оптимизация: анализ ничего не удаляет; очистка — только выбранные пользователем категории
+  handle('clean-analyze', () => ctx.cleaner.analyze());
+  handle('clean-run', async ({ ids }) => {
+    if (Array.isArray(ids) && ids.includes('own-installers') && ['downloading', 'downloaded', 'installing'].includes(ctx.appUpdater.state.status)) {
+      throw new Error('Сейчас идёт обновление программы — очистите установщики после него');
+    }
+    const r = await ctx.cleaner.clean(ids);
+    const freed = r.reduce((s, x) => s + x.freed, 0);
+    ctx.db.logCommand('local', 'ПК', 'cleanup', ids.join(', '), true, `освобождено ${(freed / 1048576).toFixed(1)} МБ`);
+    return r;
+  });
+  // Удаление программ: всё только по выбору пользователя
+  handle('apps-list', async () => ({ available: ctx.apps.available, apps: await ctx.apps.list() }));
+  handle('apps-uninstall', ({ id, quiet }) => ctx.apps.uninstall(id, { quiet: !!quiet }));
+  handle('apps-job', ({ id }) => ctx.apps.job(id));
+  handle('apps-leftovers', ({ id }) => ctx.apps.findLeftovers(id));
+  handle('apps-remove-leftovers', ({ id, tokens }) => ctx.apps.removeLeftovers(id, tokens));
+  handle('cleanup-report', () => ctx.db.getSetting('lastCleanup'));
   handle('autologon-enable', async ({ password }) => {
     const r = await poweron.enableAutologon(password);
     ctx.db.setSetting('autologonEnabled', true);

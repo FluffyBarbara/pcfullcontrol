@@ -242,9 +242,39 @@ class LanServer {
     }
     if (p === '/api/update/state') return ctx.appUpdater.state;
     if (p === '/api/update/check') {
-      let u;
-      try { u = await ctx.appUpdater.check(); } catch (e) { throw new HttpError(502, e.message); }
-      return { current: u.current, latest: u.latest, hasUpdate: u.hasUpdate, message: u.message || '' };
+      let u = ctx.updateInfo;
+      // Свежий результат (до 5 минут) не перепроверяем — телефон спрашивает при каждом открытии
+      if (!u || !u.checkedAt || q('force') === '1' || Date.now() - u.checkedAt > 5 * 60 * 1000) {
+        try { u = await ctx.appUpdater.check(); } catch (e) { throw new HttpError(502, e.message); }
+      }
+      return { current: u.current, latest: u.latest, hasUpdate: u.hasUpdate, message: u.message || '', notes: u.notes || null };
+    }
+    // --- оптимизация: анализ ничего не удаляет, очистка — только выбранные категории ---
+    if (p === '/api/clean/analyze') return ctx.cleaner.analyze();
+    if (p === '/api/clean/run' && m === 'POST') {
+      const body = await readJson(req);
+      try {
+        const r = await ctx.cleaner.clean(body.ids);
+        const freed = r.reduce((s, x) => s + x.freed, 0);
+        ctx.db.logCommand('mobile', device.name, 'cleanup', body.ids.join(', '), true, `освобождено ${(freed / 1048576).toFixed(1)} МБ`);
+        return r;
+      } catch (e) { throw new HttpError(400, e.message); }
+    }
+    // --- удаление программ ---
+    if (p === '/api/apps') {
+      try { return { available: ctx.apps.available, apps: await ctx.apps.list() }; } catch (e) { throw new HttpError(500, e.message); }
+    }
+    const am = /^\/api\/apps\/([0-9a-f]{16})\/(uninstall|job|leftovers|remove)$/.exec(p);
+    if (am) {
+      const [, id, op] = am;
+      try {
+        if (op === 'job') return ctx.apps.job(id);
+        if (m !== 'POST') throw new HttpError(405, 'Нужен POST');
+        const body = await readJson(req);
+        if (op === 'uninstall') return await ctx.apps.uninstall(id, { quiet: !!body.quiet });
+        if (op === 'leftovers') return await ctx.apps.findLeftovers(id);
+        return await ctx.apps.removeLeftovers(id, body.tokens);
+      } catch (e) { throw e instanceof HttpError ? e : new HttpError(400, e.message); }
     }
     if (p === '/api/status') {
       const s = await info.getStatus();
