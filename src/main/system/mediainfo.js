@@ -400,7 +400,7 @@ function describe(s, windows = [], now = Date.now()) {
 class MediaInfo {
   constructor(ctx) {
     this.ctx = ctx;
-    this.agent = IS_WIN ? new PsAgent({ name: 'PccMedia', cs: CS, ps: PS, dataDir: ctx.dataDir, idleMs: 15 * 60 * 1000 }) : null;
+    this.agent = IS_WIN ? new PsAgent({ name: 'PccMedia', cs: CS, ps: PS, dataDir: ctx.dataDir, idleMs: 5 * 60 * 1000 }) : null;
     this.covers = new Map(); // ключ → { buf, type }
     this.icons = new Map(); // путь → data:URL
     this.coverMiss = new Map(); // ключ → когда не нашли

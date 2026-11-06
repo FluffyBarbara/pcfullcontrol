@@ -28,6 +28,7 @@ const { UsbWatch } = require('./usbwatch');
 const { CrashWatch } = require('./crashes');
 const { SpaceScanner } = require('./system/space');
 const { Assistant } = require('./assistant');
+const { Helper } = require('./system/helper');
 const { NetDiag } = require('./netdiag');
 const path = require('path');
 const fs = require('fs');
@@ -66,6 +67,7 @@ class AppContext extends EventEmitter {
     this.apps = new AppsManager(this);
     this.startup = new StartupManager();
     this.fps = new FpsMonitor({ exePath: presentMonPath(), log: (m) => this.db.addEvent('info', 'gpu', m) });
+    this.helper = new Helper({ log: (m) => { try { this.db.addEvent('info', 'helper', m); } catch (e) { /* ignore */ } } });
     this.net = new NetWatch(this);
     this.intruder = new IntruderWatch(this);
     this.activity = new ActivityTracker(this);

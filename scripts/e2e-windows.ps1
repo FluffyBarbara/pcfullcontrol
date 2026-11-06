@@ -125,6 +125,18 @@ Write-Host 'Удаление программ работает: только в�
 
 & ./scripts/e2e-v17.ps1 -J $J
 
+Write-Host '=== 2м. Фоновый помощник вместо PowerShell (память) ==='
+$helper = $null
+for ($i = 0; $i -lt 60 -and -not $helper; $i++) { $helper = Get-Process pcfc-helper -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $helper) { Start-Sleep 1 } }
+if (-not $helper) { throw 'Фоновый помощник pcfc-helper.exe не запустился' }
+$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($helper.Id)").CommandLine
+Write-Host "Помощник: $cmd, память $([math]::Round($helper.PrivateMemorySize64 / 1MB, 1)) МБ"
+if ($cmd -notmatch 'activity') { throw 'Помощник запущен без учёта программ' }
+$ps = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.ParentProcessId -in (App-Pids) -and $_.CommandLine -match 'EncodedCommand' })
+Write-Host "PowerShell от программы с постоянным скриптом: $($ps.Count)"
+$mem = (Get-Process PCFullControl | Measure-Object PrivateMemorySize64 -Sum).Sum / 1MB
+Write-Host "Память PC Full Control (все процессы): $([math]::Round($mem)) МБ"
+
 Write-Host '=== 3. Обновление встроенным механизмом (как кнопка «Установить обновление») ==='
 $res = Join-Path (Split-Path $exe) 'resources\app-update.yml'
 if (!(Test-Path $res)) { throw 'В установленной программе нет app-update.yml — обновление не найдёт релизы' }

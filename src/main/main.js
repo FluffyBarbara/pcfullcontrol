@@ -31,7 +31,8 @@ let quitting = false;
 
 // Трансляция экрана на телефон: настоящие адреса в локальной сети (без маскировки mDNS),
 // иначе телефон в той же сети Wi-Fi может не найти компьютер.
-app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+// SpareRendererForSitePerProcess — Chromium держит запасной пустой процесс «на всякий случай»: не нужен.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns,SpareRendererForSitePerProcess');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -116,6 +117,7 @@ async function init() {
   setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
   setTimeout(() => ctx.usb.start().catch(() => {}), 25000);
   ctx.crashes.start();
+  startMemoryCare();
   setTimeout(() => removeInternetAccessLeftovers().catch(() => {}), 15000);
   startWeeklyReports();
   startBot();
@@ -219,7 +221,7 @@ function prepareForUpdate() {
 let lastUpdateCheck = 0;
 /** Останавливает фоновые службы (перед выходом и обновлением). */
 function stopServices() {
-  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(), () => ctx.fps.stop(), () => ctx.media.stop(), () => ctx.usb.stop(), () => ctx.crashes.stop(), () => ctx.space.stopProc()]) {
+  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.helper.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(), () => ctx.fps.stop(), () => ctx.media.stop(), () => ctx.usb.stop(), () => ctx.crashes.stop(), () => ctx.space.stopProc()]) {
     try { fn(); } catch (e) { /* ignore */ }
   }
 }
@@ -305,6 +307,7 @@ function send(channel, data) {
 // ================= Окно и трей =================
 function showWindow() {
   if (ctx && Date.now() - lastUpdateCheck > 10 * 60 * 1000) setTimeout(checkAppUpdate, 1500);
+  clearTimeout(unloadTimer);
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
@@ -325,6 +328,9 @@ function showWindow() {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+  mainWindow.on('hide', scheduleUnload);
+  mainWindow.on('show', () => clearTimeout(unloadTimer));
+  mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.on('close', (e) => {
     if (quitting) return;
     e.preventDefault();
@@ -334,6 +340,38 @@ function showWindow() {
       tray.displayBalloon({ title: 'PC Full Control', content: 'Приложение продолжает работать в трее и принимать команды с телефона.' });
     }
   });
+}
+
+// ================= Память в фоне =================
+// Окно в трее не нужно держать в памяти: через минуту после закрытия оно выгружается целиком
+// (≈50–60 МБ) и за долю секунды создаётся заново при открытии. В фоне неиспользуемая память
+// процессов программы возвращается Windows (страницы уходят в резерв и подгружаются, когда нужны).
+const UNLOAD_AFTER = 60 * 1000;
+let unloadTimer = null;
+let runGc = null;
+try { require('v8').setFlagsFromString('--expose-gc'); runGc = require('vm').runInNewContext('gc'); } catch (e) { /* без сборки мусора по запросу */ }
+
+function scheduleUnload() {
+  clearTimeout(unloadTimer);
+  unloadTimer = setTimeout(() => {
+    if (quitting || !mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+    mainWindow.destroy();
+    mainWindow = null;
+    setTimeout(trimMemory, 5000);
+  }, UNLOAD_AFTER);
+}
+
+function trimMemory() {
+  if (!ctx || (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())) return;
+  if (ctx.stream && ctx.stream.sessions && ctx.stream.sessions.size > 0) return; // идёт трансляция экрана
+  try { if (runGc) runGc(); } catch (e) { /* ignore */ }
+  try { ctx.helper.trim(app.getAppMetrics().map((m) => m.pid).filter(Boolean)); } catch (e) { /* ignore */ }
+}
+
+function startMemoryCare() {
+  setTimeout(trimMemory, 90 * 1000); // после запуска фоновых помощников
+  const t = setInterval(trimMemory, 10 * 60 * 1000);
+  if (t.unref) t.unref();
 }
 
 function createTray() {

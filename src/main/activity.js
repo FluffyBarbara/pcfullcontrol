@@ -97,7 +97,15 @@ class ActivityTracker {
   }
 
   start() {
-    if (!IS_WIN || this.proc) return;
+    if (!IS_WIN || this.proc || this.viaHelper) return;
+    // Лёгкий помощник вместо PowerShell (~5 МБ вместо ~35 МБ)
+    const h = this.ctx.helper;
+    if (h && h.available) {
+      this.viaHelper = (line) => this.onSample(line);
+      h.on('activity', this.viaHelper);
+      h.use('activity');
+      return;
+    }
     const encoded = Buffer.from("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n" + AGENT, 'utf16le').toString('base64');
     const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     this.proc = p;
@@ -151,6 +159,7 @@ class ActivityTracker {
     const p = this.proc;
     this.proc = null;
     if (p) { try { p.kill(); } catch (e) { /* ignore */ } }
+    if (this.viaHelper) { this.ctx.helper.off('activity', this.viaHelper); this.viaHelper = null; }
   }
 }
 
