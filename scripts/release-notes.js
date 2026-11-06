@@ -1,15 +1,29 @@
 'use strict';
-// Печатает описание релиза (Markdown) для текущей версии из src/shared/changelog.js.
-const { CHANGELOG } = require('../src/shared/changelog');
+// Описание релиза (Markdown) из src/shared/changelog.js.
+// Версия x.y.0 — большое обновление (свой релиз на GitHub); x.y.1, x.y.2… — исправления: публикуются
+// в тот же релиз x.y.0, а в описании появляется раздел «Исправления».
+const { CHANGELOG, cmp } = require('../src/shared/changelog');
 const { version } = require('../package.json');
 
-const entry = CHANGELOG.find((v) => v.version === version);
+const [maj, min] = version.split('.');
+const base = `${maj}.${min}.0`;
+const main = CHANGELOG.find((v) => v.version === base);
+const fixes = CHANGELOG.filter((v) => { const p = v.version.split('.'); return p[0] === maj && p[1] === min && Number(p[2]) > 0 && cmp(v.version, version) <= 0; })
+  .sort((a, b) => cmp(b.version, a.version));
 const repo = 'https://github.com/FluffyBarbara/pcfullcontrol';
 const lines = [];
-if (entry) {
-  lines.push(`## ${entry.title}`, '');
-  for (const [, text] of entry.items) lines.push(`- ${text}`);
+if (main) {
+  lines.push(`## ${main.title}`, '');
+  for (const [, text] of main.items) lines.push(`- ${text}`);
   lines.push('');
+}
+if (fixes.length) {
+  lines.push('## 🔧 Исправления', '');
+  for (const f of fixes) {
+    lines.push(`**${f.version}** — ${f.title}`);
+    for (const [, text] of f.items) lines.push(`- ${text}`);
+    lines.push('');
+  }
 }
 lines.push(
   '## Скачать',

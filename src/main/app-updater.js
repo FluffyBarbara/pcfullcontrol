@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { E } = require('./telegram-api');
 const fastDownload = require('./fast-download');
-const { differential } = require('./diff-download');
+const { differential, fetchBlockmap } = require('./diff-download');
 
 function cmpVersions(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -115,14 +115,15 @@ class AppUpdater {
   }
 
   /** «Обновить PC Full Control»: сразу отвечает, есть ли новая версия; скачивание и установка идут в фоне. */
-  async startUpdate() {
+  async startUpdate({ silent = false } = {}) {
+    this.silent = silent;
     const s = this.state.status;
     if (s === 'downloading') return `Обновление до ${this.state.latest} уже скачивается (${this.state.percent}%).`;
     if (s === 'downloaded' || s === 'installing') return `Обновление до ${this.state.latest} устанавливается — программа скоро перезапустится.`;
     const c = await this.check();
     if (!c.hasUpdate) return c.latest ? `У вас последняя версия — ${c.current}. Обновлений нет.` : `Обновлений нет (${c.message || 'релизы не найдены'}).`;
     this.setState({ status: 'downloading', latest: c.latest, percent: 0, error: '', diff: false });
-    this.ctx.notifier.notify(`⬇️ Скачиваю PC Full Control <b>${E(c.latest)}</b>…`, { category: 'update' });
+    if (!silent) this.ctx.notifier.notify(`⬇️ Скачиваю PC Full Control <b>${E(c.latest)}</b>…`, { category: 'update' });
     this.download(c.latest).catch((e) => this.fail(e));
     return `Найдена версия ${c.latest} (у вас ${c.current}). Скачиваю — после загрузки программа сама установит обновление и откроется уже новой версией.`;
   }
@@ -151,34 +152,39 @@ class AppUpdater {
     let url = file.url;
     const feed = process.env.PCFC_UPDATE_FEED;
     const cfg = feed ? null : await u.configOnDisk.value;
-    const releaseDir = (v) => (feed ? feed.replace(/\/+$/, '') : `https://github.com/${cfg.owner}/${cfg.repo}/releases/download/v${v}`);
-    if (!/^https?:/i.test(url)) url = `${releaseDir(version)}/${encodeURIComponent(name)}`;
+    const rel = (tag) => (feed ? feed.replace(/\/+$/, '') : `https://github.com/${cfg.owner}/${cfg.repo}/releases/download/${tag}`);
+    // Исправления x.y.1, x.y.2… публикуются в релиз vx.y.0 — берём папку того релиза, где лежит обновление
+    const tag = info.tag || `v${version}`;
+    if (!/^https?:/i.test(url)) url = `${rel(tag)}/${encodeURIComponent(name)}`;
+    const newMaps = [`${rel(tag)}/PCFullControl-Setup-${version}.blockmap`, `${rel(tag)}/${encodeURIComponent(name)}.blockmap`];
     fs.mkdirSync(dir, { recursive: true });
     const tmp = path.join(dir, `fast-${name}`);
     const target = path.join(dir, name);
-    const finish = () => {
+    const finish = (blockmap) => {
       fs.rmSync(target, { force: true });
       fs.renameSync(tmp, target);
       fs.writeFileSync(path.join(dir, 'update-info.json'), JSON.stringify({ fileName: name, sha512: file.sha512, isAdminRightsRequired: false }));
+      // Карта блоков этой версии понадобится для следующего обновления по разнице
+      if (blockmap) { try { fs.writeFileSync(target + '.blockmap', blockmap); } catch (e) { /* не страшно */ } }
     };
     // 1) Только изменения: нужен установщик текущей версии, сохранённый после прошлого обновления
     const base = this.baseInstaller();
     if (base && !feed) {
       const t0 = Date.now();
       try {
-        // Сохранённый файл точно от текущей версии? Сверяем с её latest.yml
-        const yml = await (await fetch(`${releaseDir(this.ctx.version)}/latest.yml`)).text();
-        const oldSha = (/^sha512:\s*(\S+)/m.exec(yml) || [])[1];
-        if (!oldSha || oldSha !== await fastDownload.sha512File(base)) throw new Error('сохранённый установщик не от текущей версии');
-        this.log('info', `обновление по разнице: ${this.ctx.version} → ${version}`);
+        const cur = this.ctx.version;
+        const [mj, mn] = cur.split('.');
+        let oldBlockmap = null;
+        try { oldBlockmap = fs.readFileSync(base + '.blockmap'); } catch (e) { /* возьмём из релиза */ }
+        this.log('info', `обновление по разнице: ${cur} → ${version}`);
         const r = await differential({
-          url, oldFile: base, dest: tmp, sha512: file.sha512, size: Number(file.size) || 0, connections: 6,
-          oldBlockmapUrl: `${releaseDir(this.ctx.version)}/${encodeURIComponent(name)}.blockmap`,
-          newBlockmapUrl: `${releaseDir(version)}/${encodeURIComponent(name)}.blockmap`,
+          url, oldFile: base, dest: tmp, sha512: file.sha512, size: Number(file.size) || 0, connections: 6, oldBlockmap,
+          oldBlockmapUrl: [`${rel(`v${mj}.${mn}.0`)}/PCFullControl-Setup-${cur}.blockmap`, `${rel(`v${cur}`)}/${encodeURIComponent(name)}.blockmap`],
+          newBlockmapUrl: newMaps,
           log: (m) => this.log('info', m),
           onProgress: (p) => this.setState({ status: 'downloading', diff: true, percent: Math.min(99, Math.floor(p.percent)), transferred: p.transferred, total: p.total, speed: p.speed }),
         });
-        finish();
+        finish(r.blockmap);
         this.log('info', `скачано только ${(r.downloaded / 1048576).toFixed(1)} МБ из ${(r.total / 1048576).toFixed(1)} МБ за ${((Date.now() - t0) / 1000).toFixed(1)} с, контрольная сумма совпала`);
         return;
       } catch (e) {
@@ -193,7 +199,9 @@ class AppUpdater {
         sha512: file.sha512, size: Number(file.size) || 0, connections: 8, log: (m) => this.log('info', m),
         onProgress: (p) => this.setState({ status: 'downloading', percent: Math.min(99, Math.floor(p.percent)), transferred: p.transferred, total: p.total, speed: p.speed }),
       });
-      finish();
+      let bm = null;
+      if (!feed) { try { bm = (await fetchBlockmap(newMaps)).buf; } catch (e) { /* без карты — следующее обновление скачается целиком */ } }
+      finish(bm);
       const sec = (Date.now() - started) / 1000;
       this.log('info', `скачано ${r.total} байт за ${sec.toFixed(1)} с (${(r.total / sec / 1048576).toFixed(1)} МБ/с), контрольная сумма совпала`);
     } catch (e) {
@@ -216,7 +224,7 @@ class AppUpdater {
     this.setState({ status: 'installing' });
     this.log('info', `Устанавливаю ${version}`);
     this.ctx.db.setSetting('updateInProgress', { from: this.ctx.version, to: version, ts: Date.now() / 1000 });
-    this.ctx.notifier.notify(`🔄 Устанавливаю PC Full Control <b>${E(version)}</b> — программа перезапустится через минуту.`, { category: 'update' });
+    if (!this.silent) this.ctx.notifier.notify(`🔄 Устанавливаю PC Full Control <b>${E(version)}</b> — программа перезапустится через минуту.`, { category: 'update' });
     await this.ctx.notifier.flush(5000);
     this.ctx.prepareForUpdate();
     // Тихая установка (/S) и запуск новой версии после неё (--force-run)

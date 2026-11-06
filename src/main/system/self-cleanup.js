@@ -79,7 +79,10 @@ async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = nu
           fs.mkdirSync(dir, { recursive: true });
           const dst = path.join(dir, 'base-installer.exe');
           fs.copyFileSync(pending, dst);
-          fs.writeFileSync(dst + '.json', JSON.stringify({ version, saved: Date.now() }));
+          try { fs.copyFileSync(pending + '.blockmap', dst + '.blockmap'); } catch (e) { fs.rmSync(dst + '.blockmap', { force: true }); }
+          let sha512 = null;
+          try { sha512 = JSON.parse(fs.readFileSync(path.join(upd, 'pending', 'update-info.json'), 'utf8')).sha512 || null; } catch (e) { /* ignore */ }
+          fs.writeFileSync(dst + '.json', JSON.stringify({ version, sha512, saved: Date.now() }));
           log(`установщик ${version} сохранён для следующих обновлений по разнице`);
         }
       } catch (e) { log('не удалось сохранить установщик: ' + e.message); }

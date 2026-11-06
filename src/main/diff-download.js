@@ -6,14 +6,25 @@ const fs = require('fs');
 const zlib = require('zlib');
 const { sha512File, CHUNK } = require('./fast-download');
 
-async function fetchBlockmap(url, fetchImpl = fetch) {
-  const r = await fetchImpl(url, { redirect: 'follow' });
-  if (!r.ok) throw new Error(`карта блоков недоступна (${r.status})`);
-  const buf = Buffer.from(await r.arrayBuffer());
+function parseBlockmap(buf) {
   const json = JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b ? zlib.gunzipSync(buf) : buf).toString('utf8'));
   const f = (json.files || [])[0];
   if (!f || !Array.isArray(f.checksums) || f.checksums.length !== f.sizes.length) throw new Error('неверная карта блоков');
   return f;
+}
+
+/** Первая доступная карта блоков из списка адресов → { buf, map }. */
+async function fetchBlockmap(urls, fetchImpl = fetch) {
+  let last = null;
+  for (const url of [].concat(urls)) {
+    try {
+      const r = await fetchImpl(url, { redirect: 'follow' });
+      if (!r.ok) { last = new Error(`карта блоков недоступна (${r.status})`); continue; }
+      const buf = Buffer.from(await r.arrayBuffer());
+      return { buf, map: parseBlockmap(buf) };
+    } catch (e) { last = e; }
+  }
+  throw last || new Error('карта блоков недоступна');
 }
 
 /**
@@ -45,8 +56,11 @@ function plan(oldMap, newMap) {
  * Собирает новый установщик в dest. oldFile — установщик текущей версии.
  * onProgress({ transferred, total, percent, speed }) — по скачанным байтам.
  */
-async function differential({ url, oldFile, oldBlockmapUrl, newBlockmapUrl, dest, sha512, size = 0, connections = 6, fetchImpl = fetch, onProgress = () => {}, log = () => {} }) {
-  const [oldMap, newMap] = await Promise.all([fetchBlockmap(oldBlockmapUrl, fetchImpl), fetchBlockmap(newBlockmapUrl, fetchImpl)]);
+async function differential({ url, oldFile, oldBlockmap = null, oldBlockmapUrl, newBlockmapUrl, dest, sha512, size = 0, connections = 6, fetchImpl = fetch, onProgress = () => {}, log = () => {} }) {
+  // Карта блоков старой версии — сохранённая рядом с установщиком, иначе из релиза
+  const oldMap = oldBlockmap ? parseBlockmap(oldBlockmap) : (await fetchBlockmap(oldBlockmapUrl, fetchImpl)).map;
+  const fresh = await fetchBlockmap(newBlockmapUrl, fetchImpl);
+  const newMap = fresh.map;
   const p = plan(oldMap, newMap);
   if (size && p.total !== size) throw new Error('карта блоков не совпадает с размером файла');
   const oldSize = fs.statSync(oldFile).size;
@@ -114,7 +128,7 @@ async function differential({ url, oldFile, oldBlockmapUrl, newBlockmapUrl, dest
   }
   emit();
   if (sha512 && (await sha512File(dest)) !== sha512) throw new Error('sha512 checksum mismatch');
-  return { downloaded: p.download, total: p.total };
+  return { downloaded: p.download, total: p.total, blockmap: fresh.buf };
 }
 
-module.exports = { differential, plan, fetchBlockmap };
+module.exports = { differential, plan, fetchBlockmap, parseBlockmap };

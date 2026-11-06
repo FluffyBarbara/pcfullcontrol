@@ -186,7 +186,7 @@ async function loadState() {
   ACTIONS = Object.fromEntries(STATE.actions.map((a) => [a.name, a]));
   $('#brand-sub').textContent = STATE.pcName;
   $('#hero-name').textContent = STATE.pcName;
-  $('#about-version').textContent = STATE.version;
+  $('#about-version').textContent = Changelog.display(STATE.version);
   $('#terminal-card').classList.toggle('hidden', !STATE.config.security.allowShell);
   renderSideStatus();
   renderTelegram();
@@ -862,6 +862,7 @@ const updateDismissed = new Set();
 let updatePromptOpen = false;
 async function promptUpdate(u) {
   if (!u || !u.hasUpdate || updateDismissed.has(u.latest) || updatePromptOpen) return;
+  if (Changelog.fixOnly(u.current, u.latest)) return; // исправления ставятся сами
   if (['downloading', 'downloaded', 'installing'].includes(UPD.status)) return;
   // Не перебиваем другое открытое окно — дождёмся, пока его закроют
   while (!$('#modal').classList.contains('hidden')) await new Promise((r) => setTimeout(r, 500));
@@ -968,7 +969,11 @@ new MutationObserver(() => {
   go(needSetup ? 'phone' : 'overview');
   const wn = await api('whatsnew-state');
   if (wn && wn.pending) {
-    await showWhatsNew(wn.pending.from, wn.pending.to, wn.cleanup);
+    if (wn.pending.fixOnly) {
+      // Мелкие исправления — короткое сообщение, без окна «Что нового»
+      const items = Changelog.between(wn.pending.from, wn.pending.to).flatMap((v) => v.items.map(([, t]) => t));
+      toast(`🔧 Исправлено:\n${items.slice(0, 4).map((t) => '• ' + t).join('\n')}${items.length > 4 ? `\n…и ещё ${items.length - 4}` : ''}`, 'ok');
+    } else await showWhatsNew(wn.pending.from, wn.pending.to, wn.cleanup);
     api('whatsnew-ack');
   }
   if (STATE.update && STATE.update.hasUpdate) promptUpdate(STATE.update);

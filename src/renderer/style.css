@@ -17,7 +17,7 @@
   --a2: 34, 211, 238;
   --ov: 255, 255, 255;
   --sunk: rgba(0, 0, 0, .25);
-  --titlebar-bg: rgba(10, 12, 18, .6);
+  --titlebar-bg: #0d1017; /* тот же цвет, что у кнопок окна Windows (applyTitleBar) */
   --sidebar-bg: rgba(12, 15, 22, .55);
   --modal-bg: rgba(3, 5, 9, .55);
   --modal-card: rgba(17, 21, 30, .92);
@@ -585,7 +585,9 @@ body {
 }
 /* Свечение фона неподвижное — чтобы не нагружать слабые компьютеры постоянной перерисовкой */
 
-.titlebar { background: var(--titlebar-bg); backdrop-filter: blur(18px) saturate(1.3); }
+/* Сплошной цвет: справа кнопки окна Windows рисуются сплошной заливкой, полупрозрачность давала «ступеньку».
+   Линия снизу — тенью за пределами полосы, чтобы она шла под кнопками без разрыва. */
+.titlebar { background: var(--titlebar-bg); border-bottom: 0; box-shadow: 0 1px 0 var(--line); }
 .sidebar { background: var(--sidebar-bg); backdrop-filter: blur(22px) saturate(1.2); border-right-color: var(--card-border); }
 .content { background: transparent; }
 
@@ -694,7 +696,7 @@ html[data-theme="light"] {
   --line: rgba(15, 23, 42, .08); --line-2: rgba(15, 23, 42, .14);
   --text: #121826; --muted: #5a6377; --dim: #8b93a5;
   --ov: 15, 23, 42; --sunk: rgba(15, 23, 42, .05);
-  --titlebar-bg: rgba(243, 245, 250, .8); --sidebar-bg: rgba(255, 255, 255, .7);
+  --titlebar-bg: #f3f5fa; --sidebar-bg: rgba(255, 255, 255, .7);
   --modal-bg: rgba(15, 23, 42, .3); --modal-card: rgba(255, 255, 255, .96); --tip-bg: rgba(255, 255, 255, .98);
   --h1-grad: linear-gradient(180deg, #121826 30%, #49526a);
   --glass: rgba(255, 255, 255, .78); --glass-2: rgba(255, 255, 255, .7);

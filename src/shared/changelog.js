@@ -3,6 +3,15 @@
 (function (root) {
   const CHANGELOG = [
     {
+      version: '1.12.1',
+      date: '2026-11-06',
+      title: 'Ровная верхняя полоса и тихие исправления',
+      items: [
+        ['palette', 'Верхняя полоса окна стала одного цвета с кнопками «свернуть / развернуть / закрыть» — справа больше нет «ступеньки».'],
+        ['download', 'Исправления ошибок теперь ставятся сами, без окна «Доступна новая версия»: в спокойный момент, а после — короткое сообщение «Исправлено». Окно с новыми функциями — только для больших обновлений.'],
+      ],
+    },
+    {
       version: '1.12.0',
       date: '2026-11-06',
       title: 'Маленькие обновления, «Игры и сбои», почему пропадает интернет',
@@ -248,7 +257,24 @@
     return CHANGELOG.filter((v) => (!from || cmp(v.version, from) > 0) && cmp(v.version, to) <= 0);
   }
 
-  const api = { CHANGELOG, between, cmp };
+  /**
+   * Версии: x.y.0 — большое обновление с новыми функциями (отдельный релиз на GitHub);
+   * x.y.1, x.y.2… — исправления ошибок: ставятся сами в фоне, без отдельного релиза.
+   */
+  const isFix = (v) => (Number(String(v).split('.')[2]) || 0) > 0;
+  /** Обновление from → to — только исправления (та же x.y)? */
+  function fixOnly(from, to) {
+    const a = String(from || '').split('.'); const b = String(to || '').split('.');
+    return !!from && a[0] === b[0] && a[1] === b[1] && cmp(to, from) > 0;
+  }
+  /** Для показа: «1.12» или «1.12 · исправление 2». */
+  function display(v) {
+    const p = String(v || '').split('.');
+    const fix = Number(p[2]) || 0;
+    return `${p[0]}.${p[1] || 0}${fix ? ` · исправление ${fix}` : ''}`;
+  }
+
+  const api = { CHANGELOG, between, cmp, isFix, fixOnly, display };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Changelog = api;
 })(typeof window !== 'undefined' ? window : globalThis);

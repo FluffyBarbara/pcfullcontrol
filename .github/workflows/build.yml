@@ -138,7 +138,12 @@ jobs:
       - name: Версия и список изменений
         id: ver
         run: |
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          V=$(node -p "require('./package.json').version")
+          MM=$(echo "$V" | cut -d. -f1-2)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          # x.y.0 — новый релиз; x.y.1, x.y.2… (исправления) — в тот же релиз vx.y.0
+          echo "tag=v$MM.0" >> "$GITHUB_OUTPUT"
+          echo "name=$MM" >> "$GITHUB_OUTPUT"
           node scripts/release-notes.js > release-notes.md
           cat release-notes.md
 
@@ -146,16 +151,39 @@ jobs:
         with:
           path: out
 
+      - name: Карта блоков под номером версии (для обновлений по разнице)
+        run: cp out/windows/PCFullControl-Setup.exe.blockmap "out/windows/PCFullControl-Setup-${{ steps.ver.outputs.version }}.blockmap"
+
+      - name: Исправление — заменить файлы в существующем релизе
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          R="$GITHUB_REPOSITORY"
+          if gh release view "$TAG" --repo "$R" >/dev/null 2>&1; then
+            # Карту блоков прежней версии сохраняем под её номером — по ней обновляются те, у кого она стоит
+            PREV=$(gh release download "$TAG" --repo "$R" -p latest.yml -O - 2>/dev/null | sed -n 's/^version: //p' | head -1)
+            NAMES=$(gh release view "$TAG" --repo "$R" --json assets -q '.assets[].name')
+            if [ -n "$PREV" ] && ! echo "$NAMES" | grep -qx "PCFullControl-Setup-$PREV.blockmap"; then
+              gh release download "$TAG" --repo "$R" -p PCFullControl-Setup.exe.blockmap -O "PCFullControl-Setup-$PREV.blockmap" && \
+                gh release upload "$TAG" --repo "$R" "PCFullControl-Setup-$PREV.blockmap" || true
+            fi
+            for f in PCFullControl-Setup.exe PCFullControl-Setup.exe.blockmap latest.yml PCControl-Android.apk "PCFullControl-Setup-${{ steps.ver.outputs.version }}.blockmap"; do
+              gh release delete-asset "$TAG" "$f" --repo "$R" -y 2>/dev/null || true
+            done
+          fi
+
       - name: Релиз
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
+          tag_name: ${{ steps.ver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: PC Full Control ${{ steps.ver.outputs.version }}
+          name: PC Full Control ${{ steps.ver.outputs.name }}
           body_path: release-notes.md
           make_latest: true
           files: |
             out/windows/PCFullControl-Setup.exe
             out/windows/PCFullControl-Setup.exe.blockmap
+            out/windows/PCFullControl-Setup-${{ steps.ver.outputs.version }}.blockmap
             out/windows/latest.yml
             out/android/PCControl-Android.apk

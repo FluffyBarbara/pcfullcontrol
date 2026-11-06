@@ -16,7 +16,7 @@ const { lock: lockScreen } = require('./system/power');
 const info = require('./system/info');
 const processes = require('./system/processes');
 const media = require('./system/media');
-const { between: changesBetween } = require('../shared/changelog');
+const { between: changesBetween, fixOnly: isFixOnly } = require('../shared/changelog');
 const { E } = require('./telegram-api');
 const { run, IS_WIN } = require('./system/exec');
 
@@ -165,7 +165,8 @@ function trackVersion() {
       + 'Скачайте установщик вручную: https://github.com/FluffyBarbara/pcfullcontrol/releases/latest', { category: 'update', level: 'warning' });
   }
   if (!from || from === version) return;
-  db.setSetting('pendingWhatsNew', { from, to: version });
+  const fixOnly = isFixOnly(from, version);
+  db.setSetting('pendingWhatsNew', { from, to: version, fixOnly });
   // Уборка после обновления: данные старой версии, старые копии и скачанные установщики программы
   if (IS_WIN && app.isPackaged) {
     cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData'), version, log: (m) => ctx.appUpdater.log('info', m) })
@@ -180,7 +181,8 @@ function trackVersion() {
   }
   const changes = changesBetween(from, version);
   const lines = changes.flatMap((v) => v.items.map(([, t]) => `• ${E(t)}`));
-  ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
+  if (fixOnly) ctx.notifier.notify(`🔧 <b>Установлены исправления</b>\n${lines.join('\n')}`, { category: 'update', level: 'info' });
+  else ctx.notifier.notify(`⬆️ <b>PC Full Control обновлён: ${E(from)} → ${E(version)}</b>\n\n${lines.join('\n')}`, { category: 'update' });
 }
 
 // ================= Вход без пароля, если ПК включили с телефона =================
@@ -243,6 +245,8 @@ async function checkAppUpdate() {
     return;
   }
   const u = ctx.updateInfo;
+  // Исправления ошибок (та же x.y) ставятся сами, без вопросов — в спокойный момент
+  if (u.hasUpdate && isFixOnly(u.current, u.latest)) { installFixWhenIdle(); send('refresh'); return; }
   // Окно программы предложит обновиться (если не идёт установка)
   if (u.hasUpdate && !['downloading', 'downloaded', 'installing'].includes(ctx.appUpdater.state.status)) send('update-available', u);
   if (u.hasUpdate && ctx.db.getSetting('notifiedUpdate') !== u.latest) {
@@ -250,6 +254,20 @@ async function checkAppUpdate() {
     ctx.notifier.notify(`✨ Доступна новая версия PC Full Control <b>${E(u.latest)}</b>.\nУстановить: «🔄 Обновления → 🤖 Обновить PC Full Control» или в программе на ПК.`, { category: 'update' });
   }
   send('refresh');
+}
+
+/**
+ * Тихая установка исправления: не во время управления экраном с телефона и не пока окно программы
+ * перед глазами (перезапуск занимает несколько секунд) — иначе пробуем снова через 5 минут.
+ */
+let fixTimer = null;
+function installFixWhenIdle() {
+  clearTimeout(fixTimer);
+  if (['downloading', 'downloaded', 'installing'].includes(ctx.appUpdater.state.status)) return;
+  const busy = (ctx.stream && ctx.stream.sessions && ctx.stream.sessions.size > 0) || (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused());
+  if (busy) { fixTimer = setTimeout(installFixWhenIdle, 5 * 60 * 1000); return; }
+  ctx.appUpdater.log('info', 'исправление ошибок — устанавливаю тихо');
+  ctx.appUpdater.startUpdate({ silent: true }).catch(() => {});
 }
 
 /**
