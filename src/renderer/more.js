@@ -88,19 +88,42 @@ const More = (() => {
     let r;
     try { r = await api('games', { days: 7 }); } catch (e) { return; }
     $('#games-total').textContent = r.total ? `всего ${dur(r.total)}` : '';
+    // 7 дней столбиками: сколько играли каждый день
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const row = (r.byDay || []).find((x) => x.day === key);
+      days.push({ label: d.toLocaleDateString('ru-RU', { weekday: 'short' }), today: i === 0, sec: row ? row.seconds : 0 });
+    }
+    const maxDay = Math.max(3600, ...days.map((d) => d.sec));
+    const fpsW = r.games.filter((g) => g.avgFps);
+    const avgFps = fpsW.length ? Math.round(fpsW.reduce((a, g) => a + g.avgFps * g.seconds, 0) / fpsW.reduce((a, g) => a + g.seconds, 0)) : null;
+    const tile = (icon, label, value, sub) => el('div', { class: 'gm-tile' }, el('span', { class: 'gm-tile-ic' }, ic(icon, 18)), el('div', {}, el('span', { class: 'muted small', text: label }), el('b', { text: value }), sub ? el('small', { class: 'muted', text: sub }) : null));
+    $('#games-hero').replaceChildren(
+      el('div', { class: 'gm-tiles' },
+        tile('clock', 'Всего за неделю', r.total ? dur(r.total) : '0 мин', `${days.filter((d) => d.sec).length} из 7 дней`),
+        tile('gamepad', 'Больше всего', r.games[0] ? r.games[0].title : '—', r.games[0] ? dur(r.games[0].seconds) : ''),
+        tile('zap', 'Средний FPS', avgFps ? String(avgFps) : '—', avgFps ? 'по всем играм' : 'появится в игре'),
+        tile('activity', 'В среднем в день', dur(Math.round(r.total / 7)), '')),
+      el('div', { class: 'gm-chart' }, days.map((d) => {
+        const bar = el('i');
+        bar.style.height = Math.max(d.sec ? 6 : 2, (d.sec / maxDay) * 100) + '%';
+        return el('div', { class: 'gm-day' + (d.today ? ' today' : ''), 'data-tip': d.sec ? dur(d.sec) : 'не играли' }, el('div', { class: 'gm-bar' }, bar), el('span', { text: d.label }));
+      })),
+      r.now ? el('div', { class: 'game-now' }, ic('play', 14), `Сейчас: ${r.now.title}${r.now.fps ? ` — ${r.now.fps} FPS` : ''}`) : '');
     const box = $('#games-list');
     if (!r.games.length) {
       box.replaceChildren(el('p', { class: 'muted', text: 'За неделю игр не было. Время в играх и средний FPS записываются сами, пока игра открыта на экране.' }));
       return;
     }
     const top = r.games[0].seconds;
-    box.replaceChildren(
-      r.now ? el('div', { class: 'game-now' }, ic('play', 14), `Сейчас: ${r.now.title}${r.now.fps ? ` — ${r.now.fps} FPS` : ''}`) : '',
-      ...r.games.slice(0, 8).map((g) => {
-        const fill = el('i');
-        fill.style.width = Math.max(3, (g.seconds / top) * 100) + '%';
-        return el('div', { class: 'game-row' }, el('b', { text: g.title }), el('span', { class: 'muted small', text: `${dur(g.seconds)}${g.avgFps ? ` · ${g.avgFps} FPS` : ''}` }), el('div', { class: 'bar' }, fill));
-      }));
+    box.replaceChildren(...r.games.slice(0, 12).map((g, i) => {
+      const fill = el('i');
+      fill.style.width = Math.max(3, (g.seconds / top) * 100) + '%';
+      return el('div', { class: 'game-row' }, el('div', { class: 'gm-name' }, el('span', { class: 'gm-rank', text: String(i + 1) }), el('b', { text: g.title })),
+        el('span', { class: 'muted small', text: `${dur(g.seconds)}${g.avgFps ? ` · ${g.avgFps} FPS` : ''}` }), el('div', { class: 'bar' }, fill));
+    }));
   }
 
   // ---------------- синие экраны ----------------
@@ -141,7 +164,8 @@ const More = (() => {
     }), ...(list.length > 3 ? [el('button', { class: 'btn ghost sm cr-more', onclick: () => { crashAll = !crashAll; crashes(); } }, ic(crashAll ? 'chevronLeft' : 'chevronDown', 14), crashAll ? 'Свернуть' : `Показать все (${list.length})`)] : []));
   }
 
-  function hardware() { temps(); games(); crashes(); }
+  function hardware() { temps(); }
+  function activity() { games(); crashes(); }
 
   // ---------------- место на диске ----------------
   let spaceRoot = null;
@@ -350,5 +374,5 @@ const More = (() => {
   window.addEventListener('resize', () => { if (page === 'hardware') drawTemps(); });
   $$('#temps-range button').forEach((b) => b.addEventListener('click', () => { tempHours = Number(b.dataset.h); $$('#temps-range button').forEach((x) => x.classList.toggle('active', x === b)); temps(); }));
 
-  return { hardware, temps, spaceShow, applyTheme, security };
+  return { hardware, activity, temps, spaceShow, applyTheme, security };
 })();

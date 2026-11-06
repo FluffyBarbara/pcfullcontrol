@@ -160,3 +160,28 @@ test('бот: /music с обложкой и кнопками, /games, /crashes, 
   assert.match(fake.last().text, /Тревожная кнопка/);
   assert.ok(JSON.stringify(fake.last().kb).includes('pny'), 'сначала спрашивает');
 });
+
+test('обновление по разнице: только изменившиеся куски, остальное из старого файла', async () => {
+  const { plan } = require('../src/main/diff-download');
+  const oldMap = { offset: 0, checksums: ['a', 'b', 'c', 'd'], sizes: [10, 20, 30, 40] };
+  const newMap = { offset: 0, checksums: ['a', 'b', 'X', 'd', 'Y'], sizes: [10, 20, 25, 40, 5] };
+  const p = plan(oldMap, newMap);
+  assert.equal(p.total, 100);
+  assert.equal(p.download, 30, 'скачивается только X и Y');
+  assert.deepEqual(p.ops.map((o) => [o.kind, o.from, o.to, o.size]), [['copy', 0, 0, 30], ['download', 30, 30, 25], ['copy', 60, 55, 40], ['download', 95, 95, 5]]);
+});
+
+test('сеть: причина обрыва и советы (роутер, провайдер, DNS, кабель, DHCP)', () => {
+  const { analyze } = require('../src/main/netdiag');
+  const base = { alias: 'Ethernet', status: 'Up', isWifi: false, ip: '192.168.1.5', gw: '192.168.1.1', pingGw: false, ping1: false, ping8: false, dnsOk: false,
+    powerSave: 'Enabled', adv: [{ name: 'Energy-Efficient Ethernet', value: 'Enabled', reg: '1', valid: ['0', '1'] }], events: [{ provider: 'rt640x64', count: 5 }] };
+  const g = analyze(base);
+  assert.equal(g.cause, 'gateway');
+  assert.match(g.text, /шлюзу по умолчанию/);
+  assert.ok(g.fixes.includes('restart') && g.fixes.includes('energy') && g.fixes.includes('autofix'));
+  assert.equal(analyze({ ...base, pingGw: true }).cause, 'isp');
+  assert.equal(analyze({ ...base, pingGw: true, ping1: true }).cause, 'dns');
+  assert.equal(analyze({ ...base, status: 'Disconnected' }).cause, 'link');
+  assert.equal(analyze({ ...base, ip: '169.254.10.1' }).cause, 'dhcp');
+  assert.equal(analyze({ ...base, pingGw: true, ping1: true, dnsOk: true }).cause, 'ok');
+});

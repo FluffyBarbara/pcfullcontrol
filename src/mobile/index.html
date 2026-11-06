@@ -181,7 +181,7 @@
         <button data-more="optimize"><span class="mg-ic"><i data-ic="broom" data-size="22"></i></span><b>Очистка</b><small>Временные файлы, корзина</small></button>
         <button data-more="apps"><span class="mg-ic"><i data-ic="package" data-size="22"></i></span><b>Программы</b><small>Удаление программ</small></button>
         <button data-more="startup"><span class="mg-ic"><i data-ic="rocket" data-size="22"></i></span><b>Автозагрузка</b><small>Что запускается с Windows</small></button>
-        <button data-more="games"><span class="mg-ic"><i data-ic="gamepad" data-size="22"></i></span><b>Игры</b><small>Время и FPS за неделю</small></button>
+        <button data-more="games"><span class="mg-ic"><i data-ic="gamepad" data-size="22"></i></span><b>Игры и сбои</b><small>Время, FPS, синие экраны</small></button>
         <button data-more="space"><span class="mg-ic"><i data-ic="treemap" data-size="22"></i></span><b>Место на диске</b><small>Большие файлы, дубликаты</small></button>
         <button data-more="security"><span class="mg-ic"><i data-ic="siren" data-size="22"></i></span><b>Безопасность</b><small>Тревожная кнопка, USB</small></button>
         <button data-more="widget"><span class="mg-ic"><i data-ic="grid" data-size="22"></i></span><b>Виджет</b><small>ПК на главном экране</small></button>
@@ -201,8 +201,6 @@
         </div>
         <div class="section-title">Диски</div>
         <div id="m-disks"></div>
-        <div class="section-title">Синие экраны и сбои</div>
-        <div id="m-crashes"></div>
       </div>
 
       <div class="more-pane hidden" data-pane="music">
@@ -214,6 +212,8 @@
 
       <div class="more-pane hidden" data-pane="games">
         <div id="m-games"></div>
+        <div class="section-title">Синие экраны и сбои</div>
+        <div id="m-crashes"></div>
       </div>
 
       <div class="more-pane hidden" data-pane="security">
@@ -254,6 +254,7 @@
           <div id="m-speed"></div>
           <button class="btn primary big" id="m-speed-run"><i data-ic="zap" data-size="18"></i>Замерить скорость</button>
         </div>
+        <div class="card" id="m-netdiag"></div>
         <div class="section-title">Устройства в домашней сети</div>
         <div class="list" id="m-devices"></div>
         <button class="btn big" id="m-dev-scan"><i data-ic="search" data-size="18"></i>Найти устройства</button>

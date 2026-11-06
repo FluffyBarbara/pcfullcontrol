@@ -756,3 +756,9 @@ body {
 .m-cr-advice { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .m-cr-advice b { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
 .m-cr-advice p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; }
+.m-nd { padding: 12px; border-radius: 14px; border: 1px solid var(--line); margin-bottom: 10px; }
+.m-nd b { font-size: 15px; }
+.m-nd p { margin: 4px 0 0; line-height: 1.45; }
+.m-nd.err { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 6%, transparent); }
+.m-nd.warn { border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.m-nd.ok { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }

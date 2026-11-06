@@ -61,7 +61,7 @@ ConvertTo-Json -InputObject @($o) -Compress`, 30000);
  * @param {{ exeDir: string, electronSession?: any, dataDir?: string }} opts
  * @returns {Promise<{ items: {what:string, freed:number}[], total:number }>}
  */
-async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = null, log = () => {} } = {}) {
+async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = null, version = null, log = () => {} } = {}) {
   const items = [];
   const add = (what, freed) => { items.push({ what, freed }); log(`уборка: ${what} (${freed} байт)`); };
   log(`уборка после обновления: папка программы ${exeDir}`);
@@ -69,6 +69,21 @@ async function cleanupAfterUpdate({ exeDir, electronSession = null, dataDir = nu
   // 1. Кэш загрузки обновлений
   const upd = path.join(env('LOCALAPPDATA', path.join(os.homedir(), 'AppData', 'Local')), 'pc-full-control-updater');
   if (fs.existsSync(upd)) {
+    // Установщик только что установленной версии оставляем (один файл) — следующие обновления
+    // скачиваются «по разнице»: только изменившиеся куски, обычно 1–10 МБ вместо всей программы
+    if (dataDir && version) {
+      try {
+        const pending = path.join(upd, 'pending', 'PCFullControl-Setup.exe');
+        if (fs.existsSync(pending)) {
+          const dir = path.join(dataDir, 'updates');
+          fs.mkdirSync(dir, { recursive: true });
+          const dst = path.join(dir, 'base-installer.exe');
+          fs.copyFileSync(pending, dst);
+          fs.writeFileSync(dst + '.json', JSON.stringify({ version, saved: Date.now() }));
+          log(`установщик ${version} сохранён для следующих обновлений по разнице`);
+        }
+      } catch (e) { log('не удалось сохранить установщик: ' + e.message); }
+    }
     try { add('Загруженный установщик обновления', removePath(upd)); } catch (e) { /* занят */ }
   }
 

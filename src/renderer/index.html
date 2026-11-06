@@ -31,6 +31,7 @@
       <button data-page="music"><i data-ic="music"></i><span class="lbl">Музыка</span></button>
       <button data-page="processes"><i data-ic="activity"></i><span class="lbl">Процессы</span></button>
       <button data-page="hardware"><i data-ic="gpu"></i><span class="lbl">Железо</span></button>
+      <button data-page="activity"><i data-ic="gamepad"></i><span class="lbl">Игры и сбои</span></button>
       <button data-page="network"><i data-ic="wifi"></i><span class="lbl">Сеть</span></button>
       <button data-page="optimize"><i data-ic="broom"></i><span class="lbl">Оптимизация</span></button>
       <button data-page="tasks"><i data-ic="calendar"></i><span class="lbl">Задачи</span></button>
@@ -372,22 +373,26 @@
       </div>
       <div class="dh-summary mt22"><div class="section-label">Диски</div><div class="row wrap" id="hw-disk-summary"></div></div>
       <div class="grid g2 dh-grid" id="hw-disks"></div>
-      <div class="grid g2 mt dh-grid">
-        <div class="card" id="games-card">
-          <div class="card-head"><h3 class="card-title"><i data-ic="gamepad" data-size="18"></i>Игры за неделю</h3><span class="muted small" id="games-total"></span></div>
-          <div id="games-list"></div>
-        </div>
-        <div class="card" id="crashes-card">
-          <div class="card-head"><h3 class="card-title"><i data-ic="crash" data-size="18"></i>Синие экраны и сбои</h3><span class="pill" id="crashes-badge"></span></div>
-          <div id="crashes-list"></div>
-        </div>
-      </div>
       <p class="muted small mt6">Данные SMART читает встроенный модуль smartmontools — так же, как CrystalDiskInfo. Только чтение, на дисках ничего не меняется.</p>
+    </section>
+
+    <!-- ================= ИГРЫ И СБОИ ================= -->
+    <section class="page hidden" id="page-activity">
+      <div class="page-head"><div><h1>Игры и сбои</h1><p>Сколько вы играете и с каким FPS, а также синие экраны и внезапные выключения — с объяснением и советами.</p></div></div>
+      <div class="card" id="games-card">
+        <div class="card-head"><h3 class="card-title"><i data-ic="gamepad" data-size="18"></i>Игры за неделю</h3><span class="muted small" id="games-total"></span></div>
+        <div class="games-hero" id="games-hero"></div>
+        <div id="games-list"></div>
+      </div>
+      <div class="card mt" id="crashes-card">
+        <div class="card-head"><h3 class="card-title"><i data-ic="crash" data-size="18"></i>Синие экраны и сбои</h3><span class="pill" id="crashes-badge"></span></div>
+        <div id="crashes-list"></div>
+      </div>
     </section>
 
     <!-- ================= СЕТЬ ================= -->
     <section class="page hidden" id="page-network">
-      <div class="page-head"><div><h1>Сеть</h1><p>Интернет, скорость, устройства в домашней сети и доступ к ПК из любой точки.</p></div></div>
+      <div class="page-head"><div><h1>Сеть</h1><p>Интернет, причины обрывов, скорость и устройства в домашней сети.</p></div></div>
       <div class="grid g2">
         <div class="card">
           <h3 class="card-title mb12"><i data-ic="globe" data-size="18"></i>Интернет</h3>
@@ -401,6 +406,14 @@
           <button class="btn primary mt" id="speed-run"><i data-ic="zap" data-size="16"></i>Замерить скорость</button>
           <p class="muted small mt6">Замер расходует около 100 МБ трафика.</p>
         </div>
+      </div>
+      <div class="card mt" id="netdiag-card">
+        <div class="card-head">
+          <h3 class="card-title"><i data-ic="search" data-size="18"></i>Почему пропадает интернет</h3>
+          <button class="btn sm" id="netdiag-run" data-tip="Проверить адаптер, роутер, интернет и DNS прямо сейчас"><i data-ic="search" data-size="15"></i>Проверить сейчас</button>
+        </div>
+        <p class="muted small mb12">При каждом обрыве программа сама проверяет цепочку «адаптер → роутер → интернет → DNS», называет причину и подсказывает, как её убрать.</p>
+        <div id="netdiag"></div>
       </div>
       <div class="card mt">
         <div class="card-head">

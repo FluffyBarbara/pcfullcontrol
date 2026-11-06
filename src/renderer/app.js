@@ -171,6 +171,7 @@ function go(p) {
   else if (p === 'optimize') Optimize.show();
   else if (p === 'hardware') { Extras.hardware(); More.hardware(); timers.h = setInterval(() => { if (!document.hidden) Extras.gpuOnly(); }, 2500); timers.ht = setInterval(() => { if (!document.hidden) More.temps(); }, 60000); }
   else if (p === 'music') { Music.show(); timers.mu = setInterval(() => { if (!document.hidden) Music.refresh(); }, 2000); timers.mt = setInterval(Music.tick, 500); timers.mpk = setInterval(Music.peaks, 120); }
+  else if (p === 'activity') { More.activity(); timers.ac = setInterval(() => { if (!document.hidden) More.activity(); }, 60000); }
   else if (p === 'network') { Extras.network(); timers.n = setInterval(() => { if (!document.hidden) Extras.network(); }, 8000); }
   else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();
@@ -822,7 +823,7 @@ function renderUpdateState(st) {
     $('#install-update').classList.add('hidden');
     $('#upd-bar').style.width = (UPD.percent || 0) + '%';
     if (UPD.status === 'downloading') {
-      $('#upd-text').textContent = `Скачиваю версию ${UPD.latest}` + (UPD.total ? ` · ${fmtBytes(UPD.transferred)} из ${fmtBytes(UPD.total)}` : '')
+      $('#upd-text').textContent = `Скачиваю версию ${UPD.latest}${UPD.diff ? ' (только изменения)' : ''}` + (UPD.total ? ` · ${fmtBytes(UPD.transferred)} из ${fmtBytes(UPD.total)}` : '')
         + (UPD.speed ? ` · ${fmtBytes(UPD.speed)}/с` : '');
       $('#upd-pct').textContent = (UPD.percent || 0) + '%';
     } else {
@@ -866,12 +867,18 @@ async function promptUpdate(u) {
   while (!$('#modal').classList.contains('hidden')) await new Promise((r) => setTimeout(r, 500));
   updatePromptOpen = true;
   const notes = u.notes || {};
-  const list = (notes.items || []).map((t) => el('div', { class: 'change' }, ic('check', 18), el('span', { text: t })));
+  const item = (t) => el('div', { class: 'change' }, ic('check', 18), el('span', { text: t }));
+  // Все версии новее установленной — каждая со своим заголовком
+  const groups = (notes.versions || []).filter((v) => v.items.length);
+  const list = groups.length
+    ? groups.flatMap((v) => [el('div', { class: 'wn-version', text: `Версия ${v.version}${v.title ? ' — ' + v.title : ''}` }), ...v.items.map(item)])
+    : (notes.items || []).map(item);
   const ok = await openModal([
     el('div', { class: 'wn-hero' }, el('div', { class: 'wn-ic' }, ic('download', 28)),
       el('h3', { text: `Доступна версия ${u.latest}` }),
       el('p', { class: 'muted', text: `Сейчас установлена ${u.current}. Обновление скачается, установится и программа сама откроется новой версией — 1–2 минуты.` })),
-    list.length ? el('div', { class: 'wn-body' }, notes.title ? el('div', { class: 'wn-version', text: notes.title }) : null, ...list) : null,
+    list.length ? el('div', { class: 'wn-body' }, !groups.length && notes.title ? el('div', { class: 'wn-version', text: notes.title }) : null, ...list)
+      : el('div', { class: 'wn-body' }, el('p', { class: 'muted', text: 'Список изменений загрузится после обновления — его покажет окно «Что нового».' })),
     el('div', { class: 'wn-foot row center' },
       el('button', { class: 'btn lg', 'data-tip': 'Напомнить при следующем запуске программы', onclick: () => closeModal(false) }, 'Позже'),
       el('button', { class: 'btn primary lg', 'data-tip': 'Скачать и установить новую версию прямо сейчас', onclick: () => closeModal(true) }, ic('download', 17), 'Обновить сейчас')),

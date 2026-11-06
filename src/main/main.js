@@ -131,6 +131,7 @@ async function init() {
   ctx.on('net-progress', (p) => send('net-progress', p));
   ctx.on('space', (p) => send('space', p));
   ctx.on('usb', (p) => send('usb', p));
+  ctx.on('netdiag', (p) => send('netdiag', p));
   guardAutologon(true);
 
   let showFlag = false;
@@ -167,7 +168,7 @@ function trackVersion() {
   db.setSetting('pendingWhatsNew', { from, to: version });
   // Уборка после обновления: данные старой версии, старые копии и скачанные установщики программы
   if (IS_WIN && app.isPackaged) {
-    cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData'), log: (m) => ctx.appUpdater.log('info', m) })
+    cleanupPromise = cleanupAfterUpdate({ exeDir: path.dirname(process.execPath), electronSession: session.defaultSession, dataDir: app.getPath('userData'), version, log: (m) => ctx.appUpdater.log('info', m) })
       .then((report) => {
         db.setSetting('lastCleanup', { ...report, ts: Date.now() / 1000, version });
         const n = report.items.filter((x) => x.freed > 0 || /копия|запись/.test(x.what)).length;
@@ -429,6 +430,20 @@ function taskView(t) {
   return { ...t, description: ctx.scheduler.describe(t) };
 }
 
+/** Исправления сети — только по кнопке пользователя. */
+async function netFix(action) {
+  const d = ctx.netdiag;
+  switch (action) {
+    case 'restart': return d.restartAdapter();
+    case 'energy': return d.disableEnergySaving();
+    case 'energy_restore': return d.restoreEnergySaving();
+    case 'dns': return d.setDns(undefined, false);
+    case 'dns_reset': return d.setDns(undefined, true);
+    case 'autofix_on': case 'autofix_off': ctx.updateConfig({ network: { autoFixAdapter: action === 'autofix_on' } }); return { ok: true };
+    default: throw new Error('Неизвестное действие');
+  }
+}
+
 /** Цвет строки заголовка под выбранную тему. */
 function applyTitleBar() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -640,6 +655,8 @@ function registerIpc() {
   });
   // Сеть
   handle('net-status', () => ctx.net.status());
+  handle('netdiag-run', () => ctx.netdiag.run());
+  handle('net-fix', ({ action }) => netFix(action));
   handle('net-speedtest', () => ctx.net.speedTest());
   handle('net-scan', () => ctx.net.scan(false));
   handle('net-label', ({ mac, label }) => ctx.db.labelNetDevice(mac, label));

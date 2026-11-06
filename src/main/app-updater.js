@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { E } = require('./telegram-api');
 const fastDownload = require('./fast-download');
+const { differential } = require('./diff-download');
 
 function cmpVersions(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -56,6 +57,8 @@ class AppUpdater {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.disableDifferentialDownload = true;
+    // Описания всех версий новее установленной, а не только последней
+    autoUpdater.fullChangelog = true;
     autoUpdater.logger = {
       info: (m) => this.log('info', m), warn: (m) => this.log('warn', m),
       error: (m) => this.log('error', m), debug: () => {},
@@ -118,7 +121,7 @@ class AppUpdater {
     if (s === 'downloaded' || s === 'installing') return `Обновление до ${this.state.latest} устанавливается — программа скоро перезапустится.`;
     const c = await this.check();
     if (!c.hasUpdate) return c.latest ? `У вас последняя версия — ${c.current}. Обновлений нет.` : `Обновлений нет (${c.message || 'релизы не найдены'}).`;
-    this.setState({ status: 'downloading', latest: c.latest, percent: 0, error: '' });
+    this.setState({ status: 'downloading', latest: c.latest, percent: 0, error: '', diff: false });
     this.ctx.notifier.notify(`⬇️ Скачиваю PC Full Control <b>${E(c.latest)}</b>…`, { category: 'update' });
     this.download(c.latest).catch((e) => this.fail(e));
     return `Найдена версия ${c.latest} (у вас ${c.current}). Скачиваю — после загрузки программа сама установит обновление и откроется уже новой версией.`;
@@ -146,14 +149,43 @@ class AppUpdater {
     const dir = helper.cacheDirForPendingUpdate;
     const name = path.basename(String(file.url).split('?')[0]);
     let url = file.url;
-    if (!/^https?:/i.test(url)) {
-      const feed = process.env.PCFC_UPDATE_FEED;
-      const cfg = feed ? null : await u.configOnDisk.value;
-      const base = feed ? feed.replace(/\/+$/, '') : `https://github.com/${cfg.owner}/${cfg.repo}/releases/download/v${version}`;
-      url = `${base}/${encodeURIComponent(name)}`;
-    }
+    const feed = process.env.PCFC_UPDATE_FEED;
+    const cfg = feed ? null : await u.configOnDisk.value;
+    const releaseDir = (v) => (feed ? feed.replace(/\/+$/, '') : `https://github.com/${cfg.owner}/${cfg.repo}/releases/download/v${v}`);
+    if (!/^https?:/i.test(url)) url = `${releaseDir(version)}/${encodeURIComponent(name)}`;
     fs.mkdirSync(dir, { recursive: true });
     const tmp = path.join(dir, `fast-${name}`);
+    const target = path.join(dir, name);
+    const finish = () => {
+      fs.rmSync(target, { force: true });
+      fs.renameSync(tmp, target);
+      fs.writeFileSync(path.join(dir, 'update-info.json'), JSON.stringify({ fileName: name, sha512: file.sha512, isAdminRightsRequired: false }));
+    };
+    // 1) Только изменения: нужен установщик текущей версии, сохранённый после прошлого обновления
+    const base = this.baseInstaller();
+    if (base && !feed) {
+      const t0 = Date.now();
+      try {
+        // Сохранённый файл точно от текущей версии? Сверяем с её latest.yml
+        const yml = await (await fetch(`${releaseDir(this.ctx.version)}/latest.yml`)).text();
+        const oldSha = (/^sha512:\s*(\S+)/m.exec(yml) || [])[1];
+        if (!oldSha || oldSha !== await fastDownload.sha512File(base)) throw new Error('сохранённый установщик не от текущей версии');
+        this.log('info', `обновление по разнице: ${this.ctx.version} → ${version}`);
+        const r = await differential({
+          url, oldFile: base, dest: tmp, sha512: file.sha512, size: Number(file.size) || 0, connections: 6,
+          oldBlockmapUrl: `${releaseDir(this.ctx.version)}/${encodeURIComponent(name)}.blockmap`,
+          newBlockmapUrl: `${releaseDir(version)}/${encodeURIComponent(name)}.blockmap`,
+          log: (m) => this.log('info', m),
+          onProgress: (p) => this.setState({ status: 'downloading', diff: true, percent: Math.min(99, Math.floor(p.percent)), transferred: p.transferred, total: p.total, speed: p.speed }),
+        });
+        finish();
+        this.log('info', `скачано только ${(r.downloaded / 1048576).toFixed(1)} МБ из ${(r.total / 1048576).toFixed(1)} МБ за ${((Date.now() - t0) / 1000).toFixed(1)} с, контрольная сумма совпала`);
+        return;
+      } catch (e) {
+        try { fs.rmSync(tmp, { force: true }); } catch (er) { /* ignore */ }
+        this.log('warn', `по разнице не получилось (${e.message}) — качаю целиком`);
+      }
+    }
     const started = Date.now();
     this.log('info', `быстрая загрузка ${url} в 8 соединений`);
     try {
@@ -161,16 +193,23 @@ class AppUpdater {
         sha512: file.sha512, size: Number(file.size) || 0, connections: 8, log: (m) => this.log('info', m),
         onProgress: (p) => this.setState({ status: 'downloading', percent: Math.min(99, Math.floor(p.percent)), transferred: p.transferred, total: p.total, speed: p.speed }),
       });
-      const target = path.join(dir, name);
-      fs.rmSync(target, { force: true });
-      fs.renameSync(tmp, target);
-      fs.writeFileSync(path.join(dir, 'update-info.json'), JSON.stringify({ fileName: name, sha512: file.sha512, isAdminRightsRequired: false }));
+      finish();
       const sec = (Date.now() - started) / 1000;
       this.log('info', `скачано ${r.total} байт за ${sec.toFixed(1)} с (${(r.total / sec / 1048576).toFixed(1)} МБ/с), контрольная сумма совпала`);
     } catch (e) {
       try { fs.rmSync(tmp, { force: true }); } catch (er) { /* ignore */ }
       throw e;
     }
+  }
+
+  /** Установщик текущей версии (сохраняется после обновления) — основа для загрузки «по разнице». */
+  baseInstaller() {
+    if (!this.ctx.dataDir) return null;
+    const f = path.join(this.ctx.dataDir, 'updates', 'base-installer.exe');
+    try {
+      const meta = JSON.parse(fs.readFileSync(f + '.json', 'utf8'));
+      return meta.version === this.ctx.version && fs.existsSync(f) ? f : null;
+    } catch (e) { return null; }
   }
 
   async install(version) {
@@ -189,13 +228,14 @@ class AppUpdater {
  * Описание релиза с GitHub (HTML или Markdown) → заголовок и список изменений для окна «Доступно обновление».
  * Раздел «Скачать» отбрасывается.
  */
-function parseNotes(raw) {
-  if (Array.isArray(raw)) raw = raw.map((n) => (n && n.note) || '').join('\n');
+function parseOne(raw) {
   let s = String(raw || '');
+  // В ленте GitHub описание бывает экранированным HTML (&lt;li&gt;…)
+  if (/&lt;(li|h\d|p|ul)/i.test(s)) s = s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   const cut = s.search(/(<h\d[^>]*>|#+\s*)Скачать/i);
   if (cut >= 0) s = s.slice(0, cut);
   const decode = (t) => t.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
   let title = '';
   const items = [];
   const h = /<h\d[^>]*>([\s\S]*?)<\/h\d>/i.exec(s) || /^#+\s*(.+)$/m.exec(s);
@@ -209,7 +249,23 @@ function parseNotes(raw) {
       if (mm) items.push(decode(mm[1]));
     }
   }
-  return { title, items: items.filter(Boolean).slice(0, 12) };
+  return { title, items: items.filter(Boolean).slice(0, 15) };
+}
+
+/**
+ * Описание релизов (HTML или Markdown, одно или по версиям) → { title, items, versions: [{version, title, items}] }.
+ * Раздел «Скачать» отбрасывается.
+ */
+function parseNotes(raw) {
+  if (Array.isArray(raw)) {
+    const versions = raw.map((n) => ({ version: String((n && n.version) || ''), ...parseOne(n && n.note) }))
+      .filter((v) => v.items.length || v.title)
+      .sort((a, b) => cmpVersions(b.version, a.version));
+    const top = versions[0] || { title: '', items: [] };
+    return { title: top.title, items: versions.flatMap((v) => v.items).slice(0, 30), versions };
+  }
+  const one = parseOne(raw);
+  return { ...one, versions: [] };
 }
 
 module.exports = { AppUpdater, cmpVersions, humanError, parseNotes };

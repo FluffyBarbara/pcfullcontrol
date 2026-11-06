@@ -865,3 +865,36 @@ html[data-theme="light"] .mp-bg { opacity: .35; }
 .cr-advice p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text); }
 .cr-dump { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
 .cr-more { align-self: flex-start; }
+
+/* игры и сбои */
+.games-hero { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
+.gm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.gm-tile { display: flex; gap: 10px; align-items: center; padding: 12px; border-radius: 14px; background: rgba(var(--ov), .035); border: 1px solid var(--line); min-width: 0; }
+.gm-tile > div { display: flex; flex-direction: column; min-width: 0; }
+.gm-tile b { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-tile-ic { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex: none; color: #fff; background: var(--grad); }
+.gm-chart { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; height: 130px; padding: 10px 6px 0; }
+.gm-day { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.gm-day.today { color: var(--text); font-weight: 700; }
+.gm-bar { flex: 1; width: 100%; max-width: 46px; display: flex; align-items: flex-end; border-radius: 10px; background: rgba(var(--ov), .04); overflow: hidden; }
+.gm-bar i { display: block; width: 100%; border-radius: 10px; background: var(--grad); box-shadow: 0 0 14px rgba(var(--a1), .35); transition: height .4s; }
+.gm-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gm-rank { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: rgba(var(--a1), .14); color: var(--accent); flex: none; }
+@media (max-width: 1100px) { .gm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* диагностика сети */
+.nd-hero { display: flex; gap: 14px; align-items: flex-start; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: rgba(var(--ov), .03); }
+.nd-hero b { font-size: 15px; }
+.nd-hero p { margin: 4px 0; font-size: 13px; line-height: 1.45; }
+.nd-ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; color: #fff; flex: none; }
+.nd-hero.ok .nd-ic { background: linear-gradient(135deg, #34d399, #10b981); }
+.nd-hero.warn .nd-ic { background: linear-gradient(135deg, #ffd36e, #f59e0b); }
+.nd-hero.err .nd-ic { background: linear-gradient(135deg, #ff7a59, #ff4d6d); }
+.nd-hero.err { border-color: rgba(255, 93, 108, .3); }
+.nd-advice { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(var(--a1), .08); border: 1px solid rgba(var(--a1), .18); display: flex; flex-direction: column; gap: 6px; }
+.nd-adv-row { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.nd-adv-row svg { color: var(--accent); flex: none; margin-top: 2px; }
+.nd-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 10px; }
+.nd-chip { padding: 8px 11px; border-radius: 11px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nd-chip span { color: var(--muted); }
+.nd-chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

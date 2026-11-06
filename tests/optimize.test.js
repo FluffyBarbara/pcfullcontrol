@@ -87,9 +87,16 @@ test('удаление программ: разбор строки деинст�
 
 test('описание обновления: из HTML и Markdown, без раздела «Скачать»', () => {
   const html = '<h2>Новая версия</h2><ul><li>Первое &amp; важное</li><li><strong>Второе</strong></li></ul><h2>Скачать</h2><ul><li>ссылка</li></ul>';
-  assert.deepEqual(parseNotes(html), { title: 'Новая версия', items: ['Первое & важное', 'Второе'] });
-  assert.deepEqual(parseNotes('## Заголовок\n\n- раз\n- два\n\n## Скачать\n\n- нет'), { title: 'Заголовок', items: ['раз', 'два'] });
-  assert.deepEqual(parseNotes(null), { title: '', items: [] });
+  assert.deepEqual(parseNotes(html), { title: 'Новая версия', items: ['Первое & важное', 'Второе'], versions: [] });
+  assert.deepEqual(parseNotes('## Заголовок\n\n- раз\n- два\n\n## Скачать\n\n- нет'), { title: 'Заголовок', items: ['раз', 'два'], versions: [] });
+  // Лента GitHub: экранированный HTML и описания нескольких версий сразу
+  const many = parseNotes([
+    { version: '1.11.3', note: '&lt;h2&gt;Живой микшер&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;Полоса в такт звуку&lt;/li&gt;&lt;/ul&gt;&lt;h2&gt;Скачать&lt;/h2&gt;' },
+    { version: '1.12.0', note: '<h2>Игры и сбои</h2><ul><li>Новый раздел</li><li>Диагностика сети</li></ul>' },
+  ]);
+  assert.deepEqual(many.versions.map((v) => [v.version, v.title, v.items.length]), [['1.12.0', 'Игры и сбои', 2], ['1.11.3', 'Живой микшер', 1]]);
+  assert.equal(many.items.length, 3);
+  assert.deepEqual(parseNotes(null), { title: '', items: [], versions: [] });
 });
 
 test('у каждого действия есть описание для подсказки', async () => {

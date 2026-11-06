@@ -303,6 +303,15 @@ class LanServer {
       };
     }
     // --- музыка и микшер громкости ---
+    if (p === '/api/net/diag' && m === 'POST') return ctx.netdiag.run();
+    if (p === '/api/net/fix' && m === 'POST') {
+      const b = await readJson(req);
+      const map = { restart: () => ctx.netdiag.restartAdapter(), energy: () => ctx.netdiag.disableEnergySaving(), energy_restore: () => ctx.netdiag.restoreEnergySaving(),
+        dns: () => ctx.netdiag.setDns(undefined, false), dns_reset: () => ctx.netdiag.setDns(undefined, true),
+        autofix_on: () => { ctx.updateConfig({ network: { autoFixAdapter: true } }); return { ok: true }; }, autofix_off: () => { ctx.updateConfig({ network: { autoFixAdapter: false } }); return { ok: true }; } };
+      if (!map[b.action]) throw new HttpError(400, 'Неизвестное действие');
+      try { ctx.db.logCommand('mobile', device.name, 'net_fix', b.action, true, ''); return await map[b.action](); } catch (e) { throw new HttpError(400, e.message); }
+    }
     if (p === '/api/music') return ctx.media.state();
     if (p === '/api/music/control' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.control(b.app, String(b.action), b.value); } catch (e) { throw new HttpError(400, e.message); } }
     if (p === '/api/mixer') return ctx.media.mixer();

@@ -24,6 +24,7 @@ const DEFAULTS = {
   network: {
     watchInternet: true,         // следить за обрывами интернета
     watchDevices: true,          // следить за новыми устройствами в домашней сети
+    autoFixAdapter: false,       // при обрыве (роутер не отвечает) сам перезапускать сетевой адаптер
   },
   reports: {
     weekly: true,                // отчёт за неделю в Telegram (воскресенье, 20:00)

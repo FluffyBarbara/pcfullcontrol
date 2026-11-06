@@ -28,6 +28,7 @@ const { UsbWatch } = require('./usbwatch');
 const { CrashWatch } = require('./crashes');
 const { SpaceScanner } = require('./system/space');
 const { Assistant } = require('./assistant');
+const { NetDiag } = require('./netdiag');
 const path = require('path');
 const fs = require('fs');
 
@@ -75,6 +76,7 @@ class AppContext extends EventEmitter {
     this.crashes = new CrashWatch(this);
     this.space = new SpaceScanner(this);
     this.assistant = new Assistant(this);
+    this.netdiag = new NetDiag(this);
     this._diskHealth = null;
     this.monitor = null;
     this.bot = null;

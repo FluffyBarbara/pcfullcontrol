@@ -155,6 +155,38 @@ const MExtras = (() => {
       el('p', { class: 'muted small', text: st.outages.length ? `Обрывов за неделю: ${st.outages.length}. Последний: ${clock(st.outages[0].start)}, ${Math.max(1, Math.round((st.outages[0].end - st.outages[0].start) / 60))} мин` : 'Обрывов за неделю не было 👍' }));
     if (!st.speedBusy) renderSpeed(st.lastSpeed); else renderSpeed(null, true);
     renderDevices(st.devices);
+    renderDiag(st);
+  }
+
+  // ---------------- почему пропадает интернет ----------------
+  function renderDiag(st) {
+    const d = st.diag;
+    const box = $('#m-netdiag');
+    const head = el('div', { class: 'card-title' }, ic('search', 18), 'Почему пропадает интернет');
+    const run = el('button', { class: 'btn big', onclick: async () => {
+      run.disabled = true; run.replaceChildren(ic('hourglass', 18), 'Проверяю…');
+      try { await api('/api/net/diag', { json: {} }); } catch (e) { toast(e.message, 'err'); }
+      network();
+    } }, ic('search', 18), 'Проверить сейчас');
+    if (!d) { box.replaceChildren(head, el('p', { class: 'muted small', text: 'При каждом обрыве программа сама найдёт причину. Обрывов пока не было.' }), run); return; }
+    const fix = async (action, title, text) => {
+      if (title && !(await confirmSheet(title + '?', text, title, false, 'wifi'))) return;
+      try { await api('/api/net/fix', { json: { action } }); toast('Готово'); } catch (e) { toast(e.message, 'err'); }
+      network();
+    };
+    const tone = d.cause === 'ok' ? 'ok' : ['isp', 'dns'].includes(d.cause) ? 'warn' : 'err';
+    const auto = el('input', { type: 'checkbox' });
+    auto.checked = !!st.autoFix;
+    auto.addEventListener('change', () => fix(auto.checked ? 'autofix_on' : 'autofix_off'));
+    box.replaceChildren(head,
+      el('div', { class: 'm-nd ' + tone }, el('b', { text: d.title }), el('p', { class: 'small', text: d.text })),
+      d.advice.length ? el('div', { class: 'm-cr-advice' }, el('b', { text: 'Как исправить' }), ...d.advice.map((a) => el('p', { text: '• ' + a }))) : null,
+      el('div', { class: 'sheet-options mt' },
+        el('button', { class: 'btn', onclick: () => fix('restart', 'Перезапустить адаптер', 'Связь с компьютером пропадёт на 5–15 секунд.') }, ic('restart', 18), 'Перезапустить адаптер'),
+        d.fixes.includes('energy') && !st.energyBackup ? el('button', { class: 'btn primary', onclick: () => fix('energy', 'Отключить энергосбережение', `Будет выключено: ${d.energy.join('; ')}. Вернуть можно в программе на ПК.`) }, ic('zap', 18), 'Отключить энергосбережение') : null,
+        d.fixes.includes('dns') ? el('button', { class: 'btn primary', onclick: () => fix('dns', 'DNS 1.1.1.1 и 8.8.8.8', 'Сайты станут находиться через быстрые публичные DNS.') }, ic('globe', 18), 'DNS 1.1.1.1 и 8.8.8.8') : null),
+      el('label', { class: 'setting' }, el('span', { class: 'set-text' }, el('b', { text: 'Сам перезапускать адаптер при обрыве' }), el('small', { text: 'Связь вернётся за 10–20 секунд без вашего участия' })), el('span', { class: 'switch' }, auto, el('span'))),
+      run);
   }
 
   $('#m-speed-run').addEventListener('click', async () => {

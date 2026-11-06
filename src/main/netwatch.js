@@ -38,10 +38,19 @@ class NetWatch {
     setTimeout(() => { if (this.cfg.watchDevices) this.scan(true).catch(() => {}); }, 90000);
   }
 
-  stop() { clearInterval(this.timer); clearInterval(this.scanTimer); }
+  stop() { clearInterval(this.timer); clearInterval(this.scanTimer); clearTimeout(this.fastTimer); }
 
   async tick() {
     if (!this.cfg.watchInternet) return;
+    if (this.ticking) return;
+    this.ticking = true;
+    try { await this.tickInner(); } finally { this.ticking = false; }
+    // Пока связи нет — проверяем чаще, чтобы точно знать, когда она вернулась
+    clearTimeout(this.fastTimer);
+    if (this.fails > 0) this.fastTimer = setTimeout(() => this.tick().catch(() => {}), 10000);
+  }
+
+  async tickInner() {
     const r = await net.checkInternet();
     if (r.online) {
       this.latency = r.ms;
@@ -49,17 +58,37 @@ class NetWatch {
       if (this.downSince) {
         const end = Date.now() / 1000;
         const dur = end - this.downSince;
-        this.ctx.db.addOutage(this.downSince, end);
-        this.ctx.db.addEvent('warning', 'network', `Интернет пропадал на ${fmtDur(dur)}`);
-        this.ctx.notifier.notify(`📶 <b>Интернет вернулся</b>\nНе было связи ${fmtDur(dur)} (с ${clock(this.downSince)} до ${clock(end)}).`, { category: 'network', level: 'warning' });
+        const diag = this.outageDiag;
+        this.ctx.db.addOutage(this.downSince, end, diag ? diag.cause : null, diag ? diag.title : null, this.autoFixed ? 1 : 0);
+        this.ctx.db.addEvent('warning', 'network', `Интернет пропадал на ${fmtDur(dur)}${diag ? ` — ${diag.title}` : ''}`);
+        const why = diag && diag.cause !== 'ok' ? `\n\n🔍 <b>Причина:</b> ${E(diag.title)}\n${E(diag.text)}${this.autoFixed ? '\n\n🔧 Сетевой адаптер перезапущен автоматически.' : ''}${diag.advice.length ? `\n\n💡 ${E(diag.advice[0])}` : ''}` : '';
+        this.ctx.notifier.notify(`📶 <b>Интернет вернулся</b>\nНе было связи ${fmtDur(dur)} (с ${clock(this.downSince)} до ${clock(end)}).${why}`, { category: 'network', level: 'warning' });
         this.downSince = null;
+        this.outageDiag = null;
+        this.autoFixed = false;
       }
       this.online = true;
     } else {
       // Обрыв засчитываем после двух неудачных проверок подряд (≈1 минута)
       this.fails++;
-      if (this.fails >= 2 && !this.downSince) this.downSince = Date.now() / 1000 - 30;
+      if (this.fails >= 2 && !this.downSince) {
+        this.downSince = Date.now() / 1000 - 30;
+        this.onDrop().catch(() => {});
+      }
       if (this.fails >= 2) this.online = false;
+    }
+  }
+
+  /** Обрыв: выясняем причину сразу, пока связи нет; при включённой настройке — перезапускаем адаптер. */
+  async onDrop() {
+    const diag = await this.ctx.netdiag.run();
+    this.outageDiag = diag;
+    this.ctx.emit('netdiag', diag);
+    if (this.cfg.autoFixAdapter && ['gateway', 'dhcp', 'nogw', 'link'].includes(diag.cause) && !this.autoFixed) {
+      try {
+        await this.ctx.netdiag.restartAdapter();
+        this.autoFixed = true;
+      } catch (e) { this.ctx.db.addEvent('warning', 'network', `Не удалось перезапустить адаптер: ${e.message}`); }
     }
   }
 
@@ -70,6 +99,8 @@ class NetWatch {
       outages: this.ctx.db.outagesSince(since).slice(0, 20),
       lastSpeed: this.ctx.db.lastSpeedtest() || null,
       speedBusy: this.speedBusy, speedProgress: this.speedProgress,
+      diag: this.ctx.netdiag ? this.ctx.netdiag.last : null, autoFix: !!this.cfg.autoFixAdapter,
+      energyBackup: !!this.ctx.db.getSetting('netEnergyBackup'),
       devices: this.devices(), lastScan: this.lastScan, scanBusy: this.scanBusy,
     };
   }

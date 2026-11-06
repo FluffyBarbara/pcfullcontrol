@@ -201,8 +201,8 @@ const Extras = (() => {
       el('b', { text: on === false ? 'Нет связи' : on ? 'Интернет работает' : 'Проверяю…' }),
       st.latency && on ? el('span', { class: 'muted', text: `отклик ${st.latency} мс` }) : null));
     $('#net-outages').replaceChildren(...(st.outages.length ? st.outages.slice(0, 8).map((o) => el('div', { class: 'item' },
-      el('div', { class: 'item-ic' }, ic('alert', 16)), el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: clock(o.start) }),
-        el('div', { class: 'item-sub', text: `без связи ${minutes((o.end || Date.now() / 1000) - o.start)}` })))) : [el('p', { class: 'muted', text: 'Обрывов не было 👍' })]));
+      el('div', { class: 'item-ic' }, ic('alert', 16)), el('div', { class: 'item-main' }, el('div', { class: 'item-title', text: clock(o.start) + (o.fixed ? ' · адаптер перезапущен' : '') }),
+        el('div', { class: 'item-sub', text: `без связи ${minutes((o.end || Date.now() / 1000) - o.start)}${o.title ? ' · ' + o.title : ''}` })))) : [el('p', { class: 'muted', text: 'Обрывов не было 👍' })]));
     if (!speedRunning) renderSpeed(st.lastSpeed);
     renderDevices(st.devices);
   }
@@ -230,7 +230,48 @@ const Extras = (() => {
 
   let speedRunning = false;
   async function network() {
-    try { renderNet(await api('net-status')); } catch (e) { /* ignore */ }
+    try { const st = await api('net-status'); renderNet(st); renderDiag(st.diag, st); } catch (e) { /* ignore */ }
+  }
+
+  // ---------------- диагностика обрывов ----------------
+  const DIAG_LOOK = { ok: ['ok', 'check'], isp: ['warn', 'globe'], dns: ['warn', 'globe'], gateway: ['err', 'alert'], link: ['err', 'alert'], dhcp: ['err', 'alert'], nogw: ['err', 'alert'], noadapter: ['err', 'alert'] };
+  let lastNet = null;
+  function renderDiag(d, st = lastNet) {
+    lastNet = st;
+    const box = $('#netdiag');
+    if (!d) { box.replaceChildren(el('p', { class: 'muted', text: 'Обрывов пока не было. Нажмите «Проверить сейчас», чтобы посмотреть состояние сети.' })); return; }
+    const [tone, icon] = DIAG_LOOK[d.cause] || DIAG_LOOK.ok;
+    const x = d.details || {};
+    const chips = [
+      x.desc ? ['Адаптер', x.desc] : null,
+      x.linkSpeed ? ['Скорость линка', x.linkSpeed] : null,
+      x.wifi && x.wifi.signal != null ? ['Сигнал Wi-Fi', x.wifi.signal + '%'] : null,
+      x.gw ? ['Роутер', `${x.gw} — ${x.pingGw ? 'отвечает' : 'не отвечает'}`] : null,
+      ['Интернет', x.ping1 || x.ping8 ? 'есть' : 'нет'], ['DNS', x.dnsOk ? 'работает' : 'не отвечает'],
+      x.driverDate ? ['Драйвер', `${x.driverVersion || ''} от ${new Date(Date.parse(x.driverDate)).toLocaleDateString('ru-RU')}`] : null,
+      d.eventsTotal ? ['Сбросы адаптера за сутки', String(d.eventsTotal)] : null,
+    ].filter(Boolean);
+    const fix = async (action, label, confirmText) => {
+      if (confirmText && !(await confirmModal(label + '?', confirmText, label, false))) return;
+      try { await api('net-fix', { action }); toast('Готово'); } catch (e) { toast(e.message, 'err'); }
+      network();
+    };
+    const auto = el('input', { type: 'checkbox' });
+    auto.checked = !!(st && st.autoFix);
+    auto.addEventListener('change', () => fix(auto.checked ? 'autofix_on' : 'autofix_off'));
+    const btns = [
+      el('button', { class: 'btn', 'data-tip': 'Выключить и снова включить сетевой адаптер — то же, что делает «Диагностика неполадок» Windows', onclick: () => fix('restart', 'Перезапустить адаптер', 'Связь пропадёт на 5–15 секунд.') }, ic('restart', 16), 'Перезапустить адаптер'),
+      d.fixes.includes('energy') && !(st && st.energyBackup) ? el('button', { class: 'btn primary', 'data-tip': 'Запретить Windows отключать адаптер и выключить «зелёный» режим Ethernet (EEE). Прежние значения сохраняются — их можно вернуть', onclick: () => fix('energy', 'Отключить энергосбережение адаптера', `Будет выключено: ${d.energy.join('; ')}. Адаптер перезапустится (связь пропадёт на 5–15 секунд). Вернуть можно кнопкой здесь же.`) }, ic('zap', 16), 'Отключить энергосбережение') : null,
+      st && st.energyBackup ? el('button', { class: 'btn ghost', 'data-tip': 'Вернуть настройки энергосбережения адаптера, которые были до изменения', onclick: () => fix('energy_restore', 'Вернуть энергосбережение', 'Настройки адаптера вернутся к прежним.') }, 'Вернуть энергосбережение') : null,
+      d.fixes.includes('dns') ? el('button', { class: 'btn primary', onclick: () => fix('dns', 'Переключить DNS на 1.1.1.1 и 8.8.8.8', 'Вернуть автоматический DNS можно в любой момент.') }, ic('globe', 16), 'DNS 1.1.1.1 и 8.8.8.8') : null,
+    ].filter(Boolean);
+    box.replaceChildren(
+      el('div', { class: 'nd-hero ' + tone }, el('div', { class: 'nd-ic' }, ic(icon, 22)),
+        el('div', { class: 'spacer' }, el('b', { text: d.title }), el('p', { text: d.text }), el('span', { class: 'muted small', text: `Проверено ${new Date(d.ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` }))),
+      d.advice.length ? el('div', { class: 'nd-advice' }, el('div', { class: 'cr-advice-h' }, ic('sparkles', 14), 'Как исправить'), d.advice.map((a) => el('div', { class: 'nd-adv-row' }, ic('check', 14), el('span', { text: a })))) : null,
+      el('div', { class: 'nd-chips' }, chips.map(([k, v]) => el('div', { class: 'nd-chip' }, el('span', { text: k }), el('b', { text: v })))),
+      el('div', { class: 'row wrap mt' }, ...btns),
+      el('div', { class: 'set-row mt6' }, el('span', { class: 'set-ic' }, ic('restart', 17)), el('span', { class: 'set-text' }, el('b', { text: 'Сам перезапускать адаптер при обрыве' }), el('small', { text: 'Если роутер перестал отвечать — программа перезапустит сетевой адаптер, связь вернётся за 10–20 секунд' })), el('label', { class: 'switch' }, auto, el('span'))));
   }
 
   // ---------------- автозагрузка ----------------
@@ -274,6 +315,13 @@ const Extras = (() => {
     } catch (e) { speedRunning = false; toast(e.message, 'err'); network(); } finally { b.disabled = false; }
   });
   window.pcc.on('net-progress', (p) => { if (speedRunning) renderSpeed(null, p); });
+  $('#netdiag-run').addEventListener('click', async () => {
+    const b = $('#netdiag-run');
+    b.disabled = true;
+    b.replaceChildren(ic('hourglass', 15), 'Проверяю…');
+    try { renderDiag(await api('netdiag-run')); network(); } catch (e) { toast(e.message, 'err'); } finally { b.disabled = false; b.replaceChildren(ic('search', 15), 'Проверить сейчас'); }
+  });
+  window.pcc.on('netdiag', (d) => renderDiag(d));
   $('#dev-scan').addEventListener('click', async () => {
     const b = $('#dev-scan');
     b.disabled = true;

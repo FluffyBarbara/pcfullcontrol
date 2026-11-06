@@ -1,7 +1,7 @@
 {
   "name": "pc-full-control",
   "productName": "PC Full Control",
-  "version": "1.11.3",
+  "version": "1.12.0",
   "description": "Управление компьютером с телефона через Telegram",
   "main": "src/main/main.js",
   "author": "PC Full Control",

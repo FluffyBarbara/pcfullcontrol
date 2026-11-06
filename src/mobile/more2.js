@@ -441,13 +441,13 @@ const M2 = (() => {
     }));
   }
 
-  function hardware() { temps(); crashes(); }
+  function hardware() { temps(); }
 
   function pane(p) {
     stopPaneTimer();
     clearInterval(peakTimer);
     if (p === 'music') { music(); paneTimer = setInterval(() => { if (morePane !== 'music' || tab !== 'more') { stopPaneTimer(); clearInterval(peakTimer); return; } if (!document.hidden) music(); }, 3000); peakTimer = setInterval(peaks, 250); }
-    else if (p === 'games') games();
+    else if (p === 'games') { games(); crashes(); }
     else if (p === 'security') security();
     else if (p === 'space') space();
     else if (p === 'assistant') { hint(); setTimeout(() => $('#m-asst-text').blur(), 0); }

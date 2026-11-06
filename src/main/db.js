@@ -57,6 +57,10 @@ class Database {
       this.db = new SQL.Database();
     }
     this.db.exec(SCHEMA);
+    // Новые столбцы в старых базах
+    for (const sql of ['ALTER TABLE outages ADD COLUMN cause TEXT', 'ALTER TABLE outages ADD COLUMN title TEXT', 'ALTER TABLE outages ADD COLUMN fixed INTEGER DEFAULT 0']) {
+      try { this.db.exec(sql); } catch (e) { /* столбец уже есть */ }
+    }
     this._timer = null;
     this.save();
   }
@@ -198,7 +202,7 @@ class Database {
   appUsageSince(day) {
     return this.all('SELECT name, SUM(seconds) AS seconds FROM app_usage WHERE day >= ? GROUP BY name ORDER BY seconds DESC', [day]);
   }
-  addOutage(start, end) { return this.insert('INSERT INTO outages(start, end) VALUES (?,?)', [start, end]); }
+  addOutage(start, end, cause = null, title = null, fixed = 0) { return this.insert('INSERT INTO outages(start, end, cause, title, fixed) VALUES (?,?,?,?,?)', [start, end, cause, title, fixed]); }
   outagesSince(ts) { return this.all('SELECT * FROM outages WHERE start >= ? ORDER BY start DESC', [ts]); }
   addSpeedtest(r) { this.run('INSERT OR REPLACE INTO speedtests(ts, down, up, ping) VALUES (?,?,?,?)', [r.ts, r.down, r.up, r.ping]); }
   speedtestsSince(ts) { return this.all('SELECT * FROM speedtests WHERE ts >= ? ORDER BY ts DESC', [ts]); }

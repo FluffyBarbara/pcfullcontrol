@@ -100,4 +100,7 @@ for ($i = 0; $i -lt 60; $i++) { Start-Sleep 1; $sv = Invoke-RestMethod "$B/api/s
 Write-Host "  место на диске: $($sv.status.state), файлов $($sv.result.files), групп дубликатов $($sv.result.dupGroups)"
 if ($sv.result.dupGroups -lt 1) { throw 'Одинаковые файлы не найдены' }
 Remove-Item -Recurse -Force $sd
+$nd = Invoke-RestMethod "$B/api/net/diag" -Method Post -Headers $J -ContentType 'application/json' -Body '{}' -TimeoutSec 120
+Write-Host "  диагностика сети: $($nd.cause) — $($nd.title); адаптер $($nd.details.alias), роутер $($nd.details.gw) отвечает: $($nd.details.pingGw)"
+if (-not $nd.cause) { throw 'Диагностика сети не ответила' }
 Write-Host 'Проверки версии 1.7 пройдены'

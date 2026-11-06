@@ -803,7 +803,7 @@ function uploadFile(file, onProgress) {
 // ===================== ещё =====================
 let morePane = null; // null — меню-плитки раздела «Ещё»
 let logMode = 'events';
-const MORE_TITLES = { music: 'Музыка и звук', assistant: 'Ассистент', games: 'Игры', space: 'Место на диске', security: 'Безопасность', widget: 'Виджет', hardware: 'Железо', network: 'Сеть', optimize: 'Очистка', apps: 'Программы', startup: 'Автозагрузка', tasks: 'Задачи', log: 'Журнал', settings: 'Настройки' };
+const MORE_TITLES = { music: 'Музыка и звук', assistant: 'Ассистент', games: 'Игры и сбои', space: 'Место на диске', security: 'Безопасность', widget: 'Виджет', hardware: 'Железо', network: 'Сеть', optimize: 'Очистка', apps: 'Программы', startup: 'Автозагрузка', tasks: 'Задачи', log: 'Журнал', settings: 'Настройки' };
 document.querySelectorAll('#more-grid button').forEach((b) => b.addEventListener('click', () => { morePane = b.dataset.more; haptic(6); loadMore(); }));
 document.querySelector('#pane-back').addEventListener('click', () => { morePane = null; loadMore(); });
 document.querySelectorAll('#log-seg button').forEach((b) => b.addEventListener('click', () => {
