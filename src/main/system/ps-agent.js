@@ -94,6 +94,7 @@ ${this.ps}`;
   async call(op, args = {}, timeout = 15000) {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.kill(), this.idleMs);
+    if (this.idleTimer.unref) this.idleTimer.unref();
     await this.start();
     const id = ++this.seq;
     return new Promise((resolve, reject) => {

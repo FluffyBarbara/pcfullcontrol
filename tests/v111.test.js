@@ -71,6 +71,9 @@ test('игры: время и средний FPS по дням, отчёт за 
 test('виджет: ключ телефона, данные и кнопки без токена, отзыв при отвязке', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcc-w-'));
   const ctx = await makeCtx({ mobile: { port: 0 }, files: { uploadDir: dir } });
+  // Без настоящих помощников Windows (музыка, видеокарта) — в тестах они не нужны
+  ctx.media.state = async () => ({ available: true, sessions: [] });
+  ctx.gpu = async () => ({ gpus: [] });
   const lan = new LanServer(ctx);
   await lan.start();
   const base = `http://127.0.0.1:${lan.port}`;

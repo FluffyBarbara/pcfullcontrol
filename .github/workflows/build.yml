@@ -25,6 +25,7 @@ jobs:
 
       - name: Тесты
         run: npm test
+        timeout-minutes: 10
 
       - name: Счётчик кадров PresentMon (Intel, MIT)
         shell: pwsh
