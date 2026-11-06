@@ -16,6 +16,7 @@ const DEFAULTS = {
     allowShell: false,           // разрешить /cmd (выполнение команд)
     photoOnFailedLogin: true,    // фото с веб-камеры при неверном пароле на экране входа
     photoOnUnlock: false,        // фото при каждой разблокировке
+    usbWatch: true,              // уведомлять о подключении флешек и USB-устройств
   },
   voice: {
     enabled: true,               // голосовые команды в Telegram
@@ -55,6 +56,10 @@ const DEFAULTS = {
   },
   updates: {
     dailyCheckTime: '12:00',
+  },
+  ui: {
+    theme: 'dark',               // dark | light | system
+    accent: 'indigo',            // цвет акцента
   },
   appUpdate: {
     repo: 'FluffyBarbara/pcfullcontrol', // GitHub-репозиторий с релизами установщика

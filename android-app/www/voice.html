@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Голосовой ассистент</title>
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="voice.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+<section class="screen voice">
+  <header class="v-head">
+    <button class="icon-btn" id="v-back" aria-label="Назад"><i data-ic="chevronLeft"></i></button>
+    <div><b>Голосовой ассистент</b><small class="muted" id="v-pc"></small></div>
+  </header>
+  <div class="v-center">
+    <button class="v-mic" id="v-mic" aria-label="Говорить"><span class="v-wave"></span><i data-ic="mic" data-size="44"></i></button>
+    <p class="v-status" id="v-status">Нажмите и скажите команду</p>
+    <div class="v-bubble hidden" id="v-heard"></div>
+    <div class="v-bubble reply hidden" id="v-reply"></div>
+    <div class="v-confirm hidden" id="v-confirm">
+      <button class="btn" id="v-no">Отмена</button>
+      <button class="btn primary" id="v-yes">Да, выполнить</button>
+    </div>
+  </div>
+  <div class="v-hints muted">Например: «Выключи компьютер через полчаса», «Что сейчас играет?», «Громкость 30», «Открой YouTube», «Температура».</div>
+</section>
+<script src="icons.js"></script>
+<script src="voice.js"></script>
+</body>
+</html>

@@ -72,4 +72,32 @@ if (-not $v.text -or $v.text.Length -lt 10) { throw 'Речь не распоз�
 $v = Invoke-RestMethod "$B/api/test/transcribe" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ audio = $ogg } | ConvertTo-Json) -TimeoutSec 300
 Write-Host "  повторно (модель уже загружена): $($v.ms) мс"
 
+Write-Host '=== 2л. Музыка, микшер, сбои, температуры, игры, ассистент, виджет, место на диске ==='
+$mu = Invoke-RestMethod "$B/api/music" -Headers $J -TimeoutSec 120
+Write-Host "  плееров: $(@($mu.sessions).Count), доступно: $($mu.available) $($mu.error)"
+if (-not $mu.available) { throw 'Сведения о музыке недоступны' }
+$mx = Invoke-RestMethod "$B/api/mixer" -Headers $J -TimeoutSec 120
+Write-Host "  микшер: общая громкость $($mx.master)%, программ со звуком: $(@($mx.apps).Count) $($mx.error)"
+if (-not $mx.noDevice) { Invoke-RestMethod "$B/api/mixer/master" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ level = $mx.master } | ConvertTo-Json) | Out-Null }
+$cr = Invoke-RestMethod "$B/api/crashes" -Headers $J -TimeoutSec 60
+Write-Host "  сбоев за 90 дней: $(@($cr).Count)"
+$tp = Invoke-RestMethod "$B/api/temps?hours=24" -Headers $J
+Write-Host "  температуры: точек процессора $(@($tp.cpu).Count), дисков $(@($tp.disks.PSObject.Properties).Count)"
+$gm = Invoke-RestMethod "$B/api/games" -Headers $J
+$as = Invoke-RestMethod "$B/api/assistant" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ text = 'что сейчас играет' } | ConvertTo-Json)
+Write-Host "  ассистент: $($as.reply)"
+if (-not $as.ok) { throw 'Ассистент не понял команду' }
+$wk = Invoke-RestMethod "$B/api/widget/key" -Method Post -Headers $J -ContentType 'application/json' -Body '{}'
+$wd = Invoke-RestMethod "$B/api/widget?k=$($wk.key)"
+if ($wd.app -ne 'pc-full-control') { throw 'Виджет не отвечает' }
+Write-Host "  виджет: $(Invoke-RestMethod "$B/api/widget/text?k=$($wk.key)")"
+$sd = Join-Path $env:TEMP 'pcfc-space'
+New-Item -ItemType Directory -Force $sd | Out-Null
+$bytes = New-Object byte[] 2000000; (New-Object Random 1).NextBytes($bytes)
+[IO.File]::WriteAllBytes((Join-Path $sd 'a.bin'), $bytes); [IO.File]::WriteAllBytes((Join-Path $sd 'b.bin'), $bytes)
+Invoke-RestMethod "$B/api/space/start" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ root = $sd } | ConvertTo-Json) | Out-Null
+for ($i = 0; $i -lt 60; $i++) { Start-Sleep 1; $sv = Invoke-RestMethod "$B/api/space" -Headers $J; if ($sv.status.state -ne 'scanning') { break } }
+Write-Host "  место на диске: $($sv.status.state), файлов $($sv.result.files), групп дубликатов $($sv.result.dupGroups)"
+if ($sv.result.dupGroups -lt 1) { throw 'Одинаковые файлы не найдены' }
+Remove-Item -Recurse -Force $sd
 Write-Host 'Проверки версии 1.7 пройдены'

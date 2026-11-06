@@ -1,6 +1,6 @@
 'use strict';
 // PC Full Control — главный процесс Electron: окно, значок в трее, автозапуск, службы.
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, session, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, session, dialog, powerMonitor, nativeTheme } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
@@ -114,6 +114,8 @@ async function init() {
   // Фоновые помощники — чуть позже, чтобы не нагружать компьютер в первые секунды после входа
   setTimeout(() => ctx.activity.start(), 30000);
   setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
+  setTimeout(() => ctx.usb.start().catch(() => {}), 25000);
+  ctx.crashes.start();
   setTimeout(() => removeInternetAccessLeftovers().catch(() => {}), 15000);
   startWeeklyReports();
   startBot();
@@ -127,6 +129,8 @@ async function init() {
   ctx.on('metrics', (m) => send('metrics', m));
   ctx.on('update-state', (st) => { send('update-state', st); updateTray(); });
   ctx.on('net-progress', (p) => send('net-progress', p));
+  ctx.on('space', (p) => send('space', p));
+  ctx.on('usb', (p) => send('usb', p));
   guardAutologon(true);
 
   let showFlag = false;
@@ -212,7 +216,7 @@ function prepareForUpdate() {
 let lastUpdateCheck = 0;
 /** Останавливает фоновые службы (перед выходом и обновлением). */
 function stopServices() {
-  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(), () => ctx.fps.stop()]) {
+  for (const fn of [() => ctx.net.stop(), () => ctx.activity.stop(), () => ctx.intruder.stop(), () => ctx.speech.stop(), () => ctx.fps.stop(), () => ctx.media.stop(), () => ctx.usb.stop(), () => ctx.crashes.stop(), () => ctx.space.stopProc()]) {
     try { fn(); } catch (e) { /* ignore */ }
   }
 }
@@ -297,7 +301,7 @@ function showWindow() {
   });
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(RENDERER, 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => { applyTitleBar(); mainWindow.show(); });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -423,6 +427,15 @@ async function pairingInfo() {
 
 function taskView(t) {
   return { ...t, description: ctx.scheduler.describe(t) };
+}
+
+/** Цвет строки заголовка под выбранную тему. */
+function applyTitleBar() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const ui = ctx.config.ui || {};
+  const light = ui.theme === 'light' || (ui.theme === 'system' && !nativeTheme.shouldUseDarkColors);
+  try { mainWindow.setTitleBarOverlay({ color: light ? '#f3f5fa' : '#0d1017', symbolColor: light ? '#2a3142' : '#cfd6e4', height: 44 }); } catch (e) { /* не Windows */ }
+  mainWindow.setBackgroundColor(light ? '#f3f5fa' : '#090b10');
 }
 
 function registerIpc() {
@@ -597,6 +610,33 @@ function registerIpc() {
     gpu: only === 'disks' ? undefined : await ctx.gpu().catch(() => ({ gpus: [] })),
     disks: only === 'gpu' ? undefined : await ctx.diskHealth(!!force).catch((e) => ({ error: e.message })),
   }));
+  // Музыка и звук
+  handle('media-state', () => ctx.media.state());
+  handle('media-control', ({ app, action, value }) => ctx.media.control(app, action, value));
+  handle('media-cover', ({ key }) => { const c = ctx.media.cover(key); return c ? `data:${c.type};base64,${c.buf.toString('base64')}` : null; });
+  handle('mixer', () => ctx.media.mixer());
+  handle('mixer-set', ({ name, level, mute }) => ctx.media.setApp(name, { level, mute }));
+  handle('mixer-master', ({ level, mute }) => ctx.media.setMaster({ level, mute }));
+  // Игры, температуры, сбои, USB, тревожная кнопка
+  handle('games', ({ days } = {}) => ctx.games(Number(days) || 7));
+  handle('temps', ({ hours } = {}) => ctx.tempHistory(Math.min(24 * 14, Number(hours) || 24)));
+  handle('crashes', () => ctx.crashes.list());
+  handle('usb-events', () => ctx.db.usbEvents(50));
+  handle('panic-state', () => ctx.panic.state());
+  handle('panic-trigger', () => ctx.panic.trigger('ПК'));
+  handle('panic-release', () => ctx.panic.release('ПК'));
+  // Место на диске
+  handle('space-roots', async () => (await require('./system/info').disks()).map((d) => ({ mount: d.mount, total: d.total, free: d.free, percent: d.percent })));
+  handle('space-start', ({ root, dups }) => ctx.space.start(root, { dups: dups !== false }));
+  handle('space-cancel', () => ctx.space.cancel());
+  handle('space-view', ({ dir } = {}) => ctx.space.view({ dir }));
+  handle('space-delete', ({ paths, permanent }) => ctx.space.remove(paths, !!permanent, 'local', 'ПК'));
+  // Оформление: тема и цвет акцента (строка заголовка окна — в тон)
+  handle('set-theme', ({ theme, accent }) => {
+    ctx.updateConfig({ ui: { theme: theme || 'dark', accent: accent || 'indigo' } });
+    applyTitleBar();
+    return ctx.config.ui;
+  });
   // Сеть
   handle('net-status', () => ctx.net.status());
   handle('net-speedtest', () => ctx.net.speedTest());

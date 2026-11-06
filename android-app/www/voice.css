@@ -1,0 +1,17 @@
+.voice { display: flex; flex-direction: column; min-height: 100vh; padding: calc(env(safe-area-inset-top) + 14px) 18px calc(env(safe-area-inset-bottom) + 18px); box-sizing: border-box; }
+.v-head { display: flex; align-items: center; gap: 12px; }
+.v-head div { display: flex; flex-direction: column; }
+.v-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
+.v-mic { position: relative; width: 130px; height: 130px; border-radius: 50%; border: 0; color: #fff; background: var(--grad); box-shadow: 0 20px 60px rgba(109, 124, 255, .45); display: grid; place-items: center; }
+.v-mic:active { transform: scale(.96); }
+.v-wave { position: absolute; inset: -14px; border-radius: 50%; border: 3px solid rgba(34, 211, 238, .5); opacity: 0; }
+.v-mic.rec { background: linear-gradient(135deg, #ff7a59, #ff4d6d); box-shadow: 0 20px 60px rgba(255, 77, 109, .45); }
+.v-mic.rec .v-wave { animation: vWave 1.3s ease-out infinite; }
+.v-mic.busy { opacity: .7; }
+@keyframes vWave { from { transform: scale(.85); opacity: .9; } to { transform: scale(1.35); opacity: 0; } }
+.v-status { font-size: 17px; font-weight: 600; margin: 0; }
+.v-bubble { max-width: 92%; padding: 12px 16px; border-radius: 18px; background: var(--card-2); border: 1px solid var(--line-2); font-size: 16px; line-height: 1.4; }
+.v-bubble.reply { background: rgba(109, 124, 255, .16); border-color: rgba(109, 124, 255, .35); }
+.v-confirm { display: flex; gap: 10px; }
+.v-hints { font-size: 13px; text-align: center; line-height: 1.5; }
+.hidden { display: none !important; }

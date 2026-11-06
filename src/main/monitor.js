@@ -6,7 +6,7 @@ const info = require('./system/info');
 const { listProcesses } = require('./system/processes');
 const { E } = require('./telegram-api');
 const { gpuStats } = require('./system/gpu');
-const { LEVEL_TEXT } = require('./system/disk-health');
+const { LEVEL_TEXT, diskTemps } = require('./system/disk-health');
 
 const POWER_TITLES = {
   shutdown: 'выключен по команде', reboot: 'перезагружен по команде',
@@ -194,6 +194,12 @@ class Monitor {
 ${E(g.name)}, загрузка ${Math.round(g.util || 0)}%${g.fan != null ? `, вентилятор ${Math.round(g.fan)}%` : ''}`, 'critical');
         }
       }
+    }
+    // Температура дисков для графиков: раз в 10 минут, спящие жёсткие диски не будим
+    if (now - (this.lastDiskTemp || 0) >= 600000 && !this.diskTempBusy) {
+      this.lastDiskTemp = now;
+      this.diskTempBusy = true;
+      diskTemps().then((list) => { for (const d of list) db.addDiskTemp(d.name, d.temp); }).catch(() => {}).finally(() => { this.diskTempBusy = false; });
     }
     // Здоровье дисков: раз в сутки, тревога при проблемах
     if (cfg.diskHealthCheck !== false && now - (db.getSetting('lastDiskHealth') || 0) * 1000 > 86400e3) {

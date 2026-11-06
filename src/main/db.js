@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS speedtests (ts REAL PRIMARY KEY, down REAL, up REAL, 
 CREATE TABLE IF NOT EXISTS net_devices (mac TEXT PRIMARY KEY, ip TEXT, name TEXT, vendor TEXT, label TEXT, first_seen REAL, last_seen REAL);
 CREATE TABLE IF NOT EXISTS gpu_metrics (ts REAL PRIMARY KEY, temp REAL, util REAL);
 CREATE TABLE IF NOT EXISTS freed (ts REAL, bytes INTEGER, what TEXT);
+CREATE TABLE IF NOT EXISTS game_usage (day TEXT, exe TEXT, title TEXT, seconds INTEGER DEFAULT 0, fps_sum REAL DEFAULT 0, fps_n INTEGER DEFAULT 0, PRIMARY KEY (day, exe));
+CREATE TABLE IF NOT EXISTS disk_temps (ts REAL, disk TEXT, temp REAL);
+CREATE INDEX IF NOT EXISTS idx_disk_temps_ts ON disk_temps(ts);
+CREATE TABLE IF NOT EXISTS disk_history (day TEXT, serial TEXT, life REAL, written REAL, hours REAL, PRIMARY KEY (day, serial));
+CREATE TABLE IF NOT EXISTS usb_events (ts REAL, kind TEXT, name TEXT, info TEXT);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_commands_ts ON commands(ts);
 `;
@@ -161,6 +166,8 @@ class Database {
     this.run('DELETE FROM commands WHERE ts<?', [t - eventsDays * 86400]);
     this.run('DELETE FROM jobs WHERE id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT 50)');
     this.run('DELETE FROM gpu_metrics WHERE ts<?', [t - 14 * 86400]);
+    this.run('DELETE FROM disk_temps WHERE ts<?', [t - 14 * 86400]);
+    this.run('DELETE FROM usb_events WHERE ts<?', [t - 90 * 86400]);
     this.run('DELETE FROM outages WHERE start<?', [t - 90 * 86400]);
     this.run('DELETE FROM speedtests WHERE ts<?', [t - 90 * 86400]);
     this.run('DELETE FROM freed WHERE ts<?', [t - 90 * 86400]);
@@ -172,6 +179,22 @@ class Database {
   addAppUsage(day, name, seconds) {
     this.run('INSERT INTO app_usage(day, name, seconds) VALUES (?,?,?) ON CONFLICT(day, name) DO UPDATE SET seconds = seconds + excluded.seconds', [day, name, seconds]);
   }
+  addGameUsage(day, exe, title, seconds, fps) {
+    this.run(`INSERT INTO game_usage(day, exe, title, seconds, fps_sum, fps_n) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(day, exe) DO UPDATE SET seconds = seconds + excluded.seconds, title = excluded.title, fps_sum = fps_sum + excluded.fps_sum, fps_n = fps_n + excluded.fps_n`,
+    [day, exe, title, seconds, fps || 0, fps ? 1 : 0]);
+  }
+  gameUsageSince(day) {
+    return this.all(`SELECT exe, MAX(title) AS title, SUM(seconds) AS seconds, SUM(fps_sum) AS fps_sum, SUM(fps_n) AS fps_n, COUNT(*) AS days, MAX(day) AS last
+      FROM game_usage WHERE day >= ? GROUP BY exe ORDER BY seconds DESC`, [day]);
+  }
+  gameDaysSince(day) { return this.all('SELECT day, SUM(seconds) AS seconds FROM game_usage WHERE day >= ? GROUP BY day ORDER BY day', [day]); }
+  addDiskTemp(disk, temp) { this.run('INSERT INTO disk_temps(ts, disk, temp) VALUES (?,?,?)', [now(), disk, temp]); }
+  diskTempsSince(ts) { return this.all('SELECT * FROM disk_temps WHERE ts >= ? ORDER BY ts', [ts]); }
+  addDiskHistory(day, serial, life, written, hours) { this.run('INSERT OR REPLACE INTO disk_history(day, serial, life, written, hours) VALUES (?,?,?,?,?)', [day, serial, life, written, hours]); }
+  diskHistory(serial) { return this.all('SELECT * FROM disk_history WHERE serial=? ORDER BY day', [serial]); }
+  addUsbEvent(kind, name, info) { this.run('INSERT INTO usb_events(ts, kind, name, info) VALUES (?,?,?,?)', [now(), kind, name, info]); }
+  usbEvents(limit = 30) { return this.all('SELECT * FROM usb_events ORDER BY ts DESC LIMIT ?', [limit]); }
   appUsageSince(day) {
     return this.all('SELECT name, SUM(seconds) AS seconds FROM app_usage WHERE day >= ? GROUP BY name ORDER BY seconds DESC', [day]);
   }

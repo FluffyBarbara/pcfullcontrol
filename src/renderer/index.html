@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
   <title>PC Full Control</title>
   <link rel="stylesheet" href="style.css">
+  <script src="theme-init.js"></script>
 </head>
 <body>
 
@@ -27,6 +28,7 @@
       <button data-page="overview" class="active"><i data-ic="dashboard"></i><span class="lbl">Обзор</span></button>
       <button data-page="phone"><i data-ic="phone"></i><span class="lbl">Телефон</span><span class="badge-dot hidden" id="phone-dot"></span></button>
       <button data-page="control"><i data-ic="grid"></i><span class="lbl">Управление</span></button>
+      <button data-page="music"><i data-ic="music"></i><span class="lbl">Музыка</span></button>
       <button data-page="processes"><i data-ic="activity"></i><span class="lbl">Процессы</span></button>
       <button data-page="hardware"><i data-ic="gpu"></i><span class="lbl">Железо</span></button>
       <button data-page="network"><i data-ic="wifi"></i><span class="lbl">Сеть</span></button>
@@ -234,6 +236,18 @@
     </section>
 
     <!-- ================= ПРОЦЕССЫ ================= -->
+    <!-- ================= МУЗЫКА ================= -->
+    <section class="page hidden" id="page-music">
+      <div class="page-head"><div><h1>Музыка и звук</h1><p>Что играет на компьютере — в любом плеере или браузере — и громкость каждой программы.</p></div></div>
+      <div id="mp-now"></div>
+      <div id="mp-others"></div>
+      <div class="card mt" id="mixer-card">
+        <div class="card-head"><h3 class="card-title"><i data-ic="sliders" data-size="18"></i>Микшер громкости</h3><span class="muted small">Громкость каждой программы отдельно — как в Windows, только удобнее</span></div>
+        <div id="mixer-master"></div>
+        <div class="mixer-list" id="mixer-list"></div>
+      </div>
+    </section>
+
     <section class="page hidden" id="page-processes">
       <div class="page-head">
         <div><h1>Процессы</h1><p id="proc-count">Запущенные программы</p></div>
@@ -257,7 +271,7 @@
     <section class="page hidden" id="page-optimize">
       <div class="page-head">
         <div><h1>Оптимизация</h1><p>Ничего не удаляется, пока вы сами не отметите пункты и не подтвердите удаление.</p></div>
-        <div class="seg" id="opt-tabs"><button data-tab="clean" class="active">Очистка диска</button><button data-tab="apps">Удаление программ</button><button data-tab="startup">Автозагрузка</button></div>
+        <div class="seg" id="opt-tabs"><button data-tab="clean" class="active">Очистка диска</button><button data-tab="apps">Удаление программ</button><button data-tab="startup">Автозагрузка</button><button data-tab="space">Место на диске</button></div>
       </div>
 
       <div id="opt-clean">
@@ -306,6 +320,39 @@
         </div>
         <div class="card pad6"><div class="list" id="startup-list"></div></div>
       </div>
+
+      <div id="opt-space" class="hidden">
+        <div class="card clean-hero">
+          <div class="clean-hero-ic"><i data-ic="treemap" data-size="28"></i></div>
+          <div class="spacer">
+            <h3 id="space-title">Что занимает место на диске</h3>
+            <p class="muted" id="space-sub">Карта папок, самые большие файлы и одинаковые копии. Проверка только читает диск — удаляется лишь то, что вы отметите сами.</p>
+            <div class="row wrap mt6" id="space-roots"></div>
+          </div>
+          <button class="btn primary lg" id="space-scan"><i data-ic="search" data-size="17"></i>Проверить</button>
+        </div>
+        <div class="card hidden" id="space-progress"></div>
+        <div id="space-result" class="hidden">
+          <div class="card">
+            <div class="card-head"><h3 class="card-title"><i data-ic="treemap" data-size="18"></i>Карта места</h3><span class="muted small">Нажмите на папку, чтобы заглянуть внутрь</span></div>
+            <div class="space-crumbs" id="space-crumbs"></div>
+            <div class="treemap" id="space-map"></div>
+          </div>
+          <div class="grid g2 mt dh-grid">
+            <div class="card">
+              <div class="card-head"><h3 class="card-title"><i data-ic="file" data-size="18"></i>Самые большие файлы</h3></div>
+              <div class="space-list" id="space-top"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3 class="card-title"><i data-ic="copies" data-size="18"></i>Одинаковые файлы</h3><span class="muted small" id="space-dup-sum"></span></div>
+              <div class="space-list" id="space-dups"></div>
+            </div>
+          </div>
+          <div class="save-bar"><span class="muted" id="space-sel">Ничего не выбрано</span>
+            <label class="chk-inline"><input type="checkbox" id="space-permanent"> навсегда (мимо корзины)</label>
+            <button class="btn danger lg" id="space-delete" disabled><i data-ic="trash" data-size="17"></i>Удалить выбранное</button></div>
+        </div>
+      </div>
     </section>
 
     <!-- ================= ЖЕЛЕЗО ================= -->
@@ -315,8 +362,26 @@
         <button class="btn" id="hw-refresh"><i data-ic="restart" data-size="16"></i>Обновить</button>
       </div>
       <div id="hw-gpus"></div>
+      <div class="section-label mt22">Температуры</div>
+      <div class="card" id="temps-card">
+        <div class="card-head"><h3 class="card-title"><i data-ic="temp" data-size="18"></i>Графики температур</h3>
+          <div class="seg" id="temps-range"><button data-h="24" class="active">Сутки</button><button data-h="168">Неделя</button></div></div>
+        <div class="temps-legend" id="temps-legend"></div>
+        <canvas id="temps-chart" class="temps-chart"></canvas>
+        <div class="temps-stats" id="temps-stats"></div>
+      </div>
       <div class="dh-summary mt22"><div class="section-label">Диски</div><div class="row wrap" id="hw-disk-summary"></div></div>
       <div class="grid g2 dh-grid" id="hw-disks"></div>
+      <div class="grid g2 mt dh-grid">
+        <div class="card" id="games-card">
+          <div class="card-head"><h3 class="card-title"><i data-ic="gamepad" data-size="18"></i>Игры за неделю</h3><span class="muted small" id="games-total"></span></div>
+          <div id="games-list"></div>
+        </div>
+        <div class="card" id="crashes-card">
+          <div class="card-head"><h3 class="card-title"><i data-ic="crash" data-size="18"></i>Синие экраны и сбои</h3><span class="muted small">за 90 дней</span></div>
+          <div id="crashes-list"></div>
+        </div>
+      </div>
       <p class="muted small mt6">Данные SMART читает встроенный модуль smartmontools — так же, как CrystalDiskInfo. Только чтение, на дисках ничего не меняется.</p>
     </section>
 
@@ -449,6 +514,23 @@
         </div>
       </div>
 
+      <div class="grid g2 mt">
+        <div class="card">
+          <h3 class="card-title mb6"><i data-ic="palette" data-size="18"></i>Оформление</h3>
+          <div class="set-row"><span class="set-ic"><i data-ic="sun" data-size="17"></i></span><span class="set-text"><b>Тема</b><small>Светлая, тёмная или как в Windows</small></span>
+            <div class="seg" id="theme-seg"><button data-theme="dark">Тёмная</button><button data-theme="light">Светлая</button><button data-theme="system">Как в Windows</button></div></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="sparkles" data-size="17"></i></span><span class="set-text"><b>Цвет акцента</b><small>Кнопки, выделение, графики</small></span></div>
+          <div class="accents" id="accent-list"></div>
+        </div>
+        <div class="card">
+          <h3 class="card-title mb6"><i data-ic="shield" data-size="18"></i>Безопасность</h3>
+          <div class="set-row"><span class="set-ic"><i data-ic="usb" data-size="17"></i></span><span class="set-text"><b>Сообщать о флешках и USB-устройствах</b><small>Кто-то вставил флешку, подключил телефон или клавиатуру — придёт сообщение в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="security.usbWatch"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="siren" data-size="17"></i></span><span class="set-text"><b>Тревожная кнопка</b><small id="panic-note">Фото с веб-камеры, выключить микрофон и камеры, заблокировать ПК. Срабатывает с телефона, из Telegram (/panic) или голосом</small></span>
+            <button class="btn" type="button" id="panic-btn"><i data-ic="siren" data-size="16"></i>Проверить</button></div>
+          <div class="usb-log" id="usb-log"></div>
+        </div>
+      </div>
+
       <div class="card mt" id="wol-card">
         <h3 class="card-title mb6"><i data-ic="wake" data-size="18"></i>Включение компьютера с телефона</h3>
         <p class="muted small mt6">Выключенный компьютер можно включить кнопкой «Включить» в Android-приложении — оно отправляет в домашнюю сеть «волшебный пакет» (Wake-on-LAN).
@@ -524,5 +606,7 @@
 <script src="app.js"></script>
 <script src="optimize.js"></script>
 <script src="extras.js"></script>
+<script src="media.js"></script>
+<script src="more.js"></script>
 </body>
 </html>

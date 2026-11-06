@@ -169,17 +169,19 @@ function go(p) {
   } else if (p === 'control') loadVolume();
   else if (p === 'processes') { loadProcesses(); timers.p = setInterval(() => { if (!document.hidden) loadProcesses(); }, 5000); }
   else if (p === 'optimize') Optimize.show();
-  else if (p === 'hardware') { Extras.hardware(); timers.h = setInterval(() => { if (!document.hidden) Extras.gpuOnly(); }, 2500); }
+  else if (p === 'hardware') { Extras.hardware(); More.hardware(); timers.h = setInterval(() => { if (!document.hidden) Extras.gpuOnly(); }, 2500); timers.ht = setInterval(() => { if (!document.hidden) More.temps(); }, 60000); }
+  else if (p === 'music') { Music.show(); timers.mu = setInterval(() => { if (!document.hidden) Music.refresh(); }, 2000); timers.mt = setInterval(Music.tick, 500); }
   else if (p === 'network') { Extras.network(); timers.n = setInterval(() => { if (!document.hidden) Extras.network(); }, 8000); }
   else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();
-  else if (p === 'settings') fillSettings();
+  else if (p === 'settings') { fillSettings(); More.security(); }
   else if (p === 'about') renderAbout();
 }
 
 // ===================== состояние =====================
 async function loadState() {
   STATE = await api('get-state');
+  if (STATE.config && typeof More !== 'undefined') More.applyTheme(STATE.config.ui);
   ACTIONS = Object.fromEntries(STATE.actions.map((a) => [a.name, a]));
   $('#brand-sub').textContent = STATE.pcName;
   $('#hero-name').textContent = STATE.pcName;
@@ -358,7 +360,7 @@ function drawChart() {
   const y = (val) => T + (h - T - B) * (1 - Math.max(0, Math.min(100, val)) / 100);
   g.font = '11px "Segoe UI", sans-serif';
   g.fillStyle = v('--dim');
-  g.strokeStyle = 'rgba(255,255,255,.05)';
+  g.strokeStyle = `rgba(${v('--ov')}, .06)`;
   for (const val of [0, 25, 50, 75, 100]) {
     g.beginPath(); g.moveTo(L, y(val)); g.lineTo(w, y(val)); g.stroke();
     g.fillText(String(val), 4, y(val) + 4);

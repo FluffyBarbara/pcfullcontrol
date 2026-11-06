@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/pc_widget_bg">
+
+    <LinearLayout
+        android:id="@+id/w_head"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:gravity="center"
+            android:text="🖥"
+            android:textSize="16sp"
+            android:background="@drawable/pc_widget_icon" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/w_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#EEF1F7"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="Мой ПК" />
+            <TextView
+                android:id="@+id/w_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#8F98AD"
+                android:textSize="11sp"
+                android:text="● обновляю…" />
+        </LinearLayout>
+        <TextView
+            android:id="@+id/w_refresh"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="⟳"
+            android:textColor="#CFD6E4"
+            android:textSize="18sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+        <TextView android:id="@+id/w_cpu" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#EEF1F7" android:textSize="13sp" android:maxLines="1" android:text="ЦП —" />
+        <TextView android:id="@+id/w_ram" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#EEF1F7" android:textSize="13sp" android:maxLines="1" android:text="ОЗУ —" />
+        <TextView android:id="@+id/w_gpu" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#EEF1F7" android:textSize="13sp" android:maxLines="1" android:text="" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/w_media"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="#22D3EE"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+        <TextView android:id="@+id/w_lock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginEnd="4dp" android:gravity="center" android:background="@drawable/pc_widget_btn" android:textColor="#EEF1F7" android:textSize="13sp" android:text="🔒" />
+        <TextView android:id="@+id/w_play" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginEnd="4dp" android:gravity="center" android:background="@drawable/pc_widget_btn" android:textColor="#EEF1F7" android:textSize="13sp" android:text="⏯" />
+        <TextView android:id="@+id/w_sleep" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginEnd="4dp" android:gravity="center" android:background="@drawable/pc_widget_btn" android:textColor="#EEF1F7" android:textSize="13sp" android:text="🌙" />
+        <TextView android:id="@+id/w_power" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:gravity="center" android:background="@drawable/pc_widget_btn_danger" android:textColor="#FFFFFF" android:textSize="13sp" android:text="⏻" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/w_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="end"
+        android:textColor="#5E667A"
+        android:textSize="10sp"
+        android:text="" />
+</LinearLayout>

@@ -106,6 +106,7 @@ class FileManager {
       ...(IS_WIN ? [] : ['/bin', '/boot', '/etc', '/usr', '/var', '/lib', '/sbin', '/root', '/home'])]
       .filter(Boolean).map((x) => (IS_WIN ? path.resolve(x).toLowerCase() : path.resolve(x)));
     if (crit.includes(low)) return true;
+    if (IS_WIN && /^(pagefile|hiberfil|swapfile)\.sys$|^dumpstack\.log/i.test(path.basename(r))) return true;
     const sys = (env('SystemRoot') || 'C:\\Windows').toLowerCase();
     return IS_WIN && (low === sys || low.startsWith(sys + '\\'));
   }

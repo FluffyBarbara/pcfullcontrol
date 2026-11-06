@@ -333,9 +333,39 @@ function smartctl(exe, args, timeout = 30000) {
   });
 }
 
-async function smartDisks(exe) {
+let scanCache = { ts: 0, devs: [] };
+async function scanDevices(exe, maxAge = 0) {
+  if (maxAge && Date.now() - scanCache.ts < maxAge) return scanCache.devs;
   const scan = await smartctl(exe, ['--scan-open'], 60000);
   const devs = ((scan && scan.devices) || []).filter((d) => d && d.name && !d.open_error);
+  scanCache = { ts: Date.now(), devs };
+  return devs;
+}
+
+/**
+ * Только температуры (для графиков): спящий жёсткий диск не будим (-n standby), список устройств — из кэша.
+ * → [{ key, name, temp }]
+ */
+async function diskTemps() {
+  const exe = smartctlPath();
+  if (!exe) return [];
+  const devs = await scanDevices(exe, 3600000);
+  const out = [];
+  for (const d of devs) {
+    const args = ['-A', '-i', '-n', 'standby'];
+    if (d.type) args.push('-d', d.type);
+    args.push(d.name);
+    const j = await smartctl(exe, args, 20000);
+    if (!j) continue;
+    const s = parseSmart(j);
+    if (!s || s.temp == null || !(s.temp > 0 && s.temp < 120)) continue;
+    out.push({ key: s.serial || d.name, name: s.model || d.name, temp: s.temp, kind: s.kind });
+  }
+  return out;
+}
+
+async function smartDisks(exe) {
+  const devs = await scanDevices(exe);
   const out = [];
   for (const d of devs) {
     const args = ['-a'];
@@ -368,6 +398,54 @@ async function diskHealth() {
   return merge(win, smart);
 }
 
+/**
+ * Прогноз износа SSD: сколько ещё прослужит при нынешнем темпе записи.
+ * Сколько байт «стоит» 1% ресурса — из уже записанного и уже израсходованного; темп записи — по истории
+ * (снимки раз в день), а пока её мало — в среднем за время работы диска.
+ */
+function forecast(d, history = []) {
+  if (!d || !(d.kind === 'ssd' || d.kind === 'nvme') || d.life == null) return null;
+  const used = 100 - d.life;
+  const pts = history.filter((h) => h && h.day).sort((a, b) => (a.day < b.day ? -1 : 1));
+  const days = (a, b) => (Date.parse(b.day) - Date.parse(a.day)) / 86400000;
+  let perDay = null;
+  let basis = '';
+  const wp = pts.filter((h) => h.written != null);
+  if (wp.length >= 2) {
+    const a = wp[0]; const b = wp[wp.length - 1]; const n = days(a, b);
+    if (n >= 2 && b.written >= a.written) { perDay = (b.written - a.written) / n; basis = `по записи за последние ${Math.round(n)} дн.`; }
+  }
+  if (perDay == null && d.written && d.hours > 48) { perDay = d.written / (d.hours / 24); basis = 'в среднем за время работы диска'; }
+  let years = null;
+  let lowerBound = false;
+  if (perDay > 0 && d.written > 0) {
+    const remaining = used >= 1 ? (d.written / used) * d.life : d.written * 99;
+    lowerBound = used < 1;
+    years = remaining / perDay / 365;
+  } else {
+    // Нет счётчика записи — по тому, как менялся сам процент ресурса
+    const lp = pts.filter((h) => h.life != null);
+    if (lp.length >= 2) {
+      const a = lp[0]; const b = lp[lp.length - 1]; const n = days(a, b);
+      if (n >= 7 && a.life > b.life) { years = b.life / ((a.life - b.life) / n) / 365; basis = `по износу за ${Math.round(n)} дн.`; }
+    }
+  }
+  if (years == null || !Number.isFinite(years)) return { years: null, perDay, basis, text: 'Прогноз появится через несколько дней наблюдений' };
+  const y = Math.max(0, years);
+  let text;
+  if (y >= 20) text = 'Ресурса хватит больше чем на 20 лет';
+  else if (y >= 2) text = `Ресурса хватит${lowerBound ? ' не меньше чем' : ' примерно'} на ${Math.round(y)} ${plural(Math.round(y), 'год', 'года', 'лет')}`;
+  else if (y >= 1) text = `Ресурса хватит${lowerBound ? ' не меньше чем' : ' примерно'} на ${Math.round(y * 12)} мес.`;
+  else text = `Ресурс закончится примерно через ${Math.max(1, Math.round(y * 12))} мес. — сделайте копию важных файлов`;
+  return { years: Math.round(y * 10) / 10, perDay: perDay != null ? Math.round(perDay) : null, basis, lowerBound, text };
+}
+function plural(n, one, few, many) {
+  const m10 = n % 10; const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
+
 const LEVEL_TEXT = { ok: 'исправен', warn: 'есть предупреждения', bad: 'требует внимания' };
 
-module.exports = { diskHealth, assess, normalize, parseSmart, merge, fromWindows, sdIndex, LEVEL_TEXT, KIND_TEXT };
+module.exports = { forecast, diskTemps, diskHealth, assess, normalize, parseSmart, merge, fromWindows, sdIndex, LEVEL_TEXT, KIND_TEXT };

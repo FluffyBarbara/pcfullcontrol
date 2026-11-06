@@ -148,6 +148,24 @@ class LanServer {
     return { token, pcName: this.ctx.pcName, version: this.ctx.version };
   }
 
+  /** Ключ виджета для телефона (один на телефон; новый заменяет старый). */
+  widgetKey(device) {
+    const key = crypto.randomBytes(24).toString('base64url');
+    const list = (this.ctx.db.getSetting('widgetKeys') || []).filter((w) => w.deviceId !== device.id);
+    list.push({ hash: sha256(key), deviceId: device.id, created: Date.now() / 1000 });
+    this.ctx.db.setSetting('widgetKeys', list);
+    return { key, pcName: this.ctx.pcName };
+  }
+
+  widgetDevice(key) {
+    if (!key) throw new HttpError(401, 'Нужен ключ виджета');
+    const h = sha256(String(key));
+    const w = (this.ctx.db.getSetting('widgetKeys') || []).find((x) => x.hash === h);
+    const dev = w && this.ctx.db.listDevices().find((d) => d.id === w.deviceId);
+    if (!dev) throw new HttpError(401, 'Виджет отключён — добавьте его заново в приложении');
+    return dev;
+  }
+
   auth(req) {
     const h = req.headers.authorization || '';
     const token = h.startsWith('Bearer ') ? h.slice(7) : '';
@@ -166,6 +184,13 @@ class LanServer {
     try {
       if (!url.pathname.startsWith('/api/')) return this.serveStatic(url.pathname, req, res);
       res.setHeader('Cache-Control', 'no-store');
+      // Android-приложение: голосовой ассистент записывает звук на своей странице (http://localhost)
+      if (/^https?:\/\/localhost(:\d+)?$/.test(req.headers.origin || '') && /^\/api\/(assistant|widget)/.test(url.pathname)) {
+        res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return undefined; }
+      }
       const result = await this.route(req, res, url);
       if (result === undefined || res.headersSent) return undefined;
       return sendJson(res, 200, result);
@@ -220,6 +245,36 @@ class LanServer {
       return this.pair(await readJson(req), ip);
     }
 
+    // Обложка трека (ключ — отпечаток трека, выдаётся вместе с данными о музыке)
+    if (p === '/api/music/cover') {
+      const c = ctx.media.cover(q('k'));
+      if (!c) throw new HttpError(404, 'Нет обложки');
+      res.writeHead(200, { 'Content-Type': c.type, 'Content-Length': c.buf.length, 'Cache-Control': 'private, max-age=3600' });
+      res.end(c.buf);
+      return undefined;
+    }
+    // Виджет на главном экране телефона: доступ по отдельному ключу виджета (его можно отозвать)
+    if (p.startsWith('/api/widget') && p !== '/api/widget/key') {
+      const wdev = this.widgetDevice(q('k'));
+      if (p === '/api/widget') return ctx.widgetData();
+      if (p === '/api/widget/text') {
+        const w = await ctx.widgetData();
+        const text = [`🖥 ${w.pcName}`, `ЦП ${w.cpu ?? '—'}%${w.cpuTemp != null ? ` · ${w.cpuTemp}°` : ''}`, `ОЗУ ${w.ram ?? '—'}%`, w.gpuTemp != null ? `Видео ${w.gpuTemp}°` : null,
+          w.media ? `${w.media.playing ? '▶' : '⏸'} ${w.media.artist ? w.media.artist + ' — ' : ''}${w.media.title}` : null].filter(Boolean).join('\n');
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(text);
+        return undefined;
+      }
+      if (p === '/api/widget/action' && m === 'POST') {
+        const b = await readJson(req);
+        const allowed = { shutdown: 'shutdown', sleep: 'sleep', lock: 'lock', reboot: 'reboot', play_pause: 'play_pause', next: 'next_track', prev: 'prev_track', mute: 'mute' };
+        const action = allowed[String(b.action || q('action'))];
+        if (!action) throw new HttpError(400, 'Неизвестное действие');
+        return ctx.actions.run(action, '', 'mobile', `${wdev.name} (виджет)`);
+      }
+      throw new HttpError(404, 'Не найдено');
+    }
+
     // Потоковое воспроизведение (аудио/видео на телефоне): плеер не умеет передавать токен в заголовке,
     // поэтому доступ — по временной ссылке, выданной привязанному телефону.
     let mm0 = p.match(/^\/api\/media\/([\w-]+)\//);
@@ -247,6 +302,37 @@ class LanServer {
         autologon: !!ctx.db.getSetting('autologonEnabled'),
       };
     }
+    // --- музыка и микшер громкости ---
+    if (p === '/api/music') return ctx.media.state();
+    if (p === '/api/music/control' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.control(b.app, String(b.action), b.value); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/mixer') return ctx.media.mixer();
+    if (p === '/api/mixer/set' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.setApp(b.name, { level: b.level, mute: b.mute }); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/mixer/master' && m === 'POST') { const b = await readJson(req); return ctx.media.setMaster({ level: b.level, mute: b.mute }); }
+    // --- игры, температуры, сбои, USB, тревожная кнопка ---
+    if (p === '/api/games') return ctx.games(Number(q('days', '7')) || 7);
+    if (p === '/api/temps') return ctx.tempHistory(Math.min(24 * 14, Number(q('hours', '24')) || 24));
+    if (p === '/api/crashes') return ctx.crashes.list();
+    if (p === '/api/usb') return ctx.db.usbEvents(50);
+    if (p === '/api/panic' && m === 'GET') return ctx.panic.state();
+    if (p === '/api/panic' && m === 'POST') {
+      const b = await readJson(req);
+      try { return b.on === false ? await ctx.panic.release(device.name) : await ctx.panic.trigger(device.name); } catch (e) { throw new HttpError(400, e.message); }
+    }
+    // --- место на диске ---
+    if (p === '/api/space/roots') return (await info.disks()).map((d) => ({ mount: d.mount, total: d.total, free: d.free, percent: d.percent }));
+    if (p === '/api/space' && m === 'GET') return ctx.space.view({ dir: q('dir') || null, topLimit: 60, dupLimit: 60 });
+    if (p === '/api/space/start' && m === 'POST') { const b = await readJson(req); try { return ctx.space.start(b.root, { dups: b.dups !== false }); } catch (e) { throw new HttpError(400, e.message); } }
+    if (p === '/api/space/cancel' && m === 'POST') return ctx.space.cancel();
+    if (p === '/api/space/delete' && m === 'POST') { const b = await readJson(req); try { return await ctx.space.remove(b.paths, !!b.permanent, 'mobile', device.name); } catch (e) { throw new HttpError(400, e.message); } }
+    // --- голосовой ассистент ---
+    if (p === '/api/assistant' && m === 'POST') { const b = await readJson(req); return ctx.assistant.handle(b.text, { source: 'mobile', user: device.name, confirm: !!b.confirm }); }
+    if (p === '/api/assistant/audio' && m === 'POST') {
+      const buf = await readRaw(req, 8 * 1024 * 1024);
+      if (buf.length < 1000) throw new HttpError(400, 'Запись слишком короткая');
+      try { return await ctx.assistant.handleAudio(buf, { source: 'mobile', user: device.name, confirm: q('confirm') === '1' }); } catch (e) { throw new HttpError(400, e.message); }
+    }
+    // --- виджет: ключ для этого телефона ---
+    if (p === '/api/widget/key' && m === 'POST') return this.widgetKey(device);
     if (p === '/api/update/state') return ctx.appUpdater.state;
     if (p === '/api/update/check') {
       let u = ctx.updateInfo;
@@ -573,6 +659,19 @@ function sendBinary(res, buf, type) {
   res.writeHead(200, { 'Content-Type': type, 'Content-Length': buf.length });
   res.end(buf);
   return undefined;
+}
+
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) { req.destroy(); reject(new HttpError(413, 'Слишком большая запись')); } else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
 }
 
 function readJson(req) {

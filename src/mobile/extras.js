@@ -88,6 +88,7 @@ const MExtras = (() => {
           el('span', { class: 'pill ' + tone, text: label })),
         el('div', { class: 'm-dh-hero' }, ring, tiles),
         d.life != null ? meter(`Ресурс SSD · износ ${100 - d.life}%`, d.life, 100, `осталось ${d.life}%`, d.life <= 30) : null,
+        d.forecast ? el('div', { class: 'm-forecast' }, ic('clock', 16), el('span', { text: d.forecast.text })) : null,
         d.parts.length ? el('div', { class: 'm-dh-parts' }, d.parts.map((p) => meter(`${p.letter} ${p.label || ''}`, p.size - (p.free || 0), p.size || 1,
           p.free != null ? `${fmtBytes(p.free)} свободно из ${fmtBytes(p.size)}` : fmtBytes(p.size), p.free != null && p.free / p.size < 0.1))) : null,
         kv.length ? el('div', { class: 'm-kv' }, kv.map(([k, v]) => el('div', { class: 'about-row' }, el('span', { text: k }), el('b', { class: Number(v) > 0 && /сектора|носителя/.test(k) ? 'warn-text' : '', text: String(v) })))) : null,

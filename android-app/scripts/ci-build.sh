@@ -27,8 +27,11 @@ grep -q 'android.permission.CAMERA' "$MAN" || sed -i 's|</manifest>|    <uses-pe
 # Нативный модуль включения ПК по сети (Wake-on-LAN): веб-страница не умеет отправлять UDP-пакеты
 JAVA_DIR=android/app/src/main/java/com/pcfullcontrol/mobile
 mkdir -p "$JAVA_DIR"
-cp native/WakeOnLanPlugin.java "$JAVA_DIR/"
-cp native/MainActivity.java "$JAVA_DIR/"
+cp native/*.java "$JAVA_DIR/"
+
+# Виджет «Мой ПК» на главном экране и микрофон для голосового ассистента
+cp -r native/res/* "$RES/"
+node scripts/patch-manifest.js "$MAN"
 
 # Значки приложения
 cp -r icons/* "$RES/"

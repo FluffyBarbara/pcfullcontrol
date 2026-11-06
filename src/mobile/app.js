@@ -394,6 +394,7 @@ async function loadStatus() {
   if (s.users && s.users.length) chips.push(chip('user', 'Пользователь', s.users.join(', '), 'user'));
   $('#chips').replaceChildren(...chips);
   if (s.volume && !volDragging) setVolumeUi(s.volume.level, s.volume.muted);
+  if (typeof M2 !== 'undefined') M2.homeNow();
   $('#notif-toggle').checked = !s.muted;
 }
 
@@ -802,7 +803,7 @@ function uploadFile(file, onProgress) {
 // ===================== ещё =====================
 let morePane = null; // null — меню-плитки раздела «Ещё»
 let logMode = 'events';
-const MORE_TITLES = { hardware: 'Железо', network: 'Сеть', optimize: 'Очистка', apps: 'Программы', startup: 'Автозагрузка', tasks: 'Задачи', log: 'Журнал', settings: 'Настройки' };
+const MORE_TITLES = { music: 'Музыка и звук', assistant: 'Ассистент', games: 'Игры', space: 'Место на диске', security: 'Безопасность', widget: 'Виджет', hardware: 'Железо', network: 'Сеть', optimize: 'Очистка', apps: 'Программы', startup: 'Автозагрузка', tasks: 'Задачи', log: 'Журнал', settings: 'Настройки' };
 document.querySelectorAll('#more-grid button').forEach((b) => b.addEventListener('click', () => { morePane = b.dataset.more; haptic(6); loadMore(); }));
 document.querySelector('#pane-back').addEventListener('click', () => { morePane = null; loadMore(); });
 document.querySelectorAll('#log-seg button').forEach((b) => b.addEventListener('click', () => {
@@ -822,9 +823,10 @@ function loadMore() {
   else if (morePane === 'log') loadLog();
   else if (morePane === 'optimize') MOptimize.showClean();
   else if (morePane === 'apps') MOptimize.showApps();
-  else if (morePane === 'hardware') MExtras.hardware();
+  else if (morePane === 'hardware') { MExtras.hardware(); M2.hardware(); }
   else if (morePane === 'network') MExtras.network();
   else if (morePane === 'startup') MExtras.startup();
+  else if (['music', 'assistant', 'games', 'space', 'security', 'widget'].includes(morePane)) M2.pane(morePane);
   else loadStatus();
 }
 

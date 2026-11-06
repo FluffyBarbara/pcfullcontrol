@@ -41,6 +41,7 @@ function collect(ctx, days = 7, nowTs = Date.now() / 1000) {
   const gpu = db.gpuMetricsSince(since);
   const gpuTemps = gpu.map((g) => g.temp).filter((t) => t != null);
   const apps = db.appUsageSince(localDay(new Date(since * 1000))).slice(0, 7);
+  const games = (db.gameUsageSince ? db.gameUsageSince(localDay(new Date(since * 1000))) : []).slice(0, 5);
   const outages = db.outagesSince(since);
   const speed = db.speedtestsSince(since);
   const events = db.eventsSince(since);
@@ -52,7 +53,7 @@ function collect(ctx, days = 7, nowTs = Date.now() / 1000) {
     tempMax: temps.length ? Math.round(Math.max(...temps)) : null,
     gpuTempMax: gpuTemps.length ? Math.round(Math.max(...gpuTemps)) : null,
     gpuUtilAvg: gpu.length ? Math.round(gpu.reduce((s, g) => s + (g.util || 0), 0) / gpu.length) : null,
-    apps, freed: db.freedSince(since),
+    apps, games, freed: db.freedSince(since),
     outages: { count: outages.length, total: outages.reduce((s, o) => s + Math.max(0, (o.end || nowTs) - o.start), 0), longest: outages.reduce((mx, o) => Math.max(mx, (o.end || nowTs) - o.start), 0) },
     speed: speed.length ? { last: speed[0], avgDown: +(speed.reduce((s, x) => s + x.down, 0) / speed.length).toFixed(1), count: speed.length } : null,
     devicesNew,
@@ -89,6 +90,11 @@ function format(ctx, d) {
     L.push('🏆 <b>Больше всего времени</b>');
     const top = d.apps[0].seconds;
     d.apps.forEach((a, i) => L.push(`${i + 1}. ${E(niceName(a.name))} — ${fmtH(a.seconds)} <code>${bar(a.seconds, top, 6)}</code>`));
+    L.push('');
+  }
+  if (d.games && d.games.length) {
+    L.push(`🕹 <b>Игры: ${fmtH(d.games.reduce((x, g) => x + g.seconds, 0))}</b>`);
+    for (const g of d.games) L.push(`• ${E(g.title || g.exe)} — ${fmtH(g.seconds)}${g.fps_n ? ` · ${Math.round(g.fps_sum / g.fps_n)} FPS` : ''}`);
     L.push('');
   }
   L.push('🌐 <b>Интернет</b>');

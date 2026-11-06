@@ -249,12 +249,30 @@ $('#addr-ok').addEventListener('click', async () => {
   if (!ok) $('#addr-error').textContent = 'Не удалось подключиться к этому адресу';
 });
 
+// ---------------- виджет на главном экране ----------------
+// Приложение на ПК присылает сюда адрес и ключ виджета: #widget=<JSON>
+async function setupWidget(raw) {
+  let w;
+  try { w = JSON.parse(decodeURIComponent(raw)); } catch (e) { toast('Неверные данные виджета'); return; }
+  const C = window.Capacitor;
+  const plugin = C && C.Plugins && C.Plugins.PcControl;
+  if (!plugin) { toast('Обновите приложение PC Control — в этой версии нет виджета'); return; }
+  try {
+    const r = await plugin.saveWidget({ url: w.url, key: w.key, name: w.name || 'Мой ПК', pin: true });
+    toast(r && r.pinRequested ? 'Подтвердите добавление виджета на экран' : 'Виджет настроен: удерживайте пустое место на главном экране → «Виджеты» → PC Control');
+  } catch (e) { toast(e.message || 'Не удалось настроить виджет'); }
+  history.replaceState(null, '', location.pathname);
+  setTimeout(() => { location.href = `${w.url}/?shell=android#more`; }, 2500);
+}
+
 // ---------------- старт ----------------
 Icons.hydrate();
 render();
+if (location.hash.startsWith('#widget=')) setupWidget(location.hash.slice(8));
 // Автоматически открываем последний компьютер, если не пришли сюда кнопкой «Другой компьютер»
 (async () => {
   const fromSwitch = /list=1/.test(location.search) || document.referrer;
   const last = localStorage.getItem('pcfc_last');
+  if (location.hash.startsWith('#widget=')) return;
   if (!fromSwitch && last && loadPcs().some((p) => p.url === last) && await hello(last, 2500)) openPc(last);
 })();

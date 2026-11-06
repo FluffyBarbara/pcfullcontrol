@@ -10,8 +10,10 @@ const INVOKE = new Set([
   'clean-analyze', 'clean-run', 'apps-list', 'apps-uninstall', 'apps-job', 'apps-leftovers', 'apps-remove-leftovers', 'cleanup-report',
   'hw-info', 'net-status', 'net-speedtest', 'net-scan', 'net-label', 'startup-list', 'startup-set',
   'weekly-preview', 'weekly-send', 'extras-state',
+  'media-state', 'media-control', 'media-cover', 'mixer', 'mixer-set', 'mixer-master', 'games', 'temps', 'crashes', 'usb-events',
+  'panic-state', 'panic-trigger', 'panic-release', 'space-roots', 'space-start', 'space-cancel', 'space-view', 'space-delete', 'set-theme',
 ]);
-const EVENTS = new Set(['refresh', 'metrics', 'update-state', 'update-available', 'net-progress']);
+const EVENTS = new Set(['refresh', 'metrics', 'update-state', 'update-available', 'net-progress', 'space', 'usb']);
 
 contextBridge.exposeInMainWorld('pcc', {
   async invoke(channel, data) {

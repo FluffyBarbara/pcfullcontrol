@@ -148,6 +148,7 @@ const Extras = (() => {
           el('span', { class: 'pill ' + tone }, ic(icon, 14), label)),
         el('div', { class: 'dh-hero' }, healthRing(d, tone), el('div', { class: 'dh-tiles' }, tiles)),
         lifeBar,
+        d.forecast ? el('div', { class: 'dh-forecast', 'data-tip': d.forecast.basis ? `Расчёт ${d.forecast.basis}` : '' }, ic('clock', 15), el('span', {}, el('b', { text: d.forecast.text }), d.forecast.perDay ? el('small', { text: ` · ≈ ${fmtTB(d.forecast.perDay)} записи в день` }) : null)) : null,
         parts,
         kv.length ? el('div', { class: 'dh-kv' }, kv.map(([k, v, t]) => el('div', { class: 'kv' }, el('span', { text: k }), el('b', { class: 'plain ' + (t || ''), text: String(v), title: String(v) })))) : null,
         d.reasons.length ? el('div', { class: 'disk-reasons' }, d.reasons.map((r) => el('div', {}, ic('alert', 14), el('span', { text: r })))) : null,

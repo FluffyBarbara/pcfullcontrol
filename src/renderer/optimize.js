@@ -221,8 +221,10 @@ const Optimize = (() => {
     $('#opt-clean').classList.toggle('hidden', t !== 'clean');
     $('#opt-apps').classList.toggle('hidden', t !== 'apps');
     $('#opt-startup').classList.toggle('hidden', t !== 'startup');
+    $('#opt-space').classList.toggle('hidden', t !== 'space');
     if (t === 'apps') loadApps();
     if (t === 'startup') Extras.loadStartup();
+    if (t === 'space') More.spaceShow();
   }
 
   $$('#opt-tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));

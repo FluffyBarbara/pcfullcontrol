@@ -71,6 +71,7 @@
         <span class="rcard-text"><b>Управление экраном</b><small>Мышь, клавиатура и экран ПК на телефоне</small></span>
         <i data-ic="chevronRight" data-size="20"></i>
       </button>
+      <div id="m-now"></div>
       <div class="chips" id="chips"></div>
 
       <div class="card">
@@ -173,11 +174,17 @@
     <section class="view hidden" data-view="more">
       <h2 class="view-title">Ещё</h2>
       <div class="more-grid" id="more-grid">
+        <button data-more="music"><span class="mg-ic"><i data-ic="music" data-size="22"></i></span><b>Музыка и звук</b><small>Что играет, громкость программ</small></button>
+        <button data-more="assistant"><span class="mg-ic"><i data-ic="mic" data-size="22"></i></span><b>Ассистент</b><small>Команды голосом и текстом</small></button>
         <button data-more="hardware"><span class="mg-ic"><i data-ic="gpu" data-size="22"></i></span><b>Железо</b><small>Видеокарта, FPS, диски</small></button>
         <button data-more="network"><span class="mg-ic"><i data-ic="wifi" data-size="22"></i></span><b>Сеть</b><small>Интернет, скорость, устройства</small></button>
         <button data-more="optimize"><span class="mg-ic"><i data-ic="broom" data-size="22"></i></span><b>Очистка</b><small>Временные файлы, корзина</small></button>
         <button data-more="apps"><span class="mg-ic"><i data-ic="package" data-size="22"></i></span><b>Программы</b><small>Удаление программ</small></button>
         <button data-more="startup"><span class="mg-ic"><i data-ic="rocket" data-size="22"></i></span><b>Автозагрузка</b><small>Что запускается с Windows</small></button>
+        <button data-more="games"><span class="mg-ic"><i data-ic="gamepad" data-size="22"></i></span><b>Игры</b><small>Время и FPS за неделю</small></button>
+        <button data-more="space"><span class="mg-ic"><i data-ic="treemap" data-size="22"></i></span><b>Место на диске</b><small>Большие файлы, дубликаты</small></button>
+        <button data-more="security"><span class="mg-ic"><i data-ic="siren" data-size="22"></i></span><b>Безопасность</b><small>Тревожная кнопка, USB</small></button>
+        <button data-more="widget"><span class="mg-ic"><i data-ic="grid" data-size="22"></i></span><b>Виджет</b><small>ПК на главном экране</small></button>
         <button data-more="tasks"><span class="mg-ic"><i data-ic="calendar" data-size="22"></i></span><b>Задачи</b><small>Действия по расписанию</small></button>
         <button data-more="log"><span class="mg-ic"><i data-ic="list" data-size="22"></i></span><b>Журнал</b><small>События и команды</small></button>
         <button data-more="settings"><span class="mg-ic"><i data-ic="sliders" data-size="22"></i></span><b>Настройки</b><small>Обновления, о программе</small></button>
@@ -186,8 +193,58 @@
 
       <div class="more-pane hidden" data-pane="hardware">
         <div id="m-gpu"></div>
+        <div class="card" id="m-temps-card">
+          <div class="card-title"><i data-ic="temp" data-size="18"></i>Температуры <span class="seg small card-aside" id="m-temps-range"><button data-h="24" class="active">Сутки</button><button data-h="168">Неделя</button></span></div>
+          <div class="m-legend" id="m-temps-legend"></div>
+          <canvas id="m-temps-chart" class="m-temps-chart"></canvas>
+          <div class="m-kv" id="m-temps-stats"></div>
+        </div>
         <div class="section-title">Диски</div>
         <div id="m-disks"></div>
+        <div class="section-title">Синие экраны и сбои</div>
+        <div id="m-crashes"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="music">
+        <div id="m-player"></div>
+        <div id="m-players"></div>
+        <div class="section-title">Громкость программ</div>
+        <div class="card" id="m-mixer"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="games">
+        <div id="m-games"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="security">
+        <div class="card m-panic" id="m-panic"></div>
+        <div class="section-title">Подключения USB</div>
+        <div class="card" id="m-usb"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="space">
+        <div class="card">
+          <div class="card-title"><i data-ic="treemap" data-size="18"></i>Что занимает место</div>
+          <div class="chips-row" id="m-space-roots"></div>
+          <p class="muted small" id="m-space-sub">Проверка только читает диск — удаляется лишь то, что вы отметите сами (по умолчанию в корзину).</p>
+          <button class="btn primary big" id="m-space-scan"><i data-ic="search" data-size="18"></i>Проверить</button>
+          <div id="m-space-prog"></div>
+        </div>
+        <div id="m-space-res"></div>
+        <div class="m-delbar hidden" id="m-space-bar"><span id="m-space-sel"></span><button class="btn danger" id="m-space-del"><i data-ic="trash" data-size="18"></i>Удалить</button></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="assistant">
+        <div class="card m-asst">
+          <button class="m-asst-mic" id="m-asst-mic" aria-label="Говорить"><span class="m-asst-wave"></span><i data-ic="mic" data-size="38"></i></button>
+          <p class="m-asst-hint" id="m-asst-hint"></p>
+          <div class="m-asst-input"><input class="input" id="m-asst-text" placeholder="Скажите или напишите команду" enterkeyhint="send"><button class="round-btn accent" id="m-asst-send" aria-label="Отправить"><i data-ic="send"></i></button></div>
+        </div>
+        <div class="m-chat" id="m-chat"></div>
+      </div>
+
+      <div class="more-pane hidden" data-pane="widget">
+        <div id="m-widget"></div>
       </div>
 
       <div class="more-pane hidden" data-pane="network">
@@ -347,5 +404,6 @@
 <script src="optimize.js"></script>
 <script src="extras.js"></script>
 <script src="remote.js"></script>
+<script src="more2.js"></script>
 </body>
 </html>

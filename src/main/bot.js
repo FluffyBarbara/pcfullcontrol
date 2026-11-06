@@ -33,6 +33,8 @@ const BOT_COMMANDS = [
   ['log', 'Журнал'], ['notify', 'Вкл/выкл уведомления'], ['actions', 'Список действий'],
   ['gpu', 'Видеокарта и FPS'], ['disks', 'Здоровье дисков'], ['net', 'Интернет'], ['speedtest', 'Замер скорости'],
   ['devices', 'Устройства в сети'], ['week', 'Отчёт за неделю'], ['voice', 'Голосовые команды'],
+  ['music', 'Что играет + управление'], ['mixer', 'Громкость программ'], ['games', 'Игры за неделю'], ['temps', 'Температуры за сутки'],
+  ['crashes', 'Синие экраны и сбои'], ['usb', 'Подключённые USB'], ['panic', 'Тревожная кнопка'], ['panic_off', 'Снять тревогу'],
   ['help', 'Справка'],
 ];
 
@@ -55,7 +57,9 @@ const HELP = `<b>PC Full Control — управление компьютером
   (дни: будни, выходные, пн-пт, сб,вс; можно не указывать)
 • /actions — названия действий для задач
 
-<b>Железо и сеть:</b> /gpu, /disks, /net, /speedtest, /devices
+<b>Музыка:</b> /music — что играет (с обложкой) и управление, /mixer — громкость программ
+<b>Железо и сеть:</b> /gpu, /disks, /temps, /games, /crashes, /net, /speedtest, /devices
+<b>Безопасность:</b> /panic — тревожная кнопка, /panic_off — снять тревогу, /usb — подключённые устройства
 <b>Отчёт за неделю:</b> /week (приходит сам по воскресеньям в 20:00)
 <b>🎙 Голосом:</b> отправьте голосовое сообщение — например, «выключи компьютер через полчаса». Подробнее: /voice
 
@@ -115,6 +119,8 @@ class TelegramBot {
       '/vol': (c, a, m) => (a ? this.runAction(c, 'set_volume', a, { user: m.from }) : this.cmdMedia(c)),
       '/gpu': this.cmdGpu, '/disks': this.cmdDisks, '/net': this.cmdNet, '/speedtest': this.cmdSpeed,
       '/devices': this.cmdDevices, '/week': this.cmdWeek, '/voice': this.cmdVoiceHelp,
+      '/music': this.cmdMusic, '🎵 Музыка': this.cmdMusic, '/mixer': this.cmdMixer, '/games': this.cmdGames, '/temps': this.cmdTemps,
+      '/crashes': this.cmdCrashes, '/usb': this.cmdUsb, '/panic': this.cmdPanic, '/panic_off': this.cmdPanicOff,
     };
     const simple = {
       '/shutdown': 'shutdown', '/reboot': 'reboot', '/sleep': 'sleep', '/hibernate': 'hibernate', '/lock': 'lock',
@@ -420,7 +426,10 @@ class TelegramBot {
     if (this.ctx.config.security.allowShell) rows.push([['💻 Выполнить команду', 'in|shell']]);
     rows.push([['🎮 Видеокарта', 'gpu'], ['💽 Здоровье дисков', 'disks']]);
     rows.push([['🌐 Интернет', 'net'], ['📡 Устройства в сети', 'dev']]);
-    rows.push([['📅 Отчёт за неделю', 'week']]);
+    rows.push([['🎵 Музыка', 'mu|show'], ['🎚 Микшер', 'mx']]);
+    rows.push([['🕹 Игры', 'games'], ['🌡 Температуры', 'temps']]);
+    rows.push([['💥 Сбои системы', 'crash'], ['🔌 USB', 'usb']]);
+    rows.push([['🚨 Тревожная кнопка', 'pn'], ['📅 Отчёт за неделю', 'week']]);
     rows.push([['🗑 Очистить корзину', 'a|empty_recycle_bin'], ['♻️ Перезапуск приложения', 'a|restart_app']]);
     rows.push([[this.ctx.notifier.muted ? '🔔 Включить уведомления' : '🔕 Выключить уведомления', 'nt']]);
     return this.editOrSend(chatId, messageId, '🛠 <b>Дополнительно</b>', inlineKb(rows));
@@ -511,6 +520,163 @@ class TelegramBot {
     return this.editOrSend(chatId, msg && msg.message_id, L.join('\n'), inlineKb([[['🔄 Обновить', 'dev']]]));
   }
 
+  // ================= Музыка и звук =================
+  musicCaption(s) {
+    const t = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+    const L = [`🎵 <b>${E(s.title || 'Без названия')}</b>`];
+    if (s.artist) L.push(`👤 ${E(s.artist)}`);
+    if (s.album) L.push(`💿 ${E(s.album)}${s.track ? ` · трек ${s.track}${s.tracks ? ` из ${s.tracks}` : ''}` : ''}`);
+    if (s.genres && s.genres.length) L.push(`🏷 ${E(s.genres.join(', '))}`);
+    L.push(`${s.playing ? '▶️' : '⏸'} ${E(s.statusText)}${s.duration ? ` · ${t(s.position)} / ${t(s.duration)}` : ''}`);
+    L.push(`🖥 ${E(s.appName)}${s.window ? `\n🪟 Окно: «${E(s.window.slice(0, 120))}»` : ''}`);
+    return L.join('\n');
+  }
+
+  musicKb(s, others = 0) {
+    const row = [];
+    if (s.can.prev) row.push(['⏮', 'mu|prev']);
+    row.push([s.playing ? '⏸ Пауза' : '▶️ Играть', 'mu|toggle']);
+    if (s.can.next) row.push(['⏭', 'mu|next']);
+    const rows = [row, [['🔄 Обновить', 'mu|show'], ['🎚 Микшер', 'mx']]];
+    if (others) rows.push([[`📻 Другие плееры (${others})`, 'mu|all']]);
+    return inlineKb(rows);
+  }
+
+  async cmdMusic(chatId) {
+    this.api.chatAction(chatId, 'upload_photo');
+    let st;
+    try { st = await this.ctx.media.state(); } catch (e) { return this.send(chatId, '🎵 Не удалось узнать, что играет: ' + E(e.message)); }
+    if (!st.available) return this.send(chatId, '🎵 Сведения о музыке доступны в Windows 10 и 11.');
+    const s = st.sessions[0];
+    if (!s) return this.send(chatId, '🎵 Сейчас ничего не играет.\nЗапустите музыку или видео в любом плеере или браузере — здесь появятся название, исполнитель и обложка.', inlineKb([[['🔄 Обновить', 'mu|show'], ['🎚 Микшер', 'mx']]]));
+    const cover = s.cover ? this.ctx.media.cover(s.cover) : null;
+    const caption = this.musicCaption(s);
+    const kb = this.musicKb(s, st.sessions.length - 1);
+    if (cover) return this.api.sendPhoto(chatId, cover.buf, { caption, kb });
+    return this.send(chatId, caption, kb);
+  }
+
+  async onMusicButton(chatId, mid, action, cq) {
+    if (action === 'show') return this.cmdMusic(chatId);
+    if (action === 'all') {
+      const st = await this.ctx.media.state();
+      const L = ['📻 <b>Все плееры</b>', ''];
+      for (const s of st.sessions) L.push(`${s.playing ? '▶️' : '⏸'} <b>${E(s.appName)}</b>: ${E(s.artist ? s.artist + ' — ' : '')}${E(s.title || '—')}`);
+      return this.send(chatId, L.join('\n'));
+    }
+    try { await this.ctx.media.control('', action); } catch (e) { return this.send(chatId, '❌ ' + E(e.message)); }
+    await new Promise((r) => setTimeout(r, 900));
+    const st = await this.ctx.media.state().catch(() => null);
+    const s = st && st.sessions[0];
+    if (!s) return null;
+    if (action === 'toggle') {
+      try { await this.api.call('editMessageCaption', { chat_id: chatId, message_id: mid, caption: this.musicCaption(s), parse_mode: 'HTML', reply_markup: this.musicKb(s, st.sessions.length - 1) }); return null; } catch (e) { /* сообщение без фото */ }
+      return this.editOrSend(chatId, mid, this.musicCaption(s), this.musicKb(s, st.sessions.length - 1));
+    }
+    // Трек сменился — новая обложка: убираем старое сообщение и присылаем новое
+    this.api.call('deleteMessage', { chat_id: chatId, message_id: mid }).catch(() => {});
+    return this.cmdMusic(chatId);
+  }
+
+  async mixerView() {
+    const mx = await this.ctx.media.mixer();
+    if (!mx.available || mx.noDevice) return { text: mx.noDevice ? '🎚 Нет устройства вывода звука.' : '🎚 Микшер доступен в Windows.', kb: null };
+    const L = [`🎚 <b>Громкость программ</b>`, `🔊 Общая: <b>${mx.masterMuted ? 'без звука' : mx.master + '%'}</b>`, ''];
+    const rows = [[['🔉 −10', 'mx|*|-'], [mx.masterMuted ? '🔊 Вкл' : '🔇 Выкл', 'mx|*|m'], ['🔊 +10', 'mx|*|+']]];
+    for (const a of mx.apps.slice(0, 8)) {
+      L.push(`${a.peak > 1 ? '🎶' : '▫️'} ${E(a.title)}: <b>${a.muted ? 'без звука' : a.volume + '%'}</b>`);
+      const n = a.name.slice(0, 40);
+      rows.push([[`${a.title.slice(0, 14)} −`, `mx|${n}|-`], [a.muted ? '🔊' : '🔇', `mx|${n}|m`], [`+`, `mx|${n}|+`]]);
+    }
+    if (!mx.apps.length) L.push('Сейчас ни одна программа не выводит звук.');
+    rows.push([['🔄 Обновить', 'mx']]);
+    return { text: L.join('\n'), kb: inlineKb(rows) };
+  }
+
+  async cmdMixer(chatId) {
+    const v = await this.mixerView();
+    return this.send(chatId, v.text, v.kb);
+  }
+
+  async onMixerButton(chatId, mid, rest) {
+    if (rest) {
+      const i = rest.lastIndexOf('|');
+      const name = rest.slice(0, i);
+      const op = rest.slice(i + 1);
+      try {
+        const mx = await this.ctx.media.mixer();
+        if (name === '*') {
+          if (op === 'm') await this.ctx.media.setMaster({ mute: !mx.masterMuted });
+          else await this.ctx.media.setMaster({ level: Math.max(0, Math.min(100, mx.master + (op === '+' ? 10 : -10))), mute: false });
+        } else {
+          const a = mx.apps.find((x) => x.name === name);
+          if (!a) throw new Error('Программа больше не выводит звук');
+          if (op === 'm') await this.ctx.media.setApp(name, { mute: !a.muted });
+          else await this.ctx.media.setApp(name, { level: Math.max(0, Math.min(100, a.volume + (op === '+' ? 10 : -10))), mute: false });
+        }
+      } catch (e) { return this.send(chatId, '❌ ' + E(e.message)); }
+    }
+    const v = await this.mixerView();
+    return this.editOrSend(chatId, rest ? mid : null, v.text, v.kb);
+  }
+
+  // ================= Игры, температуры, сбои, USB, тревога =================
+  async cmdGames(chatId) {
+    const g = this.ctx.games(7);
+    const dur = (s) => { const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60); return h ? `${h} ч ${m} мин` : `${m} мин`; };
+    if (!g.games.length) return this.send(chatId, '🕹 За неделю игр не было (или программа их ещё не видела — время считается, пока игра на экране).');
+    const L = ['🕹 <b>Игры за 7 дней</b>', `Всего: <b>${dur(g.total)}</b>`, ''];
+    for (const x of g.games.slice(0, 10)) L.push(`• <b>${E(x.title)}</b> — ${dur(x.seconds)}${x.avgFps ? ` · в среднем ${x.avgFps} FPS` : ''}`);
+    if (g.now) L.push('', `▶️ Сейчас: ${E(g.now.title)}${g.now.fps ? ` (${g.now.fps} FPS)` : ''}`);
+    return this.send(chatId, L.join('\n'));
+  }
+
+  async cmdTemps(chatId) {
+    const t = this.ctx.tempHistory(24);
+    const fmt = (st, lim) => (st ? `в среднем ${st.avg}°, максимум <b>${st.max}°</b> в ${new Date(st.maxAt * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${st.max >= lim ? ' 🔥' : ''}` : 'нет данных');
+    const L = ['🌡 <b>Температуры за сутки</b>', '', `🧠 Процессор: ${fmt(t.stats.cpu, t.limits.cpu)}`, `🎮 Видеокарта: ${fmt(t.stats.gpu, t.limits.gpu)}`];
+    for (const [name, st] of Object.entries(t.stats.disks)) L.push(`💽 ${E(name)}: ${fmt(st, 60)}`);
+    L.push('', 'Графики — в приложении на ПК и телефоне (раздел «Железо»).');
+    return this.send(chatId, L.join('\n'));
+  }
+
+  async cmdCrashes(chatId) {
+    this.api.chatAction(chatId);
+    const list = await this.ctx.crashes.list(90);
+    if (!list.length) return this.send(chatId, '✅ За 90 дней синих экранов и внезапных выключений не было.');
+    const L = [`💥 <b>Сбои за 90 дней: ${list.length}</b>`, ''];
+    for (const c of list.slice(0, 6)) {
+      const when = new Date(c.ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      L.push(`${c.kind === 'bsod' ? '💥' : '⚡'} <b>${when}</b> — ${E(c.title)}${c.code ? ` <code>${E(c.code)}</code>` : ''}`);
+      if (c.name) L.push(`   ${E(c.name)}`);
+      L.push(`   ${E(c.text)}`);
+    }
+    const last = list[0];
+    L.push('', `💡 ${E(last.advice)}`);
+    return this.send(chatId, L.join('\n'));
+  }
+
+  async cmdUsb(chatId) {
+    const list = this.ctx.db.usbEvents(10);
+    if (!list.length) return this.send(chatId, '🔌 Новых USB-устройств пока не подключали.');
+    const L = ['🔌 <b>Последние подключения</b>', ''];
+    for (const e of list) L.push(`${e.kind === 'add' ? '➕' : '➖'} ${new Date(e.ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} — ${E(e.name)}${e.info ? ` · ${E(e.info)}` : ''}`);
+    return this.send(chatId, L.join('\n'));
+  }
+
+  async cmdPanic(chatId, arg, msg, messageId = null) {
+    const st = this.ctx.panic.state();
+    if (st.active) return this.editOrSend(chatId, messageId, `🚨 Тревога уже включена (${new Date(st.since * 1000).toLocaleTimeString('ru-RU')}).`, inlineKb([[['✅ Снять тревогу', 'pnoff']]]));
+    return this.editOrSend(chatId, messageId, '🚨 <b>Тревожная кнопка</b>\nКомпьютер сделает фото с веб-камеры (кто за ним сидит), выключит микрофон, отключит веб-камеры и заблокируется. Всё обратимо — кнопкой «Снять тревогу».',
+      inlineKb([[['🚨 Включить тревогу', 'pny']], [['Отмена', 'n']]]));
+  }
+
+  async cmdPanicOff(chatId, arg, msg) {
+    if (!this.ctx.panic.state().active) return this.send(chatId, 'Тревога не включена.');
+    await this.ctx.panic.release(TelegramBot.userName((msg && msg.from) || {}));
+    return null;
+  }
+
   async cmdWeek(chatId) {
     const { build } = require('./weekly');
     return this.send(chatId, build(this.ctx).text);
@@ -560,6 +726,9 @@ class TelegramBot {
       case 'weekly_report': return this.cmdWeek(chatId);
       case 'speedtest': return this.cmdSpeed(chatId);
       case 'gpu': return this.cmdGpu(chatId);
+      case 'now_playing': return this.cmdMusic(chatId);
+      case 'temps': return this.cmdTemps(chatId);
+      case 'panic': return this.cmdPanic(chatId, '', { from: user });
       default: return this.runAction(chatId, cmd.action, cmd.arg || '', { user });
     }
   }
@@ -851,6 +1020,15 @@ class TelegramBot {
       case 'sp': return this.cmdSpeed(chatId);
       case 'dev': return this.cmdDevices(chatId);
       case 'week': return this.cmdWeek(chatId);
+      case 'mu': return this.onMusicButton(chatId, mid, rest, cq);
+      case 'mx': return this.onMixerButton(chatId, mid, rest);
+      case 'games': return this.cmdGames(chatId);
+      case 'temps': return this.cmdTemps(chatId);
+      case 'crash': return this.cmdCrashes(chatId);
+      case 'usb': return this.cmdUsb(chatId);
+      case 'pn': return this.cmdPanic(chatId, '', { from: user }, mid);
+      case 'pny': { await this.editOrSend(chatId, mid, '🚨 Включаю тревогу…'); try { await this.ctx.panic.trigger(TelegramBot.userName(user)); } catch (e) { return this.send(chatId, '❌ ' + E(e.message)); } return null; }
+      case 'pnoff': return this.cmdPanicOff(chatId, '', { from: user });
       case 'ip': return this.cmdIp(chatId);
       case 'nt': await this.cmdNotify(chatId); return this.cmdMore(chatId, '', null, mid);
       case 'log': return this.cmdLog(chatId, '', null, mid, rest || 'events');
