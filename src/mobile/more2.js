@@ -94,26 +94,43 @@ const M2 = (() => {
     if (!mx.available || mx.noDevice) { $('#m-mixer').replaceChildren(el('p', { class: 'muted', text: mx.noDevice ? 'Нет устройства вывода звука.' : 'Микшер доступен в Windows.' })); return; }
     let t = null;
     const row = (name, title, icon, value, muted, peak, iconEl) => {
-      const r = el('input', { type: 'range', min: '0', max: '100', value: String(value), class: 'slider' + (muted ? ' muted' : '') });
+      const fill = el('div', { class: 'm-mix-fill' });
+      fill.style.width = value + '%';
+      const r = el('input', { type: 'range', min: '0', max: '100', value: String(value), class: 'm-mix-range' });
+      const track = el('div', { class: 'm-mix-track' + (muted ? ' muted' : ''), 'data-key': name === '*' ? '*' : name.toLowerCase(), 'data-vol': String(value) }, fill, el('div', { class: 'm-mix-level' }), r);
       const val = el('b', { class: 'm-mix-val', text: muted ? 'выкл' : value + '%' });
       r.addEventListener('touchstart', () => { mixBusy = true; }, { passive: true });
       r.addEventListener('change', () => { setTimeout(() => { mixBusy = false; }, 600); });
       r.addEventListener('input', () => {
         val.textContent = r.value + '%';
+        fill.style.width = r.value + '%';
+        track.dataset.vol = r.value;
         clearTimeout(t);
         t = setTimeout(() => (name === '*' ? api('/api/mixer/master', { json: { level: Number(r.value), mute: false } }) : api('/api/mixer/set', { json: { name, level: Number(r.value), mute: false } })).catch((e) => toast(e.message, 'err')), 120);
       });
-      const pk = el('i');
-      pk.style.width = Math.min(100, peak || 0) + '%';
       return el('div', { class: 'm-mix' + (name === '*' ? ' master' : '') },
         el('div', { class: 'm-mix-top' }, el('span', { class: 'm-mix-ic' }, iconEl || ic(icon, 18)), el('b', { class: 'm-mix-name', text: title }), val,
           el('button', { class: 'round-btn sm' + (muted ? ' danger' : ''), onclick: async () => { haptic(8); await (name === '*' ? api('/api/mixer/master', { json: { mute: !muted } }) : api('/api/mixer/set', { json: { name, mute: !muted } })).catch((e) => toast(e.message, 'err')); mixer(); } }, ic(muted ? 'mute' : 'volUp', 16))),
-        r, name === '*' ? null : el('div', { class: 'm-mix-peak' }, pk));
+        track);
     };
     $('#m-mixer').replaceChildren(row('*', 'Общая громкость', 'volUp', mx.master, mx.masterMuted, 0),
       ...mx.apps.map((a) => row(a.name, a.title, a.system ? 'bell' : 'music', a.volume, a.muted, a.peak, a.icon ? el('img', { src: a.icon, alt: '' }) : null)),
       mx.apps.length ? '' : el('p', { class: 'muted small', text: 'Сейчас ни одна программа не выводит звук.' }));
   }
+
+  let peakBusy = false;
+  async function peaks() {
+    if (peakBusy || document.hidden || morePane !== 'music') return;
+    peakBusy = true;
+    try {
+      const pk = await api('/api/mixer/peaks');
+      for (const tr of document.querySelectorAll('#m-mixer .m-mix-track')) {
+        const p = tr.classList.contains('muted') ? 0 : Math.min(1, (pk[tr.dataset.key] || 0) * 1.35);
+        tr.querySelector('.m-mix-level').style.width = (Number(tr.dataset.vol) || 0) * p + '%';
+      }
+    } catch (e) { /* ignore */ } finally { peakBusy = false; }
+  }
+  let peakTimer = null;
 
   // ---------------- игры ----------------
   async function games() {
@@ -408,18 +425,28 @@ const M2 = (() => {
   async function crashes() {
     let list;
     try { list = await api('/api/crashes'); } catch (e) { return; }
-    $('#m-crashes').replaceChildren(...(list.length ? list.slice(0, 5).map((c) => el('div', { class: 'card m-crash' },
-      el('div', { class: 'm-crash-top' }, el('b', { text: (c.kind === 'bsod' ? '💥 ' : '⚡ ') + c.title }), el('small', { class: 'muted', text: when(c.ts) })),
-      c.code ? el('div', { class: 'mono small', text: `${c.code} ${c.name}` }) : null,
-      el('p', { class: 'small', text: c.text }), el('p', { class: 'muted small', text: '💡 ' + c.advice })))
-      : [el('div', { class: 'card m-ok-line' }, ic('check', 18), el('span', { text: 'За 90 дней синих экранов и внезапных выключений не было.' }))]));
+    if (!list.length) {
+      $('#m-crashes').replaceChildren(el('div', { class: 'card m-cr-empty' }, el('div', { class: 'm-cr-empty-ic' }, ic('shield', 26)),
+        el('div', {}, el('b', { text: 'Компьютер работает стабильно' }), el('p', { class: 'muted small', text: 'За 90 дней не было синих экранов и внезапных выключений.' }))));
+      return;
+    }
+    $('#m-crashes').replaceChildren(...list.slice(0, 5).map((c) => {
+      const bs = c.kind === 'bsod';
+      return el('div', { class: 'card m-cr ' + (bs ? 'bsod' : 'power') },
+        el('div', { class: 'm-cr-top' }, el('div', { class: 'm-cr-ic' }, ic(bs ? 'crash' : 'zap', 18)),
+          el('div', { class: 'm-cr-title' }, el('b', { text: c.title }), el('small', { class: 'muted', text: when(c.ts) }))),
+        c.code ? el('div', { class: 'm-cr-codes' }, el('code', { text: c.code }), c.name ? el('span', { text: c.name }) : null) : null,
+        el('p', { class: 'm-cr-text', text: c.text }),
+        el('div', { class: 'm-cr-advice' }, el('b', { text: 'Что делать' }), el('p', { text: c.advice })));
+    }));
   }
 
   function hardware() { temps(); crashes(); }
 
   function pane(p) {
     stopPaneTimer();
-    if (p === 'music') { music(); paneTimer = setInterval(() => { if (morePane !== 'music' || tab !== 'more') { stopPaneTimer(); return; } if (!document.hidden) music(); }, 3000); }
+    clearInterval(peakTimer);
+    if (p === 'music') { music(); paneTimer = setInterval(() => { if (morePane !== 'music' || tab !== 'more') { stopPaneTimer(); clearInterval(peakTimer); return; } if (!document.hidden) music(); }, 3000); peakTimer = setInterval(peaks, 250); }
     else if (p === 'games') games();
     else if (p === 'security') security();
     else if (p === 'space') space();

@@ -104,16 +104,41 @@ const More = (() => {
   }
 
   // ---------------- синие экраны ----------------
+  function ago(ts) {
+    const d = Math.floor((Date.now() / 1000 - ts) / 86400);
+    if (d < 1) return 'сегодня';
+    if (d === 1) return 'вчера';
+    if (d < 7) return `${d} дн. назад`;
+    if (d < 31) { const w = Math.round(d / 7); return `${w} нед. назад`; }
+    return `${Math.round(d / 30)} мес. назад`;
+  }
+
+  let crashAll = false;
   async function crashes() {
     const box = $('#crashes-list');
+    const head = $('#crashes-badge');
     let list;
     try { list = await api('crashes'); } catch (e) { box.replaceChildren(el('p', { class: 'muted', text: e.message })); return; }
-    if (!list.length) { box.replaceChildren(el('div', { class: 'crash-ok' }, ic('check', 18), el('span', { text: 'За 90 дней синих экранов и внезапных выключений не было.' }))); return; }
-    box.replaceChildren(...list.slice(0, 6).map((c) => el('div', { class: 'crash' },
-      el('div', { class: 'crash-top' }, el('b', { text: (c.kind === 'bsod' ? '💥 ' : '⚡ ') + c.title }), el('span', { class: 'muted small', text: fmtDay(c.ts) }), c.code ? el('code', { text: c.code }) : null, c.name ? el('span', { class: 'muted small', text: c.name }) : null),
-      el('p', { text: c.text }),
-      el('p', { class: 'advice', text: '💡 ' + c.advice }),
-      c.minidump ? el('p', { class: 'advice', text: 'Файл для мастера: ' + c.minidump }) : null)));
+    const bsod = list.filter((c) => c.kind === 'bsod').length;
+    head.className = 'pill ' + (!list.length ? 'ok' : bsod ? 'err' : 'warn');
+    head.replaceChildren(ic(!list.length ? 'check' : 'alert', 13), !list.length ? 'Всё стабильно' : `${list.length} ${list.length === 1 ? 'сбой' : list.length < 5 ? 'сбоя' : 'сбоев'} за 90 дней`);
+    if (!list.length) {
+      box.replaceChildren(el('div', { class: 'cr-empty' }, el('div', { class: 'cr-empty-ic' }, ic('shield', 30)),
+        el('div', {}, el('b', { text: 'Компьютер работает стабильно' }), el('p', { class: 'muted small', text: 'За 90 дней не было ни синих экранов, ни внезапных выключений.' }))));
+      return;
+    }
+    const shown = crashAll ? list : list.slice(0, 3);
+    box.replaceChildren(...shown.map((c) => {
+      const bs = c.kind === 'bsod';
+      return el('div', { class: 'cr-item ' + (bs ? 'bsod' : 'power') },
+        el('div', { class: 'cr-ic' }, ic(bs ? 'crash' : 'zap', 20)),
+        el('div', { class: 'cr-body' },
+          el('div', { class: 'cr-top' }, el('b', { text: c.title }), el('span', { class: 'cr-when', 'data-tip': fmtDay(c.ts) }, ic('clock', 12), `${fmtDay(c.ts)} · ${ago(c.ts)}`)),
+          c.code ? el('div', { class: 'cr-codes' }, el('code', { text: c.code }), c.name ? el('span', { class: 'cr-name', text: c.name }) : null) : null,
+          el('p', { class: 'cr-text', text: c.text }),
+          el('div', { class: 'cr-advice' }, el('div', { class: 'cr-advice-h' }, ic('sparkles', 14), 'Что делать'), el('p', { text: c.advice })),
+          c.minidump ? el('div', { class: 'cr-dump', 'data-tip': 'Файл с подробностями сбоя — пригодится мастеру' }, ic('file', 13), c.minidump) : null));
+    }), ...(list.length > 3 ? [el('button', { class: 'btn ghost sm cr-more', onclick: () => { crashAll = !crashAll; crashes(); } }, ic(crashAll ? 'chevronLeft' : 'chevronDown', 14), crashAll ? 'Свернуть' : `Показать все (${list.length})`)] : []));
   }
 
   function hardware() { temps(); games(); crashes(); }

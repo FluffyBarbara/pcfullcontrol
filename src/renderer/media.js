@@ -109,13 +109,23 @@ const Music = (() => {
     }, 90);
   }
 
+  /** Ползунок громкости: закраска — громкость, яркая полоса поверх — уровень звука прямо сейчас. */
   function slider(value, name, muted) {
-    const r = el('input', { type: 'range', min: '0', max: '100', value: String(value), class: 'slider mix-slider' + (muted ? ' muted' : '') });
-    r.style.setProperty('--v', value + '%');
+    const fill = el('div', { class: 'mix-fill' });
+    const level = el('div', { class: 'mix-level' });
+    const r = el('input', { type: 'range', min: '0', max: '100', value: String(value), class: 'mix-range', 'aria-label': 'Громкость' });
+    const track = el('div', { class: 'mix-track' + (muted ? ' muted' : ''), 'data-key': name === '*' ? '*' : name.toLowerCase(), 'data-vol': String(value) }, fill, level, r);
+    fill.style.width = value + '%';
     r.addEventListener('pointerdown', () => { mixerBusy = name; });
     r.addEventListener('pointerup', () => { setTimeout(() => { mixerBusy = null; }, 800); });
-    r.addEventListener('input', () => { r.style.setProperty('--v', r.value + '%'); const lbl = r.parentElement.querySelector('.mix-val'); if (lbl) lbl.textContent = r.value + '%'; setLevel(name, Number(r.value)); });
-    return r;
+    r.addEventListener('input', () => {
+      fill.style.width = r.value + '%';
+      track.dataset.vol = r.value;
+      const lbl = track.parentElement.querySelector('.mix-val');
+      if (lbl) lbl.textContent = r.value + '%';
+      setLevel(name, Number(r.value));
+    });
+    return track;
   }
 
   function renderMixer(mx) {
@@ -128,39 +138,42 @@ const Music = (() => {
       el('button', { class: 'mp-btn' + (mx.masterMuted ? ' active-danger' : ''), 'data-tip': mx.masterMuted ? 'Включить звук' : 'Выключить звук', onclick: async () => { await api('mixer-master', { mute: !mx.masterMuted }).catch((e) => toast(e.message, 'err')); loadMixer(true); } }, ic(mx.masterMuted ? 'mute' : 'volUp', 18)));
     $('#mixer-master').replaceChildren(masterRow);
     if (!mx.apps.length) { $('#mixer-list').replaceChildren(el('p', { class: 'muted mt6', text: 'Сейчас ни одна программа не выводит звук.' })); return; }
-    $('#mixer-list').replaceChildren(...mx.apps.map((a) => {
-      const peak = el('i');
-      peak.style.width = Math.min(100, a.peak) + '%';
-      return el('div', { class: 'mix-row' + (a.peak > 1 ? ' live' : ''), 'data-name': a.name },
-        el('div', { class: 'mix-ic' }, a.icon ? el('img', { src: a.icon, alt: '' }) : ic(a.system ? 'bell' : 'music', 18)),
-        el('div', { class: 'mix-name' }, el('b', { text: a.title, title: a.title }), el('div', { class: 'mix-peak' }, peak)),
-        slider(a.volume, a.name, a.muted),
-        el('span', { class: 'mix-val', text: a.muted ? 'выкл' : a.volume + '%' }),
-        el('button', { class: 'mp-btn' + (a.muted ? ' active-danger' : ''), 'data-tip': a.muted ? 'Включить звук программы' : 'Выключить звук программы', onclick: async () => { await api('mixer-set', { name: a.name, mute: !a.muted }).catch((e) => toast(e.message, 'err')); loadMixer(true); } }, ic(a.muted ? 'mute' : 'volUp', 18)));
-    }));
+    $('#mixer-list').replaceChildren(...mx.apps.map((a) => el('div', { class: 'mix-row', 'data-name': a.name },
+      el('div', { class: 'mix-ic' }, a.icon ? el('img', { src: a.icon, alt: '' }) : ic(a.system ? 'bell' : 'music', 18)),
+      el('div', { class: 'mix-name' }, el('b', { text: a.title, title: a.title })),
+      slider(a.volume, a.name, a.muted),
+      el('span', { class: 'mix-val', text: a.muted ? 'выкл' : a.volume + '%' }),
+      el('button', { class: 'mp-btn' + (a.muted ? ' active-danger' : ''), 'data-tip': a.muted ? 'Включить звук программы' : 'Выключить звук программы', onclick: async () => { await api('mixer-set', { name: a.name, mute: !a.muted }).catch((e) => toast(e.message, 'err')); loadMixer(true); } }, ic(a.muted ? 'mute' : 'volUp', 18)))));
+  }
+
+  // Живой уровень звука: ~8 раз в секунду, только пока раздел открыт
+  let peakBusy = false;
+  async function peaks() {
+    if (peakBusy || document.hidden) return;
+    peakBusy = true;
+    try {
+      const pk = await api('mixer-peaks');
+      for (const t of document.querySelectorAll('#page-music .mix-track')) {
+        const vol = Number(t.dataset.vol) || 0;
+        const p = t.classList.contains('muted') ? 0 : Math.min(1, (pk[t.dataset.key] || 0) * 1.35);
+        const lv = t.querySelector('.mix-level');
+        lv.style.width = (vol * p) + '%';
+        t.closest('.mix-row').classList.toggle('live', p > 0.02);
+      }
+    } catch (e) { /* ignore */ } finally { peakBusy = false; }
   }
 
   async function loadMixer(force = false) {
     if (mixerBusy && !force) return;
     let mx;
     try { mx = await api('mixer'); } catch (e) { return; }
-    // Только уровни сигнала изменились — обновляем полоски, не пересоздавая ползунки
-    const sig = JSON.stringify([mx.master, mx.masterMuted, mx.apps.map((a) => [a.name, a.volume, a.muted, a.title])]);
-    if (!force && lastMixer === sig) {
-      for (const a of mx.apps) {
-        const row = document.querySelector(`.mix-row[data-name="${CSS.escape(a.name)}"]`);
-        if (!row) continue;
-        row.classList.toggle('live', a.peak > 1);
-        const pk = row.querySelector('.mix-peak i');
-        if (pk) pk.style.width = Math.min(100, a.peak) + '%';
-      }
-      return;
-    }
+    const sig = JSON.stringify([mx.master, mx.masterMuted, mx.noDevice, mx.apps.map((a) => [a.name, a.volume, a.muted, a.title])]);
+    if (!force && lastMixer === sig) return;
     lastMixer = sig;
     if (!mixerBusy) renderMixer(mx);
   }
 
   function show() { state = null; coverKey = null; renderNow(); refresh(); }
 
-  return { show, refresh, tick };
+  return { show, refresh, tick, peaks };
 })();

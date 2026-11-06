@@ -13,6 +13,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Globalization;
 
 namespace PccMixNs {
 [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -163,6 +165,33 @@ public static class PccMix {
     return count;
   }
 
+  static Dictionary<uint, string> names = new Dictionary<uint, string>();
+  /** Уровень звука прямо сейчас (0..1): «*» — общий, дальше — по программам. Для живых полосок микшера. */
+  public static string Peaks() {
+    StringBuilder sb = new StringBuilder();
+    try {
+      IAudioMeterInformation m = (IAudioMeterInformation)Act(Dev(0), typeof(IAudioMeterInformation).GUID);
+      float p; m.GetPeakValue(out p);
+      sb.Append("*=").Append(p.ToString("0.###", CultureInfo.InvariantCulture));
+    } catch { }
+    foreach (IAudioSessionControl2 s in Raw()) {
+      try {
+        int state; s.GetState(out state);
+        if (state == 2) continue;
+        string n;
+        if (s.IsSystemSoundsSession() == 0) n = "system";
+        else {
+          uint pid; s.GetProcessId(out pid);
+          if (!names.TryGetValue(pid, out n)) { try { n = Process.GetProcessById((int)pid).ProcessName; } catch { n = ""; } names[pid] = n; }
+        }
+        if (String.IsNullOrEmpty(n)) continue;
+        float pk; ((IAudioMeterInformation)s).GetPeakValue(out pk);
+        sb.Append('|').Append(n).Append('=').Append(pk.ToString("0.###", CultureInfo.InvariantCulture));
+      } catch { }
+    }
+    return sb.ToString();
+  }
+
   public static float MasterVolume() { float v; Endpoint(0).GetMasterVolumeLevelScalar(out v); return v; }
   public static bool MasterMute() { bool m; Endpoint(0).GetMute(out m); return m; }
   public static void SetMaster(float level, int mute) {
@@ -296,6 +325,7 @@ while ($true) {
       'master' { [PccMixNs.PccMix]::SetMaster([float]$q.level, [int]$q.mute); Reply $id $true $true }
       'mic' { Reply $id $true ([PccMixNs.PccMix]::SetMicMute([bool]$q.mute)) }
       'icon' { Reply $id $true ([PccMixNs.PccMix]::IconPng([string]$q.path)) }
+      'peaks' { Reply $id $true ([PccMixNs.PccMix]::Peaks()) }
       default { Reply $id $false 'unknown op' }
     }
   } catch { Reply $id $false $_.Exception.Message }
@@ -375,6 +405,7 @@ class MediaInfo {
     this.icons = new Map(); // путь → data:URL
     this.coverMiss = new Map(); // ключ → когда не нашли
     this.coverLoading = new Map(); // ключ → идущий поиск
+    this.thumbFail = new Map(); // ключ → { n, ts } неудачные попытки взять обложку у плеера
     this.last = null;
   }
 
@@ -403,10 +434,10 @@ class MediaInfo {
    * из открытых каталогов музыки по исполнителю и названию. Неудачи запоминаем на 10 минут.
    */
   async loadCover(s) {
-    const miss = this.coverMiss.get(s.cover);
-    if (miss && Date.now() - miss < 600000) return null;
     let v = null;
-    if (s.hasThumb) {
+    // Браузер передаёт обложку не сразу после смены трека — пробуем её снова при следующих обновлениях
+    const tf = this.thumbFail.get(s.cover);
+    if (s.hasThumb && !(tf && (tf.n >= 6 || Date.now() - tf.ts < 3000))) {
       for (let i = 0; i < 2 && !v; i++) {
         try {
           const t = await this.agent.call('thumb', { app: s.app }, 15000);
@@ -417,10 +448,13 @@ class MediaInfo {
         }
       }
     }
-    if (!v && (this.ctx.config.media || {}).onlineCovers !== false) {
+    if (!v && s.hasThumb) this.thumbFail.set(s.cover, { n: ((tf && tf.n) || 0) + 1, ts: Date.now() });
+    const miss = this.coverMiss.get(s.cover);
+    if (!v && (this.ctx.config.media || {}).onlineCovers !== false && !(miss && Date.now() - miss < 600000)) {
       v = await findCover(s.artist, s.title).catch(() => null);
+      if (!v) this.coverMiss.set(s.cover, Date.now());
     }
-    if (!v) { this.coverMiss.set(s.cover, Date.now()); return null; }
+    if (!v) return null;
     this.covers.set(s.cover, v);
     while (this.covers.size > 30) this.covers.delete(this.covers.keys().next().value);
     return v;
@@ -473,6 +507,20 @@ class MediaInfo {
     }
     apps.sort((a, b) => (a.system - b.system) || (b.active - a.active) || (b.peak - a.peak) || a.title.localeCompare(b.title));
     return { available: true, master: Math.round((r.master || 0) * 100), masterMuted: !!r.masterMuted, apps };
+  }
+
+  /** Живые уровни звука: { '*': 0.42, chrome: 0.4, … } (0..1). */
+  async peaks() {
+    if (!this.agent) return {};
+    const raw = await this.agent.call('peaks', {}, 3000);
+    const out = {};
+    for (const part of String(raw || '').split('|')) {
+      const i = part.lastIndexOf('=');
+      if (i < 1) continue;
+      const k = part.slice(0, i).toLowerCase();
+      out[k] = Math.max(out[k] || 0, Number(part.slice(i + 1)) || 0);
+    }
+    return out;
   }
 
   async setApp(name, { level = null, mute = null } = {}) {

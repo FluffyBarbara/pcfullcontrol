@@ -306,6 +306,7 @@ class LanServer {
     if (p === '/api/music') return ctx.media.state();
     if (p === '/api/music/control' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.control(b.app, String(b.action), b.value); } catch (e) { throw new HttpError(400, e.message); } }
     if (p === '/api/mixer') return ctx.media.mixer();
+    if (p === '/api/mixer/peaks') return ctx.media.peaks().catch(() => ({}));
     if (p === '/api/mixer/set' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.setApp(b.name, { level: b.level, mute: b.mute }); } catch (e) { throw new HttpError(400, e.message); } }
     if (p === '/api/mixer/master' && m === 'POST') { const b = await readJson(req); return ctx.media.setMaster({ level: b.level, mute: b.mute }); }
     // --- игры, температуры, сбои, USB, тревожная кнопка ---

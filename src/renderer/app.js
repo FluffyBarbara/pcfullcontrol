@@ -170,7 +170,7 @@ function go(p) {
   else if (p === 'processes') { loadProcesses(); timers.p = setInterval(() => { if (!document.hidden) loadProcesses(); }, 5000); }
   else if (p === 'optimize') Optimize.show();
   else if (p === 'hardware') { Extras.hardware(); More.hardware(); timers.h = setInterval(() => { if (!document.hidden) Extras.gpuOnly(); }, 2500); timers.ht = setInterval(() => { if (!document.hidden) More.temps(); }, 60000); }
-  else if (p === 'music') { Music.show(); timers.mu = setInterval(() => { if (!document.hidden) Music.refresh(); }, 2000); timers.mt = setInterval(Music.tick, 500); }
+  else if (p === 'music') { Music.show(); timers.mu = setInterval(() => { if (!document.hidden) Music.refresh(); }, 2000); timers.mt = setInterval(Music.tick, 500); timers.mpk = setInterval(Music.peaks, 120); }
   else if (p === 'network') { Extras.network(); timers.n = setInterval(() => { if (!document.hidden) Extras.network(); }, 8000); }
   else if (p === 'tasks') loadTasks();
   else if (p === 'log') loadLog();

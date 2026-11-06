@@ -153,5 +153,6 @@ test('у текущей версии есть запись в истории и�
   assert.deepEqual(between('1.10.2', '1.11.0').map((v) => v.version), ['1.11.0']);
   assert.deepEqual(between('1.11.0', '1.11.1').map((v) => v.version), ['1.11.1']);
   assert.deepEqual(between('1.11.1', '1.11.2').map((v) => v.version), ['1.11.2']);
+  assert.deepEqual(between('1.11.2', '1.11.3').map((v) => v.version), ['1.11.3']);
   assert.equal(between(null, '1.0.0').length, 1);
 });

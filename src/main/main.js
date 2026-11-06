@@ -615,6 +615,7 @@ function registerIpc() {
   handle('media-control', ({ app, action, value }) => ctx.media.control(app, action, value));
   handle('media-cover', ({ key }) => { const c = ctx.media.cover(key); return c ? `data:${c.type};base64,${c.buf.toString('base64')}` : null; });
   handle('mixer', () => ctx.media.mixer());
+  handle('mixer-peaks', () => ctx.media.peaks().catch(() => ({})));
   handle('mixer-set', ({ name, level, mute }) => ctx.media.setApp(name, { level, mute }));
   handle('mixer-master', ({ level, mute }) => ctx.media.setMaster({ level, mute }));
   // Игры, температуры, сбои, USB, тревожная кнопка
