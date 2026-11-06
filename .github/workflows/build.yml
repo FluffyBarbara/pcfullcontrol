@@ -61,7 +61,7 @@ jobs:
         run: |
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           New-Item -ItemType Directory -Force build/bin | Out-Null
-          & $csc /nologo /optimize+ /target:exe /r:System.Management.dll /out:build/bin/pcfc-helper.exe native-win/PcfcHelper.cs
+          & $csc /nologo /optimize+ /target:exe /r:System.Management.dll /out:build\bin\pcfc-helper.exe native-win\PcfcHelper.cs
           if ($LASTEXITCODE -ne 0) { throw 'Помощник не собрался' }
           & build/bin/pcfc-helper.exe --sample
           $si = New-Object System.Diagnostics.ProcessStartInfo (Resolve-Path build/bin/pcfc-helper.exe).Path, 'activity usb'
