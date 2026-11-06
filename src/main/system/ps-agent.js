@@ -3,6 +3,8 @@
 // на запрос и на ответ). Так не нужно каждый раз заново запускать PowerShell — ответы приходят за миллисекунды.
 // C#-код компилируется один раз в DLL в папке данных программы.
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -53,8 +55,15 @@ ${this.ps}`;
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.ready;
     const tag = crypto.createHash('sha1').update(this.cs || this.name).digest('hex').slice(0, 10);
     const dll = this.cs && this.dataDir ? path.join(this.dataDir, 'bin', `${this.name}-${tag}.dll`) : '';
-    const encoded = Buffer.from(this.script(dll), 'utf16le').toString('base64');
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    // Скрипт с C#-кодом длиннее предела командной строки Windows (32 767 символов) — запускаем из файла
+    const script = this.script(dll);
+    const dir = this.dataDir ? path.join(this.dataDir, 'bin') : os.tmpdir();
+    const file = path.join(dir, `${this.name}-${crypto.createHash('sha1').update(script).digest('hex').slice(0, 10)}.ps1`);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(file)) fs.writeFileSync(file, '\ufeff' + script, 'utf8'); // UTF-8 с BOM — иначе Windows PowerShell 5.1 исказит кириллицу
+    } catch (e) { /* ниже — понятная ошибка запуска */ }
+    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = p;
     let buf = '';
     let errText = '';
