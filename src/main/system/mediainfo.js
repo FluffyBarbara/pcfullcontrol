@@ -4,6 +4,7 @@
 // альбом, обложка, позиция, в какой программе и каком окне. Плюс микшер громкости по программам.
 // Windows: GlobalSystemMediaTransportControls (WinRT) и Core Audio (сеансы звука) в постоянном помощнике.
 const crypto = require('crypto');
+const COVER_SALT = crypto.randomBytes(16);
 const { IS_WIN } = require('./exec');
 const { PsAgent } = require('./ps-agent');
 const { findCover } = require('./covers');
@@ -383,7 +384,8 @@ function describe(s, windows = [], now = Date.now()) {
   let position = Number(s.position) || 0;
   const duration = Number(s.duration) || 0;
   if (playing && s.updated > 0 && duration > 0) position = Math.min(duration, position + Math.max(0, (now - s.updated) / 1000));
-  const key = crypto.createHash('sha1').update([s.app, s.title, s.artist, s.album].join('\u0001')).digest('hex').slice(0, 16);
+  // Ключ со случайной солью: по названию трека нельзя угадать адрес обложки и узнать, что играет
+  const key = crypto.createHmac('sha256', COVER_SALT).update([s.app, s.title, s.artist, s.album].join('\u0001')).digest('hex').slice(0, 24);
   return {
     app: s.app, appName: info.known ? info.name : (win && win.desc) || info.name,
     process: win ? win.name : (info.procs[0] || ''), pid: win ? win.pid : null, window: win ? win.title : '', exe: win ? win.path : '',

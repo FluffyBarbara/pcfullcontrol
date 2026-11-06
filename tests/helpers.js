@@ -32,6 +32,7 @@ async function makeBot(configPatch = {}) {
   ctx.tg = fake;
   const bot = new TelegramBot(ctx);
   ctx.bot = bot;
+  ctx.openBotPairing(); // как будто QR-код открыт в программе на ПК
   ctx.db.addTgUser(111, 'owner', 'Хозяин');
   return { ctx, bot, fake };
 }

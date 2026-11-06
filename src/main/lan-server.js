@@ -14,10 +14,15 @@ const media = require('./system/media');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { E } = require('./telegram-api');
 const { ScreenStream } = require('./stream');
+const { NetGuard, PHYSICAL_PS } = require('./net-guard');
+const { IS_WIN, powershell } = require('./system/exec');
 
 const MOBILE_DIR = path.join(__dirname, '..', 'mobile');
 const SHARED_DIR = path.join(__dirname, '..', 'shared');
 const CODE_TTL_MS = 10 * 60 * 1000;
+// Привязка открыта, только пока на ПК открыт раздел «Телефон» (и 3 минуты после); иначе код не принимается
+const PAIR_WINDOW_MS = 3 * 60 * 1000;
+const PAIR_GLOBAL_FAILS = 10; // столько неверных кодов от кого угодно за 10 минут — привязка закрывается
 const MAX_JSON = 1024 * 1024;
 const MAX_UPLOAD = 4 * 1024 * 1024 * 1024;
 
@@ -62,7 +67,43 @@ class LanServer {
     this.codeExpires = 0;
     this.failed = new Map();   // ip -> [время неудачных попыток]
     this.tickets = new Map();  // одноразовые ссылки для плеера: ticket -> { path, expires }
+    this.pairOpenUntil = 0;
+    this.globalFails = [];
+    this.guard = new NetGuard();
+    this.blocked = new Map();  // ip -> когда последний раз сообщали о блокировке
+    this.guardTimer = null;
   }
+
+  // ---------------- кто может подключаться ----------------
+  async refreshGuard(force = false) {
+    const changed = this.guard.refresh(force);
+    if (!IS_WIN || (!changed && this.guard.physical)) return;
+    try {
+      const r = await powershell(PHYSICAL_PS, 30000);
+      const list = JSON.parse(r.out || '[]');
+      this.guard.setPhysical((Array.isArray(list) ? list : [list]).filter((x) => typeof x === 'string'));
+    } catch (e) { /* остаётся проверка по названиям адаптеров */ }
+  }
+
+  onConnection(sock) {
+    this.guard.refresh();
+    const v = this.guard.check(sock.localAddress, sock.remoteAddress);
+    if (v.ok) return;
+    sock.destroy();
+    const ip = String(sock.remoteAddress || '').replace(/^::ffff:/, '');
+    const last = this.blocked.get(ip) || 0;
+    if (Date.now() - last < 3600e3) return;
+    this.blocked.set(ip, Date.now());
+    if (this.blocked.size > 500) this.blocked.clear();
+    try {
+      this.ctx.db.addEvent('warning', 'security', `Заблокировано подключение с ${ip}: ${v.reason}`);
+      this.ctx.notifier.notify(`🛡 <b>Заблокировано подключение к PC Full Control</b>\nС адреса <code>${E(ip)}</code> — ${E(v.reason)}.\nТелефон подключается только из вашей домашней сети Wi-Fi.`, { category: 'security', level: 'warning' });
+    } catch (e) { /* ignore */ }
+  }
+
+  /** Раздел «Телефон» открыт на ПК — можно привязывать. */
+  openPairing() { this.pairOpenUntil = Date.now() + PAIR_WINDOW_MS; }
+  get pairingOpen() { return !!process.env.PCFC_TEST_PAIR_CODE || Date.now() < this.pairOpenUntil; }
 
   get port() {
     if (this.server && this.server.listening) return this.server.address().port;
@@ -75,6 +116,11 @@ class LanServer {
     this.stop();
     if (!this.ctx.config.mobile.enabled) return Promise.resolve();
     this.server = http.createServer((req, res) => this.handle(req, res));
+    this.server.on('connection', (sock) => this.onConnection(sock));
+    this.refreshGuard(true).catch(() => {});
+    clearInterval(this.guardTimer);
+    this.guardTimer = setInterval(() => this.refreshGuard().catch(() => {}), 30000);
+    if (this.guardTimer.unref) this.guardTimer.unref();
     // Туннель Cloudflare держит соединение с программой до 90 с. Если программа закроет его раньше,
     // запрос, пришедший в этот момент, обрывается и Cloudflare показывает «502 Bad gateway».
     this.server.keepAliveTimeout = 120 * 1000;
@@ -97,6 +143,7 @@ class LanServer {
   }
 
   stop() {
+    clearInterval(this.guardTimer);
     if (this.server) this.server.close();
     this.server = null;
     this.status = 'stopped';
@@ -115,7 +162,9 @@ class LanServer {
 
   pairInfo() {
     const { code, expires } = this.pairCode();
-    const ips = lanAddresses();
+    this.guard.refresh();
+    const allowed = new Set(this.guard.nets.map((n) => n.address));
+    const ips = lanAddresses().filter((ip) => allowed.has(ip));
     const urls = ips.map((ip) => `http://${ip}:${this.port}`);
     return {
       status: this.status, error: this.error, port: this.port, code, expires, addresses: urls,
@@ -130,12 +179,22 @@ class LanServer {
   }
 
   pair(body, ip) {
+    if (!this.pairingOpen) throw new HttpError(403, 'Привязка закрыта. Откройте на компьютере раздел «Телефон» и отсканируйте QR-код.');
     this.checkPairAttempts(ip);
+    this.globalFails = this.globalFails.filter((t) => Date.now() - t < 10 * 60 * 1000);
+    if (this.globalFails.length >= PAIR_GLOBAL_FAILS) throw new HttpError(429, 'Привязка временно закрыта из-за подбора кода.');
     const given = Buffer.from(String(body.code || '').trim());
     const { code } = this.pairCode();
     const ok = given.length === code.length && crypto.timingSafeEqual(given, Buffer.from(code));
     if (!ok) {
       this.failed.get(ip).push(Date.now());
+      this.globalFails.push(Date.now());
+      if (this.globalFails.length >= PAIR_GLOBAL_FAILS) {
+        // Кто-то подбирает код — закрываем привязку и меняем код
+        this.pairOpenUntil = 0;
+        this.pairCode(true);
+        this.ctx.notifier.notify(`🚨 <b>Кто-то подбирает код привязки телефона</b> (последний адрес <code>${E(ip)}</code>). Привязка закрыта, код заменён.`, { category: 'security', level: 'warning' });
+      }
       throw new HttpError(403, 'Неверный или устаревший код. Посмотрите новый код в программе на ПК.');
     }
     const token = crypto.randomBytes(32).toString('base64url');
@@ -178,6 +237,9 @@ class LanServer {
 
   // ---------------- обработка запросов ----------------
   async handle(req, res) {
+    // Защита от «DNS rebinding»: чужой сайт в браузере не сможет обратиться к программе под своим именем
+    const host = String(req.headers.host || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+    if (!/^(\d{1,3}(\.\d{1,3}){3}|localhost|::1)$/.test(host)) { res.writeHead(421); res.end(); return undefined; }
     const url = new URL(req.url, 'http://x');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -204,6 +266,8 @@ class LanServer {
     let rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
     if (rel.includes('..')) rel = 'index.html';
     let file = rel.startsWith('shared/') ? path.join(SHARED_DIR, rel.slice(7)) : path.join(MOBILE_DIR, rel);
+    const inside = (dir) => path.resolve(file).startsWith(path.resolve(dir) + path.sep);
+    if (!inside(MOBILE_DIR) && !inside(SHARED_DIR)) file = path.join(MOBILE_DIR, 'index.html');
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(MOBILE_DIR, 'index.html');
     const ext = path.extname(file).toLowerCase();
     const v = this.ctx.version;

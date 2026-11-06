@@ -22,6 +22,8 @@ Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 
 if (!(Test-Path $exe)) { throw "Программа не установилась: нет $exe" }
 netsh advfirewall firewall show rule name="PC Full Control"
 if ($LASTEXITCODE -ne 0) { throw 'Правило брандмауэра не создано' }
+$fw = (netsh advfirewall firewall show rule name="PC Full Control") -join "`n"
+if ($fw -notmatch 'LocalSubnet') { throw 'Правило брандмауэра пускает не только локальную сеть' }
 
 Write-Host '=== 2. Запуск ==='
 $env:PCFC_TEST_PAIR_CODE = '246810'
@@ -30,6 +32,8 @@ Start-Process $exe
 $hello = Wait-Hello 90
 Write-Host "Ответ: $($hello | ConvertTo-Json -Compress)"
 if ($hello.app -ne 'pc-full-control') { throw 'Неожиданный ответ сервера' }
+try { Invoke-WebRequest 'http://127.0.0.1:8765/api/hello' -Headers @{ Host = 'evil.example.com' } -UseBasicParsing | Out-Null; throw 'REBIND' } catch { if ($_.Exception.Message -eq 'REBIND') { throw 'Сервер ответил на чужое имя сайта (DNS rebinding)' } }
+Write-Host 'Чужое имя сайта в Host — отказ (защита от DNS rebinding)'
 $before = App-Pids
 Write-Host "Процессы до обновления: $($before -join ', ')"
 

@@ -86,6 +86,7 @@ test('виджет: ключ телефона, данные и кнопки бе
   ctx.gpu = async () => ({ gpus: [] });
   const lan = new LanServer(ctx);
   await lan.start();
+  lan.openPairing();
   const base = `http://127.0.0.1:${lan.port}`;
   try {
     const { token } = await (await fetch(base + '/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: lan.pairCode().code, name: 'Телефон' }) })).json();

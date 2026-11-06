@@ -13,6 +13,7 @@ async function setup() {
   const ctx = await makeCtx({ mobile: { port: 0 }, files: { uploadDir: path.join(dir, 'up') } });
   const lan = new LanServer(ctx);
   await lan.start();
+  lan.openPairing(); // как будто на ПК открыт раздел «Телефон»
   const base = `http://127.0.0.1:${lan.port}`;
   const call = (p, { token, json, method, body } = {}) => fetch(base + p, {
     method: method || (json || body ? 'POST' : 'GET'),

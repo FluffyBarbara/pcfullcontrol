@@ -23,8 +23,11 @@ async function launch(arg) {
   if (fs.existsSync(target)) {
     const err = await electron().shell.openPath(target);
     if (err) throw new Error(err);
+  } else if (!/^[\p{L}\p{N} ._+-]{1,100}$/u.test(target)) {
+    // Только имя программы: символы & | < > ^ " % позволили бы выполнить любую команду в обход запрета
+    throw new Error('Укажите имя программы (например, notepad) или путь к файлу. Для команд включите «Выполнение команд» в настройках.');
   } else if (IS_WIN) {
-    // Имя программы (notepad, chrome) или команда — через start, как в окне «Выполнить»
+    // Имя программы (notepad, chrome) — через start, как в окне «Выполнить»
     spawnDetached('cmd.exe', ['/d', '/s', '/c', `start "" ${target}`], { windowsVerbatimArguments: true });
   } else if (IS_MAC) {
     spawnDetached('open', ['-a', target]);

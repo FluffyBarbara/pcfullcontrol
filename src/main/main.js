@@ -34,6 +34,17 @@ let quitting = false;
 // SpareRendererForSitePerProcess — Chromium держит запасной пустой процесс «на всякий случай»: не нужен.
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns,SpareRendererForSitePerProcess');
 
+// Окна программы показывают только свои файлы: переход на чужую страницу или открытие нового окна
+// (через ссылку, внедрённую в название трека, окна и т. п.) дал бы ей доступ к управлению компьютером.
+app.on('web-contents-created', (_, wc) => {
+  wc.on('will-navigate', (e, url) => { if (!/^file:\/\//i.test(url)) e.preventDefault(); });
+  wc.on('will-attach-webview', (e) => e.preventDefault());
+  wc.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+});
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -474,6 +485,7 @@ async function ensureAutostartOnFirstRun() {
 
 // ================= Связь с окном (IPC) =================
 async function pairingInfo() {
+  ctx.openBotPairing(); // QR-код для Telegram показан в программе — привязка открыта 10 минут
   const code = ctx.pairingCode();
   const username = ctx.bot && ctx.bot.username;
   if (!username) return { code, link: null, qr: null };
@@ -591,6 +603,7 @@ function registerIpc() {
 
   // --- приложение на телефоне ---
   handle('mobile-info', async () => {
+    ctx.lan.openPairing(); // раздел «Телефон» открыт — привязка разрешена ещё 3 минуты
     const i = ctx.lan.pairInfo();
     const qr = i.pairUrl ? await QRCode.toDataURL(i.pairUrl, { margin: 1, width: 260, color: { dark: '#0b0d12', light: '#ffffff' } }) : null;
     return { ...i, qr, devices: ctx.db.listDevices(), enabled: !!ctx.config.mobile.enabled };

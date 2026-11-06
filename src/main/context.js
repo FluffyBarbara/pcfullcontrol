@@ -176,6 +176,10 @@ class AppContext extends EventEmitter {
     return this.authorizedIds().includes(Number(id));
   }
 
+  /** Привязка Telegram открыта 10 минут после того, как QR-код показали в программе на ПК. */
+  openBotPairing() { this.botPairUntil = Date.now() + 10 * 60 * 1000; }
+  get botPairingOpen() { return Date.now() < (this.botPairUntil || 0); }
+
   pairingCode(regenerate = false) {
     let code = this.db.getSetting('pairCode');
     if (regenerate || !code) {

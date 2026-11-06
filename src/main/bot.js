@@ -275,6 +275,7 @@ class TelegramBot {
   async pair(chatId, code, user) {
     if (this.ctx.isAuthorized(user.id)) return this.send(chatId, '✅ Этот аккаунт уже привязан.', MAIN_KB);
     if ((this.pairFails.get(user.id) || 0) >= 5) return this.send(chatId, '⛔ Слишком много неверных попыток.');
+    if (!this.ctx.botPairingOpen) return this.send(chatId, '🔒 Привязка закрыта. Откройте PC Full Control на компьютере и отсканируйте QR-код ещё раз.');
     const expected = this.ctx.pairingCode();
     const given = Buffer.from(String(code || '').trim().toUpperCase());
     const ok = given.length === expected.length && crypto.timingSafeEqual(given, Buffer.from(expected));

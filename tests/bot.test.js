@@ -40,6 +40,14 @@ test('привязка командой /pair', async () => {
   assert.equal(ctx.isAuthorized(999), true);
 });
 
+test('привязка Telegram закрыта, если QR-код не открывали в программе', async () => {
+  const { ctx, bot, fake } = await makeBot();
+  ctx.botPairUntil = 0;
+  await bot.onMessage(msg(`/pair ${ctx.pairingCode()}`, STRANGER));
+  assert.equal(ctx.isAuthorized(999), false);
+  assert.match(fake.last().text, /Привязка закрыта/);
+});
+
 test('меню и статус', async () => {
   const { bot, fake } = await makeBot();
   await bot.onMessage(msg('/start'));
