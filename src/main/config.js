@@ -57,6 +57,9 @@ const DEFAULTS = {
   updates: {
     dailyCheckTime: '12:00',
   },
+  media: {
+    onlineCovers: true,          // искать обложку в каталогах музыки (Deezer, iTunes), если плеер её не передал
+  },
   ui: {
     theme: 'dark',               // dark | light | system
     accent: 'indigo',            // цвет акцента

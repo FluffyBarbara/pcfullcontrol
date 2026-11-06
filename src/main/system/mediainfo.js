@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const { IS_WIN } = require('./exec');
 const { PsAgent } = require('./ps-agent');
+const { findCover } = require('./covers');
 
 const CS = `
 using System;
@@ -249,6 +250,7 @@ function Thumb($app) {
   if (-not $p -or -not $p.Thumbnail) { return $null }
   $st = Await ($p.Thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
   $size = [uint32]$st.Size
+  if ($size -eq 0) { throw 'плеер передал пустую обложку' }
   $r = [Windows.Storage.Streams.DataReader]::new($st.GetInputStreamAt(0))
   $null = Await ($r.LoadAsync($size)) ([uint32])
   $bytes = New-Object byte[] $size
@@ -361,7 +363,7 @@ function describe(s, windows = [], now = Date.now()) {
     position: Math.round(position), duration: Math.round(duration),
     shuffle: s.shuffle, repeat: s.repeat || '',
     can: { play: !!s.canPlay, pause: !!s.canPause, next: !!s.canNext, prev: !!s.canPrev, seek: !!s.canSeek && duration > 0, shuffle: !!s.canShuffle, repeat: !!s.canRepeat },
-    cover: s.hasThumb ? key : null,
+    cover: s.title ? key : null, hasThumb: !!s.hasThumb,
   };
 }
 
@@ -371,6 +373,8 @@ class MediaInfo {
     this.agent = IS_WIN ? new PsAgent({ name: 'PccMedia', cs: CS, ps: PS, dataDir: ctx.dataDir, idleMs: 15 * 60 * 1000 }) : null;
     this.covers = new Map(); // ключ → { buf, type }
     this.icons = new Map(); // путь → data:URL
+    this.coverMiss = new Map(); // ключ → когда не нашли
+    this.coverLoading = new Map(); // ключ → идущий поиск
     this.last = null;
   }
 
@@ -384,16 +388,39 @@ class MediaInfo {
     sessions.sort((a, b) => (b.playing - a.playing) || ((b.app === r.current) - (a.app === r.current)));
     for (const s of sessions) s.icon = s.exe ? await this.icon(s.exe) : null;
     // Обложки заранее, чтобы телефон и бот показывали их сразу
-    await Promise.all(sessions.filter((s) => s.cover && !this.covers.has(s.cover)).map((s) => this.loadCover(s).catch(() => {})));
+    // Одна и та же обложка не ищется дважды, даже если запросы пришли одновременно
+    await Promise.all(sessions.filter((s) => s.cover && !this.covers.has(s.cover)).map((s) => {
+      if (!this.coverLoading.has(s.cover)) this.coverLoading.set(s.cover, this.loadCover(s).catch(() => null).finally(() => this.coverLoading.delete(s.cover)));
+      return this.coverLoading.get(s.cover);
+    }));
     for (const s of sessions) if (s.cover && !this.covers.has(s.cover)) s.cover = null;
     this.last = { sessions, current: r.current, ts: Date.now() };
     return { available: true, sessions, current: r.current, error: r.error || '' };
   }
 
+  /**
+   * Обложка: сначала та, что передал плеер; если её нет (браузеры часто не передают) —
+   * из открытых каталогов музыки по исполнителю и названию. Неудачи запоминаем на 10 минут.
+   */
   async loadCover(s) {
-    const t = await this.agent.call('thumb', { app: s.app }, 15000);
-    if (!t || !t.data) return null;
-    const v = { buf: Buffer.from(t.data, 'base64'), type: t.type || 'image/jpeg' };
+    const miss = this.coverMiss.get(s.cover);
+    if (miss && Date.now() - miss < 600000) return null;
+    let v = null;
+    if (s.hasThumb) {
+      for (let i = 0; i < 2 && !v; i++) {
+        try {
+          const t = await this.agent.call('thumb', { app: s.app }, 15000);
+          if (t && t.data) v = { buf: Buffer.from(t.data, 'base64'), type: t.type || 'image/jpeg', source: 'player' };
+        } catch (e) {
+          if (!this.thumbErrLogged) { this.thumbErrLogged = true; try { this.ctx.db.addEvent('info', 'media', `Обложка от плеера не прочиталась: ${e.message}`); } catch (er) { /* ignore */ } }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+    }
+    if (!v && (this.ctx.config.media || {}).onlineCovers !== false) {
+      v = await findCover(s.artist, s.title).catch(() => null);
+    }
+    if (!v) { this.coverMiss.set(s.cover, Date.now()); return null; }
     this.covers.set(s.cover, v);
     while (this.covers.size > 30) this.covers.delete(this.covers.keys().next().value);
     return v;

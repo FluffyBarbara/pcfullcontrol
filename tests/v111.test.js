@@ -54,6 +54,16 @@ test('музыка: понятное имя плеера, окно, позици
   assert.equal(d.can.next, true);
 });
 
+test('обложки: очистка названия и защита от чужой обложки', () => {
+  const { cleanTitle, cleanArtist, matches } = require('../src/main/system/covers');
+  assert.equal(cleanTitle('Get Lucky (feat. Pharrell Williams & Nile Rodgers)'), 'Get Lucky');
+  assert.equal(cleanTitle('VELAR Prod.By Mogl1que'), 'VELAR');
+  assert.equal(cleanTitle('DIAMOND Slowed'), 'DIAMOND');
+  assert.equal(cleanArtist('lxlondon, PLATONOV'), 'lxlondon');
+  assert.ok(matches({ artist: 'Nyway', title: 'Обо мне' }, 'nyway', 'ОБО МНЕ'));
+  assert.ok(!matches({ artist: 'Другой', title: 'Обо мне' }, 'nyway', 'ОБО МНЕ'));
+});
+
 test('игры: время и средний FPS по дням, отчёт за неделю с играми', async () => {
   const ctx = await makeCtx();
   const { localDay } = require('../src/main/activity');
