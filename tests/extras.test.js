@@ -155,7 +155,7 @@ test('файлы: удаляются только выбранные, систе
   fs.writeFileSync(path.join(dir, 'b.txt'), 'b');
   fs.mkdirSync(path.join(dir, 'sub'));
   fs.writeFileSync(path.join(dir, 'sub', 'c.txt'), 'c');
-  const fm = new FileManager(() => ({ files: { allowedRoots: [], uploadDir: dir } }));
+  const fm = new FileManager(() => ({ files: { allowedRoots: [], uploadDir: dir, fullDiskAccess: true } }));
   await assert.rejects(() => fm.deletePaths([]), /Ничего не выбрано/);
   const trashed = [];
   const r = await fm.deletePaths([path.join(dir, 'a.txt'), path.join(dir, 'sub')], { trash: async (p) => { trashed.push(p); fs.rmSync(p, { recursive: true }); } });

@@ -14,7 +14,8 @@ const media = require('./system/media');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { E } = require('./telegram-api');
 const { ScreenStream } = require('./stream');
-const { NetGuard, PHYSICAL_PS } = require('./net-guard');
+const { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, openWifiNames } = require('./net-guard');
+const Sig = require('../shared/sig');
 const { IS_WIN, powershell } = require('./system/exec');
 
 const MOBILE_DIR = path.join(__dirname, '..', 'mobile');
@@ -72,11 +73,17 @@ class LanServer {
     this.guard = new NetGuard();
     this.blocked = new Map();  // ip -> когда последний раз сообщали о блокировке
     this.guardTimer = null;
+    this.nonces = new Map();   // одноразовые числа подписанных запросов: id|nonce -> время
+    this.rate = new Map();     // ограничение частоты: устройство|запрос -> { start, count }
   }
 
   // ---------------- кто может подключаться ----------------
   async refreshGuard(force = false) {
     const changed = this.guard.refresh(force);
+    this.guardTicks = (this.guardTicks || 0) + 1;
+    if (IS_WIN && (changed || force || this.guardTicks % 10 === 0)) {
+      try { this.guard.openWifi = new Set(openWifiNames((await powershell(OPEN_WIFI_PS, 20000)).out)); } catch (e) { /* без проверки Wi-Fi */ }
+    }
     if (!IS_WIN || (!changed && this.guard.physical)) return;
     try {
       const r = await powershell(PHYSICAL_PS, 30000);
@@ -155,6 +162,9 @@ class LanServer {
     if (process.env.PCFC_TEST_PAIR_CODE) return { code: process.env.PCFC_TEST_PAIR_CODE, expires: Date.now() + CODE_TTL_MS };
     if (regenerate || !this.code || Date.now() > this.codeExpires) {
       this.code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+      // Секрет только в QR-коде (после «#» — в сеть не уходит): им телефон доказывает знание кода
+      // и получает свой ключ доступа в зашифрованном виде
+      this.pairSecret = crypto.randomBytes(16).toString('hex');
       this.codeExpires = Date.now() + CODE_TTL_MS;
     }
     return { code: this.code, expires: this.codeExpires };
@@ -168,7 +178,7 @@ class LanServer {
     const urls = ips.map((ip) => `http://${ip}:${this.port}`);
     return {
       status: this.status, error: this.error, port: this.port, code, expires, addresses: urls,
-      pairUrl: urls[0] ? `${urls[0]}/#/pair/${code}` : null,
+      pairUrl: urls[0] ? `${urls[0]}/#/pair/${code}/${this.pairSecret || ''}` : null,
     };
   }
 
@@ -183,9 +193,17 @@ class LanServer {
     this.checkPairAttempts(ip);
     this.globalFails = this.globalFails.filter((t) => Date.now() - t < 10 * 60 * 1000);
     if (this.globalFails.length >= PAIR_GLOBAL_FAILS) throw new HttpError(429, 'Привязка временно закрыта из-за подбора кода.');
-    const given = Buffer.from(String(body.code || '').trim());
     const { code } = this.pairCode();
-    const ok = given.length === code.length && crypto.timingSafeEqual(given, Buffer.from(code));
+    const salt = /^[0-9a-f]{16,64}$/.test(String(body.salt || '')) ? String(body.salt) : null;
+    let ok;
+    if (body.proof && salt && this.pairSecret) {
+      const want = crypto.createHmac('sha256', this.pairSecret).update('pair:' + salt).digest();
+      const got = Buffer.from(String(body.proof), 'hex');
+      ok = got.length === want.length && crypto.timingSafeEqual(got, want);
+    } else {
+      const given = Buffer.from(String(body.code || '').trim());
+      ok = given.length === code.length && crypto.timingSafeEqual(given, Buffer.from(code));
+    }
     if (!ok) {
       this.failed.get(ip).push(Date.now());
       this.globalFails.push(Date.now());
@@ -198,12 +216,15 @@ class LanServer {
       throw new HttpError(403, 'Неверный или устаревший код. Посмотрите новый код в программе на ПК.');
     }
     const token = crypto.randomBytes(32).toString('base64url');
+    const secret = this.pairSecret;
     const name = String(body.name || 'Телефон').slice(0, 60);
     const platform = String(body.platform || '').slice(0, 20);
     this.ctx.db.addDevice(name, platform, sha256(token), ip);
     this.pairCode(true);
     this.ctx.notifier.notify(`📱 Привязан телефон с приложением: <b>${E(name)}</b> (${E(ip)})`, { category: 'security', level: 'warning' });
     this.ctx.emit('event');
+    // По QR-коду ключ уходит зашифрованным секретом из QR — подслушавший Wi-Fi его не получит
+    if (body.proof && salt && secret) return { sealed: Sig.seal(secret, salt, token), pcName: this.ctx.pcName, version: this.ctx.version };
     return { token, pcName: this.ctx.pcName, version: this.ctx.version };
   }
 
@@ -225,14 +246,60 @@ class LanServer {
     return dev;
   }
 
-  auth(req) {
-    const h = req.headers.authorization || '';
-    const token = h.startsWith('Bearer ') ? h.slice(7) : '';
-    if (!token) throw new HttpError(401, 'Требуется привязка');
-    const dev = this.ctx.db.deviceByToken(sha256(token));
-    if (!dev) throw new HttpError(401, 'Телефон отвязан от этого компьютера');
+  auth(req, res, pathname = '') {
+    const signed = req.headers['x-pcfc-auth'];
+    let dev;
+    if (signed) dev = this.authSigned(req, res, String(signed));
+    else {
+      const h = req.headers.authorization || '';
+      const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+      if (!token) throw new HttpError(401, 'Требуется привязка');
+      dev = this.ctx.db.deviceByToken(sha256(token));
+      if (!dev) throw new HttpError(401, 'Телефон отвязан от этого компьютера');
+      // Телефон, который уже подписывает запросы, ключ открытым текстом не шлёт: такой запрос — подделка
+      // (исключение — голосовой помощник старой версии Android-приложения)
+      if (this.signedIds().includes(dev.id) && !/^\/api\/assistant\//.test(pathname)) throw new HttpError(401, 'Запрос без подписи отклонён');
+    }
     if (Date.now() / 1000 - (dev.last_seen || 0) > 60) this.ctx.db.touchDevice(dev.id, clientIp(req));
     return dev;
+  }
+
+  signedIds() { return this.ctx.db.getSetting('signedDevices') || []; }
+
+  /** Проверка подписи «номер.время.одноразовое.подпись» (src/shared/sig.js). */
+  authSigned(req, res, header) {
+    const [id, tsS, nonce, sig] = header.split('.');
+    const ts = Number(tsS);
+    if (!/^[0-9a-f]{16}$/.test(id || '') || !/^[0-9a-f]{16,64}$/.test(nonce || '') || !/^[0-9a-f]{64}$/.test(sig || '') || !Number.isFinite(ts)) throw new HttpError(401, 'Неверная подпись');
+    if (Math.abs(Date.now() - ts) > 5 * 60 * 1000) {
+      res.setHeader('X-PCFC-Time', String(Date.now())); // часы телефона расходятся с ПК — телефон подстроится
+      throw new HttpError(401, 'Часы телефона и компьютера расходятся');
+    }
+    const rows = this.ctx.db.all('SELECT * FROM devices');
+    const dev = rows.find((d) => Sig.deviceId(d.token_hash) === id);
+    if (!dev) throw new HttpError(401, 'Телефон отвязан от этого компьютера');
+    const want = crypto.createHmac('sha256', dev.token_hash).update(Sig.message(req.method, req.url, ts, nonce)).digest();
+    const got = Buffer.from(sig, 'hex');
+    if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) throw new HttpError(401, 'Неверная подпись');
+    // Повтор перехваченного запроса не пройдёт: каждое одноразовое число принимается один раз
+    const now = Date.now();
+    if (this.nonces.size > 20000) for (const [k, t] of this.nonces) if (now - t > 11 * 60 * 1000) this.nonces.delete(k);
+    const key = `${id}|${nonce}`;
+    if (this.nonces.has(key)) throw new HttpError(401, 'Повтор запроса отклонён');
+    this.nonces.set(key, now);
+    const ids = this.signedIds();
+    if (!ids.includes(dev.id)) this.ctx.db.setSetting('signedDevices', [...ids, dev.id]);
+    return dev;
+  }
+
+  /** Ограничение частоты «тяжёлых» запросов на одно устройство. */
+  rateLimit(dev, route, max, windowMs = 60000) {
+    const key = `${dev.id}|${route}`;
+    const now = Date.now();
+    let r = this.rate.get(key);
+    if (!r || now - r.start > windowMs) { r = { start: now, count: 0 }; this.rate.set(key, r); }
+    if (++r.count > max) throw new HttpError(429, 'Слишком часто — подождите немного');
+    if (this.rate.size > 5000) this.rate.clear();
   }
 
   // ---------------- обработка запросов ----------------
@@ -249,7 +316,8 @@ class LanServer {
       // Android-приложение: голосовой ассистент записывает звук на своей странице (http://localhost)
       if (/^https?:\/\/localhost(:\d+)?$/.test(req.headers.origin || '') && /^\/api\/(assistant|widget)/.test(url.pathname)) {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-PCFC-Auth, X-Widget-Key');
+        res.setHeader('Access-Control-Expose-Headers', 'X-PCFC-Time');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return undefined; }
       }
@@ -258,7 +326,12 @@ class LanServer {
       return sendJson(res, 200, result);
     } catch (e) {
       if (res.headersSent) { res.destroy(); return undefined; }
-      return sendJson(res, e.status || 500, { error: e.status ? e.message : `Внутренняя ошибка: ${e.message}` });
+      if (!e.status) {
+        // Подробности — только в журнал на ПК, наружу — без путей и внутренностей
+        try { this.ctx.db.addEvent('warning', 'mobile', `Ошибка запроса ${url.pathname}: ${e.message}`); } catch (e2) { /* ignore */ }
+        return sendJson(res, 500, { error: 'Внутренняя ошибка на компьютере. Подробности — в журнале программы.' });
+      }
+      return sendJson(res, e.status, { error: e.message });
     }
   }
 
@@ -300,8 +373,12 @@ class LanServer {
 
     // --- без авторизации ---
     if (p === '/api/hello') {
-      // Открыто для Android-приложения: проверка, что по адресу отвечает именно PC Full Control
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Для Android-приложения (страница http://localhost): проверка, что по адресу отвечает PC Full Control.
+      // Чужие сайты в браузере ответ прочитать не могут — разрешён только адрес самого приложения.
+      const origin = String(req.headers.origin || '');
+      const appOrigin = /^(https?|capacitor):\/\/localhost(:\d+)?$/.test(origin);
+      if (origin && !appOrigin) return { app: 'pc-full-control' };
+      if (appOrigin) res.setHeader('Access-Control-Allow-Origin', origin);
       const nic = poweron.primaryInterface();
       return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
@@ -319,7 +396,7 @@ class LanServer {
     }
     // Виджет на главном экране телефона: доступ по отдельному ключу виджета (его можно отозвать)
     if (p.startsWith('/api/widget') && p !== '/api/widget/key') {
-      const wdev = this.widgetDevice(q('k'));
+      const wdev = this.widgetDevice(req.headers['x-widget-key'] || q('k'));
       if (p === '/api/widget') return ctx.widgetData();
       if (p === '/api/widget/text') {
         const w = await ctx.widgetData();
@@ -334,6 +411,9 @@ class LanServer {
         const allowed = { shutdown: 'shutdown', sleep: 'sleep', lock: 'lock', reboot: 'reboot', play_pause: 'play_pause', next: 'next_track', prev: 'prev_track', mute: 'mute' };
         const action = allowed[String(b.action || q('action'))];
         if (!action) throw new HttpError(400, 'Неизвестное действие');
+        // Выключение, перезагрузка и сон — только после подтверждения на телефоне
+        if (['shutdown', 'reboot', 'sleep'].includes(action) && b.confirm !== true) throw new HttpError(428, 'Нужно подтверждение — обновите приложение на телефоне');
+        this.rateLimit({ id: 'w' + wdev.id }, 'widget', 30);
         return ctx.actions.run(action, '', 'mobile', `${wdev.name} (виджет)`);
       }
       throw new HttpError(404, 'Не найдено');
@@ -348,7 +428,12 @@ class LanServer {
       return this.streamFile(req, res, t.path);
     }
 
-    const device = this.auth(req);
+    const device = this.auth(req, res, p);
+    // Ограничения частоты: обычной работе не мешают, но не дают загрузить ПК бесконечными запросами
+    this.rateLimit(device, 'all', 3000);
+    const HEAVY = [[/^\/api\/net\/speedtest/, 3], [/^\/api\/space\/(start|scan)/, 5], [/^\/api\/net\/(diag|fix|scan)/, 10], [/^\/api\/(cleanup|clean|updates|apps\/[^/]+\/(uninstall|remove))/, 10],
+      [/^\/api\/webcam/, 20], [/^\/api\/screenshot/, 60], [/^\/api\/files\/(upload|delete|telegram)/, 60], [/^\/api\/action\//, 120]];
+    for (const [re, max] of HEAVY) if (re.test(p)) this.rateLimit(device, re.source, max);
 
     if (p === '/api/info') {
       return {

@@ -54,8 +54,21 @@ class AppContext extends EventEmitter {
     this.quitApp = quitApp;
     this.restartAppImpl = restartApp;
     this.config = loadConfig(db);
+    // Раньше код привязки Telegram хранился в базе — убираем его оттуда
+    if (db.getSetting('pairCode')) { db.run("DELETE FROM settings WHERE key = 'pairCode'"); if (db.vacuum) db.vacuum(); }
     this.tg = this.config.telegram.token ? new TelegramAPI(this.config.telegram.token) : null;
-    this.files = new FileManager(() => this.config);
+    this.files = new FileManager(() => this.config, {
+      dataDir: () => this.dataDir,
+      // Кто-то с доступом к телефону пытается открыть данные программы (база, ключи) — тревога владельцу
+      onAlarm: (p, op) => {
+        if (Date.now() - (this._fileAlarm || 0) < 60000) return;
+        this._fileAlarm = Date.now();
+        try {
+          this.db.addEvent('warning', 'security', `Попытка доступа к данным программы: ${p} (${op})`);
+          this.notifier.notify('🚨 <b>Попытка открыть данные PC Full Control с телефона или из Telegram</b>\nДоступ запрещён. Если это не вы — отвяжите все телефоны в разделе «Телефон» и смените токен бота у @BotFather.', { category: 'security', level: 'warning' });
+        } catch (e) { /* ignore */ }
+      },
+    });
     this.notifier = new Notifier(this);
     this.jobs = new JobManager(this);
     this.actions = new ActionRegistry(this);
@@ -176,17 +189,14 @@ class AppContext extends EventEmitter {
     return this.authorizedIds().includes(Number(id));
   }
 
-  /** Привязка Telegram открыта 10 минут после того, как QR-код показали в программе на ПК. */
-  openBotPairing() { this.botPairUntil = Date.now() + 10 * 60 * 1000; }
+  /** Привязка Telegram открыта, пока QR-код на экране программы (и 3 минуты после). */
+  openBotPairing() { this.botPairUntil = Date.now() + 3 * 60 * 1000; }
   get botPairingOpen() { return Date.now() < (this.botPairUntil || 0); }
 
+  /** Код привязки Telegram живёт только в памяти программы — в файле базы его нет. */
   pairingCode(regenerate = false) {
-    let code = this.db.getSetting('pairCode');
-    if (regenerate || !code) {
-      code = crypto.randomBytes(4).toString('hex').toUpperCase();
-      this.db.setSetting('pairCode', code);
-    }
-    return code;
+    if (regenerate || !this._pairCode) this._pairCode = crypto.randomBytes(5).toString('hex').toUpperCase();
+    return this._pairCode;
   }
 
   setTelegram(api) {

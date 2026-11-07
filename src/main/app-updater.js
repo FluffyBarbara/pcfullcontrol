@@ -40,7 +40,11 @@ class AppUpdater {
   log(level, msg) {
     try {
       const dir = this.ctx.dataDir;
-      if (dir) fs.appendFileSync(path.join(dir, 'update.log'), `${new Date().toISOString()} [${level}] ${msg}\n`);
+      if (!dir) return;
+      const f = path.join(dir, 'update.log');
+      // Журнал не растёт бесконечно: больше 2 МБ — старая часть уходит в update.old.log
+      try { if (fs.statSync(f).size > 2 * 1024 * 1024) fs.renameSync(f, path.join(dir, 'update.old.log')); } catch (e) { /* файла ещё нет */ }
+      fs.appendFileSync(f, `${new Date().toISOString()} [${level}] ${msg}\n`);
     } catch (e) { /* ignore */ }
   }
 

@@ -30,7 +30,9 @@ const DEFAULTS = {
     weekly: true,                // отчёт за неделю в Telegram (воскресенье, 20:00)
   },
   files: {
-    allowedRoots: [],            // ограничить файловый менеджер папками; пусто = весь диск
+    allowedRoots: [],            // ограничить файловый менеджер папками; пусто = папка пользователя
+    fullDiskAccess: false,       // «весь диск» — только если пользователь включил сам
+    uploadAnywhere: false,       // сохранять файлы с телефона не только в папку загрузок
     uploadDir: '',               // куда сохранять файлы с телефона (пусто = Загрузки\PCControl)
   },
   apps: [
@@ -82,13 +84,49 @@ function deepMerge(base, over) {
   return out;
 }
 
-function loadConfig(db) {
-  return deepMerge(DEFAULTS, db.getSetting('config', {}) || {});
+// Секреты (токен бота) хранятся в базе зашифрованными средствами Windows (DPAPI через Electron safeStorage):
+// даже если файл базы украдут, на другом компьютере или под другой учётной записью его не расшифровать.
+const SECRET_PATHS = [['telegram', 'token']];
+function safeStorage() {
+  try {
+    if (!process.versions.electron) return null;
+    const s = require('electron').safeStorage;
+    return s && s.isEncryptionAvailable() ? s : null;
+  } catch (e) { return null; }
 }
-
-function saveConfig(db, cfg) {
-  db.setSetting('config', cfg);
+function seal(cfg, store = safeStorage()) {
+  const out = JSON.parse(JSON.stringify(cfg));
+  if (!store) return out;
+  for (const [a, b] of SECRET_PATHS) {
+    const v = out[a] && out[a][b];
+    if (typeof v === 'string' && v && !v.startsWith('enc:')) out[a][b] = 'enc:' + store.encryptString(v).toString('base64');
+  }
+  return out;
+}
+function unseal(cfg, store = safeStorage()) {
+  for (const [a, b] of SECRET_PATHS) {
+    const v = cfg[a] && cfg[a][b];
+    if (typeof v !== 'string' || !v.startsWith('enc:')) continue;
+    try { cfg[a][b] = store ? store.decryptString(Buffer.from(v.slice(4), 'base64')) : ''; } catch (e) { cfg[a][b] = ''; } // не расшифровался — токен введут заново
+  }
   return cfg;
 }
 
-module.exports = { DEFAULTS, deepMerge, loadConfig, saveConfig };
+function loadConfig(db, store) {
+  const stored = db.getSetting('config', {}) || {};
+  const cfg = unseal(deepMerge(DEFAULTS, stored), store);
+  // Токен, сохранённый раньше открытым текстом, сразу перезаписываем зашифрованным
+  const t = stored.telegram && stored.telegram.token;
+  if (t && !String(t).startsWith('enc:') && (store || safeStorage())) {
+    saveConfig(db, cfg, store);
+    if (db.vacuum) db.vacuum();
+  }
+  return cfg;
+}
+
+function saveConfig(db, cfg, store) {
+  db.setSetting('config', seal(cfg, store));
+  return cfg;
+}
+
+module.exports = { DEFAULTS, deepMerge, loadConfig, saveConfig, seal, unseal };

@@ -32,6 +32,7 @@ class NetGuard {
   constructor({ interfaces = () => os.networkInterfaces(), physical = null } = {}) {
     this.interfaces = interfaces;
     this.physical = physical;
+    this.openWifi = new Set(); // открытые сети Wi-Fi без пароля — там трафик видят все вокруг
     this.nets = [];
     this.stamp = '';
     this.refresh();
@@ -66,6 +67,7 @@ class NetGuard {
     const remote = ip4(remoteAddress);
     if (isLoopback(remote)) return { ok: true, reason: 'этот компьютер' };
     const net = this.nets.find((n) => n.address === local);
+    if (net && this.openWifi.has(net.iface)) return { ok: false, reason: 'открытая сеть Wi-Fi без пароля — в ней любой может подслушать связь', iface: net.iface };
     if (!net) return { ok: false, reason: isPrivate(local) ? 'подключение через VPN или виртуальный адаптер' : 'подключение не из домашней сети' };
     if (!isPrivate(remote) || !sameSubnet(remote, net.address, net.netmask)) return { ok: false, reason: 'адрес не из вашей домашней сети', iface: net.iface };
     return { ok: true, iface: net.iface };
@@ -75,4 +77,17 @@ class NetGuard {
 /** Имена настоящих адаптеров Windows (Wi-Fi, кабель) — без VPN и виртуальных. */
 const PHYSICAL_PS = "@(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.HardwareInterface -and -not $_.Virtual } | ForEach-Object { $_.Name }) | ConvertTo-Json -Compress";
 
-module.exports = { NetGuard, PHYSICAL_PS, isPrivate, sameSubnet, VIRTUAL };
+/** Состояние Wi-Fi по-английски и по-русски не важно: ищем признаки шифрования в описании подключения. */
+const OPEN_WIFI_PS = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; netsh wlan show interfaces | Out-String';
+function openWifiNames(out) {
+  const names = [];
+  for (const block of String(out || '').split(/\r?\n\s*\r?\n/)) {
+    const lines = block.split(/\r?\n/).filter((l) => /:/.test(l));
+    if (!lines.length || !/^\s*SSID\s*:/m.test(block)) continue; // не подключено
+    const name = lines[0].slice(lines[0].indexOf(':') + 1).trim();
+    if (name && !/WPA|WEP|802\.1X|RSNA|SAE|OWE|CCMP|GCMP|TKIP/i.test(block)) names.push(name);
+  }
+  return names;
+}
+
+module.exports = { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, openWifiNames, isPrivate, sameSubnet, VIRTUAL };

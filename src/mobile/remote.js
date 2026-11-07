@@ -44,8 +44,8 @@
       try { rc.dc.send(JSON.stringify({ type: 'input', cmd: c })); return Promise.resolve(); } catch (e) { /* ниже — по HTTP */ }
     }
     rc.httpBusy = true;
-    rc.queue = rc.queue.then(() => fetch('/api/remote/input', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(c),
+    rc.queue = rc.queue.then(() => signedFetch('/api/remote/input', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || 'Ошибка управления', 'err'); }
     }).catch(() => {})).then(() => { rc.httpBusy = false; });
@@ -137,8 +137,8 @@
 
   function stopSession(sid) {
     if (!sid) return;
-    fetch('/api/remote/rtc/stop', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ sid }), keepalive: true,
+    signedFetch('/api/remote/rtc/stop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid }), keepalive: true,
     }).catch(() => {});
   }
 
@@ -234,8 +234,8 @@
       const t0 = performance.now();
       const Q = JPEG_Q[rc.preset] || JPEG_Q.auto;
       try {
-        const r = await fetch(`/api/remote/frame?monitor=${rc.monitor}&w=${Q.w}&q=${Q.q}`, {
-          headers: { Authorization: 'Bearer ' + token }, cache: 'no-store',
+        const r = await signedFetch(`/api/remote/frame?monitor=${rc.monitor}&w=${Q.w}&q=${Q.q}`, {
+          cache: 'no-store',
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));

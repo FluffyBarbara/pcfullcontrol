@@ -67,18 +67,34 @@ class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }
 
+// Каждый запрос подписывается ключом телефона; сам ключ по Wi-Fi не передаётся (см. shared/sig.js)
+let clockOffset = 0;
+function authHeaders(method, path) {
+  if (!token) return {};
+  const u = new URL(path, location.origin);
+  return { 'X-PCFC-Auth': PcfcSig.authHeader(token, method || 'GET', u.pathname + u.search, Date.now() + clockOffset) };
+}
+/** fetch с подписью; если часы телефона и ПК расходятся — подстраивается и повторяет один раз. */
+async function signedFetch(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const go = () => fetch(path, { ...opts, headers: { ...(opts.headers || {}), ...authHeaders(method, path) } });
+  let r = await go();
+  const st = r.headers.get('X-PCFC-Time');
+  if (r.status === 401 && st) { clockOffset = Number(st) - Date.now(); r = await go(); }
+  return r;
+}
+
 async function api(path, { method, json, body, raw, headers = {} } = {}) {
-  if (token) headers.Authorization = 'Bearer ' + token;
   if (json !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
   let r;
   try {
-    r = await fetch(path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers, body });
+    r = await signedFetch(path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers, body });
   } catch (e) {
     setOnline(false);
     throw new ApiError('Нет связи с компьютером. Он включён и в той же сети Wi-Fi?', 0);
   }
   setOnline(true);
-  if (r.status === 401) {
+  if (r.status === 401 && token) {
     token = null;
     store.del(TOKEN_KEY);
     showPair();
@@ -164,13 +180,17 @@ otpInputs.forEach((inp, i) => {
   inp.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !inp.value && otpInputs[i - 1]) otpInputs[i - 1].focus(); });
 });
 
-async function doPair(code) {
+async function doPair(code, secret = '') {
   $('#pair-error').textContent = '';
   try {
+    const dev = { name: $('#device-name').value.trim() || 'Телефон', platform: IS_IOS ? 'ios' : /android/i.test(navigator.userAgent) ? 'android' : 'web' };
+    // По QR-коду: ни код, ни ключ доступа по сети не идут открытым текстом — только доказательство
+    // знания секрета из QR и зашифрованный этим секретом ключ в ответ
+    const salt = PcfcSig.hex(crypto.getRandomValues(new Uint8Array(16)));
     const res = await api('/api/pair', {
-      json: { code, name: $('#device-name').value.trim() || 'Телефон', platform: IS_IOS ? 'ios' : /android/i.test(navigator.userAgent) ? 'android' : 'web' },
+      json: secret ? { ...dev, salt, proof: PcfcSig.hex(PcfcSig.hmac(secret, 'pair:' + salt)) } : { ...dev, code },
     });
-    token = res.token;
+    token = res.sealed ? PcfcSig.unseal(secret, salt, res.sealed) : res.token;
     store.set(TOKEN_KEY, token);
     history.replaceState(null, '', location.pathname + location.search);
     haptic(20);
@@ -788,8 +808,9 @@ $('#file-input').addEventListener('change', async (e) => {
 function uploadFile(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `/api/files/upload?name=${encodeURIComponent(file.name)}&dir=${encodeURIComponent(filesPath || '')}`);
-    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    const url = `/api/files/upload?name=${encodeURIComponent(file.name)}&dir=${encodeURIComponent(filesPath || '')}`;
+    xhr.open('PUT', url);
+    for (const [k, v] of Object.entries(authHeaders('PUT', url))) xhr.setRequestHeader(k, v);
     xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded / ev.total); };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
@@ -1015,7 +1036,7 @@ function watchUpdate(target, from) {
     if (Date.now() - started > 10 * 60000) { clearInterval(updWatch); show(0, 'Не дождался ответа от ПК. Проверьте программу на компьютере.'); return; }
     let st;
     try {
-      const r = await fetch('/api/update/state', { headers: { Authorization: 'Bearer ' + token } });
+      const r = await signedFetch('/api/update/state');
       if (!r.ok) throw new Error('нет ответа');
       st = await r.json();
     } catch (e) {
@@ -1131,12 +1152,12 @@ if (!store.get('tipsHinted')) {
 }
 
 async function pairFromHash() {
-  const m = location.hash.match(/#\/pair\/(\d{6})/);
+  const m = location.hash.match(/#\/pair\/(\d{6})(?:\/([0-9a-f]{32}))?/);
   if (!m) return false;
   showPair();
   $('#pair-form').classList.add('hidden');
   $('#pair-auto').classList.remove('hidden');
-  await doPair(m[1]);
+  await doPair(m[1], m[2] || '');
   return true;
 }
 window.addEventListener('hashchange', pairFromHash);

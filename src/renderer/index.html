@@ -505,8 +505,10 @@
         <div class="card">
           <h3 class="card-title mb6"><i data-ic="folder" data-size="18"></i>Файлы</h3>
           <label class="field mt">Папка для файлов с телефона <input class="input" data-cfg="files.uploadDir" placeholder="по умолчанию — Загрузки\PCControl"></label>
-          <label class="field mt">Доступ только к папкам (по одной в строке; пусто — весь диск)
+          <label class="field mt">Доступ только к папкам (по одной в строке; пусто — ваша папка пользователя)
             <textarea class="input" rows="3" data-cfg="files.allowedRoots" data-lines placeholder="C:\Users\Имя\Documents"></textarea></label>
+          <div class="set-row mt"><span class="set-ic"><i data-ic="alert" data-size="17"></i></span><span class="set-text"><b>Доступ ко всему диску</b><small>Телефон увидит все диски, а не только вашу папку. Данные программы и ключи закрыты всегда</small></span><label class="switch"><input type="checkbox" data-cfg="files.fullDiskAccess"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="alert" data-size="17"></i></span><span class="set-text"><b>Сохранять файлы в любую папку</b><small>Иначе — только в папку для файлов с телефона. В системные папки и автозагрузку нельзя всегда</small></span><label class="switch"><input type="checkbox" data-cfg="files.uploadAnywhere"><span></span></label></div>
         </div>
       </div>
 

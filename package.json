@@ -1,7 +1,7 @@
 {
   "name": "pc-full-control",
   "productName": "PC Full Control",
-  "version": "1.12.3",
+  "version": "1.12.4",
   "description": "Управление компьютером с телефона через Telegram",
   "main": "src/main/main.js",
   "author": "PC Full Control",
@@ -17,10 +17,10 @@
     "electron-updater": "6.8.10",
     "qrcode": "1.5.4",
     "sql.js": "1.14.2",
-    "systeminformation": "5.33.16"
+    "systeminformation": "5.33.19"
   },
   "devDependencies": {
-    "electron": "44.9.0",
+    "electron": "44.10.2",
     "electron-builder": "26.17.0"
   },
   "build": {

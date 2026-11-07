@@ -104,7 +104,7 @@ test('планировщик из Telegram', async () => {
 
 test('файлы: просмотр, скачивание и загрузка с телефона', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcc-bot-'));
-  const { ctx, bot, fake } = await makeBot({ files: { uploadDir: path.join(dir, 'up') } });
+  const { ctx, bot, fake } = await makeBot({ files: { uploadDir: path.join(dir, 'up'), fullDiskAccess: true } });
   fs.writeFileSync(path.join(dir, 'doc.txt'), 'содержимое');
   await bot.onMessage(msg(`/files ${dir}`));
   assert.match(JSON.stringify(fake.last().kb), /doc\.txt/);

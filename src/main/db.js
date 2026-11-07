@@ -109,6 +109,12 @@ class Database {
   }
 
   /** Атомарная запись базы на диск. */
+  /** Пересобрать файл базы: удалённые данные (например, старый открытый токен) не остаются в свободных страницах. */
+  vacuum() {
+    try { this.db.exec('VACUUM'); } catch (e) { /* ignore */ }
+    this.save();
+  }
+
   save() {
     if (!this.file) return;
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }

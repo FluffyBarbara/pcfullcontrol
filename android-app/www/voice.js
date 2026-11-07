@@ -20,8 +20,12 @@ function say(text) {
 function status(t) { $('#v-status').textContent = t; }
 function bubble(id, text) { const b = $(id); b.textContent = text; b.classList.toggle('hidden', !text); }
 
+// Запрос подписывается ключом телефона — сам ключ по Wi-Fi не передаётся (sig.js)
+let clockOffset = 0;
 async function post(path, body, type) {
-  const r = await fetch(PC + path, { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': type || 'application/json' }, body });
+  const go = () => fetch(PC + path, { method: 'POST', headers: { 'X-PCFC-Auth': PcfcSig.authHeader(TOKEN, 'POST', path, Date.now() + clockOffset), 'Content-Type': type || 'application/json' }, body });
+  let r = await go();
+  if (r.status === 401 && r.headers.get('X-PCFC-Time')) { clockOffset = Number(r.headers.get('X-PCFC-Time')) - Date.now(); r = await go(); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'Ошибка ' + r.status);
   return j;

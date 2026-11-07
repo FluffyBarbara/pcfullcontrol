@@ -272,15 +272,23 @@ class TelegramBot {
     }
   }
 
+  /** Неверные коды за последние 10 минут (блокировка не вечная — хозяин, ошибившийся 5 раз, не запрёт себя). */
+  failsOf(id) {
+    const arr = (this.pairFails.get(id) || []).filter((t) => Date.now() - t < 10 * 60 * 1000);
+    if (arr.length) this.pairFails.set(id, arr); else this.pairFails.delete(id);
+    if (this.pairFails.size > 1000) this.pairFails.clear();
+    return arr;
+  }
+
   async pair(chatId, code, user) {
     if (this.ctx.isAuthorized(user.id)) return this.send(chatId, '✅ Этот аккаунт уже привязан.', MAIN_KB);
-    if ((this.pairFails.get(user.id) || 0) >= 5) return this.send(chatId, '⛔ Слишком много неверных попыток.');
+    if (this.failsOf(user.id).length >= 5) return this.send(chatId, '⛔ Слишком много неверных попыток. Подождите 10 минут.');
     if (!this.ctx.botPairingOpen) return this.send(chatId, '🔒 Привязка закрыта. Откройте PC Full Control на компьютере и отсканируйте QR-код ещё раз.');
     const expected = this.ctx.pairingCode();
     const given = Buffer.from(String(code || '').trim().toUpperCase());
     const ok = given.length === expected.length && crypto.timingSafeEqual(given, Buffer.from(expected));
     if (!ok) {
-      this.pairFails.set(user.id, (this.pairFails.get(user.id) || 0) + 1);
+      this.pairFails.set(user.id, [...this.failsOf(user.id), Date.now()]);
       return this.send(chatId, '❌ Неверный код. Отсканируйте QR-код в приложении на компьютере.');
     }
     const hadUsers = this.ctx.authorizedIds().length > 0;

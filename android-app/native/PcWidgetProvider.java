@@ -17,7 +17,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -59,8 +58,9 @@ public class PcWidgetProvider extends AppWidgetProvider {
         }
         HttpURLConnection c = null;
         try {
-            URL u = new URL(base + "/api/widget?k=" + URLEncoder.encode(key, "UTF-8"));
+            URL u = new URL(base + "/api/widget");
             c = (HttpURLConnection) u.openConnection();
+            c.setRequestProperty("X-Widget-Key", key);
             c.setConnectTimeout(4000);
             c.setReadTimeout(6000);
             int code = c.getResponseCode();

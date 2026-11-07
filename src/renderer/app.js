@@ -489,10 +489,22 @@ $$('#phone-tabs button').forEach((b) => b.addEventListener('click', () => {
   $$('#phone-tabs button').forEach((x) => x.classList.toggle('active', x === b));
   $('#phone-app').classList.toggle('hidden', b.dataset.tab !== 'app');
   $('#phone-tg').classList.toggle('hidden', b.dataset.tab !== 'tg');
+  if (b.dataset.tab === 'tg') openBotPairing();
 }));
+
+// QR-код бота на экране — привязка Telegram открыта; закрылась вкладка — через 3 минуты закроется и привязка
+async function openBotPairing() {
+  if ($('#phone-tg').classList.contains('hidden') || document.hidden) return;
+  try {
+    const p = await api('bot-pairing-open');
+    STATE.pairing = p;
+    if (p.qr) { $('#tg-qr').src = p.qr; $('#tg-cmd').textContent = '/pair ' + p.code; }
+  } catch (e) { /* ignore */ }
+}
 
 let lastCode = '';
 async function loadMobile() {
+  openBotPairing();
   let m;
   try { m = await api('mobile-info'); } catch (e) { return; }
   const st = $('#m-status');

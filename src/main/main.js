@@ -485,7 +485,6 @@ async function ensureAutostartOnFirstRun() {
 
 // ================= Связь с окном (IPC) =================
 async function pairingInfo() {
-  ctx.openBotPairing(); // QR-код для Telegram показан в программе — привязка открыта 10 минут
   const code = ctx.pairingCode();
   const username = ctx.bot && ctx.bot.username;
   if (!username) return { code, link: null, qr: null };
@@ -600,6 +599,8 @@ function registerIpc() {
   });
 
   handle('regen-pair', () => { ctx.pairingCode(true); return pairingInfo(); });
+  // Вкладка «Telegram-бот» открыта и QR-код на экране — только тогда бот принимает код привязки
+  handle('bot-pairing-open', () => { ctx.openBotPairing(); return pairingInfo(); });
 
   // --- приложение на телефоне ---
   handle('mobile-info', async () => {

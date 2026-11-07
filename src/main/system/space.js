@@ -107,7 +107,7 @@ class SpaceScanner {
     let trash = null;
     try { const { shell } = require('electron'); if (shell && shell.trashItem) trash = (p) => shell.trashItem(p); } catch (e) { /* вне Electron */ }
     if (!permanent && !trash) throw new Error('Корзина недоступна — удаление отменено');
-    const r = await this.ctx.files.deletePaths(list, { permanent, trash });
+    const r = await this.ctx.files.deletePaths(list, { permanent, trash, local: source === 'local' });
     const ok = r.filter((x) => x.ok).map((x) => x.path);
     this.forget(ok);
     if (ok.length) {

@@ -10,7 +10,7 @@ const { LanServer } = require('../src/main/lan-server');
 
 async function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcc-lan-'));
-  const ctx = await makeCtx({ mobile: { port: 0 }, files: { uploadDir: path.join(dir, 'up') } });
+  const ctx = await makeCtx({ mobile: { port: 0 }, files: { uploadDir: path.join(dir, 'up'), fullDiskAccess: true } });
   const lan = new LanServer(ctx);
   await lan.start();
   lan.openPairing(); // как будто на ПК открыт раздел «Телефон»
