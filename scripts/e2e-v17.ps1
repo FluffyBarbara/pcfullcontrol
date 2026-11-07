@@ -36,8 +36,14 @@ Remove-ItemProperty $run -Name 'PCFC-E2E-Startup'; Remove-ItemProperty $appr -Na
 Write-Host '  автозагрузка: выключение и включение работают (запись не удаляется)'
 
 Write-Host '=== 2з. Удаление выбранных файлов с телефона ==='
-$fd = Join-Path $env:TEMP 'pcfc-e2e-files'
+# Телефону по умолчанию доступна только папка пользователя (без AppData) — тестовая папка там
+$fd = Join-Path $env:USERPROFILE 'pcfc-e2e-files'
 New-Item -ItemType Directory -Force $fd | Out-Null
+$hidden = Join-Path $env:TEMP 'pcfc-e2e-hidden.txt'; 'x' | Set-Content $hidden
+$r = Invoke-RestMethod "$B/api/files/delete" -Method Post -Headers $J -ContentType 'application/json' -Body (@{ paths = @($hidden); permanent = $true } | ConvertTo-Json)
+if ($r[0].ok -or !(Test-Path $hidden)) { throw 'С телефона удалён файл в AppData — эта папка должна быть закрыта' }
+Write-Host "  AppData с телефона закрыта: $($r[0].error)"
+Remove-Item $hidden -Force
 'a' | Set-Content (Join-Path $fd 'del-me.txt'); 'b' | Set-Content (Join-Path $fd 'keep-me.txt'); 'c' | Set-Content (Join-Path $fd 'del-forever.txt')
 $body = @{ paths = @((Join-Path $fd 'del-me.txt')) } | ConvertTo-Json
 $r = Invoke-RestMethod "$B/api/files/delete" -Method Post -Headers $J -ContentType 'application/json' -Body $body
