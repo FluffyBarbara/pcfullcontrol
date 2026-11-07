@@ -5,6 +5,11 @@ on:
     branches: [main, pc-control]
   workflow_dispatch:
 
+# Новая отправка отменяет незаконченную сборку той же ветки — старая не перезапишет релиз поверх новой
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 # Сборке достаточно чтения; право писать (публиковать релиз) — только у шага публикации
 permissions:
   contents: read

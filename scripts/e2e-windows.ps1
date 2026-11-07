@@ -66,8 +66,13 @@ Write-Host 'Удалённое управление работает'
 Write-Host '=== 2в. Видео по WebRTC (до 120 кадр/с) и курсор через канал данных ==='
 $pw = Join-Path $env:RUNNER_TEMP 'pw'
 npm install --prefix $pw playwright-core@1.63.0 --no-audit --no-fund | Out-Host
-node scripts/e2e-rtc.js (Join-Path $pw 'node_modules\playwright-core') $pair.token
+# У «телефона в браузере» своя привязка: приложение телефона подписывает запросы, и после этого
+# его ключ без подписи больше не принимается (проверяем ниже)
+$pairRtc = Invoke-RestMethod 'http://127.0.0.1:8765/api/pair' -Method Post -ContentType 'application/json' -Body '{"code":"246810","name":"CI browser","platform":"android"}'
+node scripts/e2e-rtc.js (Join-Path $pw 'node_modules\playwright-core') $pairRtc.token
 if ($LASTEXITCODE -ne 0) { throw 'Трансляция экрана по WebRTC не работает' }
+try { Invoke-RestMethod 'http://127.0.0.1:8765/api/info' -Headers @{ Authorization = "Bearer $($pairRtc.token)" } | Out-Null; throw 'NOSIG' } catch { if ($_.Exception.Message -eq 'NOSIG') { throw 'Ключ телефона, который подписывает запросы, принят без подписи' } }
+Write-Host 'Запросы телефона подписываются; ключ без подписи отклоняется'
 
 Write-Host '=== 2г. Оптимизация: очищается только выбранное ==='
 $J = @{ Authorization = "Bearer $($pair.token)" }
