@@ -88,7 +88,8 @@ class FileManager {
     const resolved = path.resolve(raw);
     const real = realPath(resolved);
     // Папки, которые владелец сам указал в настройках на ПК, открыты (кроме данных программы)
-    const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)];
+    // (и в настоящем виде: в Windows путь бывает записан коротко, например C:\Users\RUNNER~1)
+    const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)].flatMap((c) => [c, realPath(c)]);
     for (const x of [resolved, real]) {
       const dd = this.dataDir();
       if (dd && inside(x, path.resolve(dd))) { this.onAlarm(x, op); throw new FileAccessError('Данные программы недоступны с телефона'); }
@@ -204,7 +205,7 @@ class FileManager {
       try {
         // С телефона — только в доступных папках и не в системных; с самого ПК — где угодно, кроме системного
         const p = local ? path.resolve(String(raw)) : this.check(raw, 'delete');
-        const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)].some((c) => inside(p, c));
+        const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)].some((c) => inside(p, c) || inside(realPath(p), realPath(c)));
         if (!local && !chosen && this.writeForbidden().some((w) => inside(p, w))) throw new FileAccessError('Удалять в этой папке с телефона нельзя — она нужна системе или программам');
         if (FileManager.isProtected(p)) throw new FileAccessError('Эту папку удалять нельзя — она нужна системе');
         let st;
