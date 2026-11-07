@@ -73,22 +73,20 @@ if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}
   rm -f "$KS"
   "$BT/apksigner" verify "$OUT"
 else
-  echo "::warning::Секреты подписи не заданы — подписываю ключом из кэша сборки. Надёжнее задать ANDROID_KEYSTORE_BASE64/PASSWORD."
-  # Ключ создаётся один раз (случайный) и хранится в кэше GitHub Actions — все версии подписаны одинаково,
-  # обновления ставятся поверх. Сборка — РЕЛИЗНАЯ: в отладочной через USB-отладку можно было бы
-  # прочитать данные приложения (адрес ПК и ключ доступа).
+  echo "::warning::Секреты подписи не заданы — подпись тем же ключом сборки, что и у прежних версий. Надёжнее задать ANDROID_KEYSTORE_BASE64/PASSWORD."
+  # Тот же способ подписи, что и раньше (ключ хранится в кэше GitHub Actions), — обновления ставятся поверх.
+  # Но приложение НЕ отладочное: иначе через USB-отладку можно было бы прочитать его данные
+  # (адрес ПК и ключ доступа).
   mkdir -p "$HOME/.android"
   if [ ! -f "$HOME/.android/debug.keystore" ]; then
     keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey \
       -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 30000 \
       -dname "CN=Android Debug,O=Android,C=US"
   fi
-  (cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon --stacktrace)
-  BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-  "$BT/zipalign" -f -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
-  "$BT/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey \
-    --ks-pass pass:android --key-pass pass:android --out "$OUT" /tmp/aligned.apk
-  "$BT/apksigner" verify --print-certs "$OUT" | head -3
+  sed -i 's/buildTypes {/buildTypes {\n        debug { debuggable false }/' android/app/build.gradle
+  grep -q 'debuggable false' android/app/build.gradle || { echo '::error::не удалось выключить отладочный режим' >&2; exit 1; }
+  (cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace)
+  cp android/app/build/outputs/apk/debug/app-debug.apk "$OUT"
 fi
 # Проверка: приложение не должно быть отладочным
 if "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt" dump badging "$OUT" 2>/dev/null | grep -q "application-debuggable"; then

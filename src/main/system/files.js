@@ -87,10 +87,12 @@ class FileManager {
     if (IS_WIN && /^\\\\|^\/\//.test(raw)) throw new FileAccessError('Сетевые пути недоступны');
     const resolved = path.resolve(raw);
     const real = realPath(resolved);
+    // Папки, которые владелец сам указал в настройках на ПК, открыты (кроме данных программы)
+    const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)];
     for (const x of [resolved, real]) {
       const dd = this.dataDir();
       if (dd && inside(x, path.resolve(dd))) { this.onAlarm(x, op); throw new FileAccessError('Данные программы недоступны с телефона'); }
-      if (this.sensitive().some((s) => inside(x, s))) throw new FileAccessError('Эта папка закрыта: в ней пароли и данные программ');
+      if (!chosen.some((c) => inside(x, c)) && this.sensitive().some((s) => inside(x, s))) throw new FileAccessError('Эта папка закрыта: в ней пароли и данные программ');
     }
     const roots = this.allowedRoots;
     // Папка загрузок доступна всегда — туда сохраняются файлы с телефона
@@ -109,7 +111,7 @@ class FileManager {
     if (!this.cfg.uploadAnywhere && !(inside(d, up) && inside(real, realPath(up)))) {
       throw new FileAccessError(`Сохранять файлы можно только в папку загрузок (${up}). Другие папки разрешаются в настройках программы на ПК.`);
     }
-    if (this.writeForbidden().some((w) => inside(d, w) || inside(real, w))) throw new FileAccessError('В эту папку сохранять нельзя — она нужна системе или программам');
+    if (!(inside(d, up) && inside(real, realPath(up))) && this.writeForbidden().some((w) => inside(d, w) || inside(real, w))) throw new FileAccessError('В эту папку сохранять нельзя — она нужна системе или программам');
     return d;
   }
 
@@ -202,7 +204,8 @@ class FileManager {
       try {
         // С телефона — только в доступных папках и не в системных; с самого ПК — где угодно, кроме системного
         const p = local ? path.resolve(String(raw)) : this.check(raw, 'delete');
-        if (!local && this.writeForbidden().some((w) => inside(p, w))) throw new FileAccessError('Удалять в этой папке с телефона нельзя — она нужна системе или программам');
+        const chosen = [...this.allowedRoots, path.resolve(this.uploadDir)].some((c) => inside(p, c));
+        if (!local && !chosen && this.writeForbidden().some((w) => inside(p, w))) throw new FileAccessError('Удалять в этой папке с телефона нельзя — она нужна системе или программам');
         if (FileManager.isProtected(p)) throw new FileAccessError('Эту папку удалять нельзя — она нужна системе');
         let st;
         try { st = fs.lstatSync(p); } catch (e) { throw new FileAccessError('Файл не найден'); }
