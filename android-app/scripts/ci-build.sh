@@ -5,8 +5,7 @@
 #  - если в секретах репозитория заданы ANDROID_KEYSTORE_BASE64 и ANDROID_KEYSTORE_PASSWORD
 #    (а также необязательный ANDROID_KEY_ALIAS), APK подписывается этим ключом — тогда новые
 #    версии ставятся поверх старых;
-#  - иначе собирается debug-версия с отладочной подписью (при обновлении может понадобиться
-#    удалить старую версию приложения).
+#  - иначе — релизная сборка с подписью постоянным ключом из кэша GitHub Actions.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT_VERSION=$(node -p "require('../package.json').version")
@@ -73,20 +72,22 @@ if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}
   rm -f "$KS"
   "$BT/apksigner" verify "$OUT"
 else
-  echo "::warning::Секреты подписи не заданы — подпись тем же ключом сборки, что и у прежних версий. Надёжнее задать ANDROID_KEYSTORE_BASE64/PASSWORD."
-  # Тот же способ подписи, что и раньше (ключ хранится в кэше GitHub Actions), — обновления ставятся поверх.
-  # Но приложение НЕ отладочное: иначе через USB-отладку можно было бы прочитать его данные
-  # (адрес ПК и ключ доступа).
+  echo "::warning::Секреты подписи не заданы — подпись постоянным ключом из кэша сборки. Надёжнее задать ANDROID_KEYSTORE_BASE64/PASSWORD."
+  # Ключ создаётся один раз (случайный) и хранится в кэше GitHub Actions — все версии подписаны одинаково,
+  # обновления ставятся поверх. (Отладочная сборка Gradle подписывала каждую версию новым ключом.)
+  # Сборка — РЕЛИЗНАЯ: в отладочной через USB-отладку можно было бы прочитать данные приложения.
   mkdir -p "$HOME/.android"
   if [ ! -f "$HOME/.android/debug.keystore" ]; then
     keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey \
       -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 30000 \
       -dname "CN=Android Debug,O=Android,C=US"
   fi
-  sed -i 's/buildTypes {/buildTypes {\n        debug { debuggable false }/' android/app/build.gradle
-  grep -q 'debuggable false' android/app/build.gradle || { echo '::error::не удалось выключить отладочный режим' >&2; exit 1; }
-  (cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace)
-  cp android/app/build/outputs/apk/debug/app-debug.apk "$OUT"
+  (cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon --stacktrace)
+  BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+  "$BT/zipalign" -f -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
+  "$BT/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey \
+    --ks-pass pass:android --key-pass pass:android --out "$OUT" /tmp/aligned.apk
+  "$BT/apksigner" verify --print-certs "$OUT" | grep -i 'SHA-256' | head -1
 fi
 # Проверка: приложение не должно быть отладочным
 if "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt" dump badging "$OUT" 2>/dev/null | grep -q "application-debuggable"; then
