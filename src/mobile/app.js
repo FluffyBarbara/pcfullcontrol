@@ -212,6 +212,10 @@ otpInputs.forEach((inp, i) => {
 
 async function doPair(code, secret = '') {
   $('#pair-error').textContent = '';
+  // Старый ключ от прежней привязки больше не нужен: запрос привязки идёт без него
+  // (иначе он был бы зашифрован ключом, которого ПК уже не знает)
+  token = null;
+  store.del(TOKEN_KEY);
   try {
     const dev = { name: $('#device-name').value.trim() || 'Телефон', platform: IS_IOS ? 'ios' : /android/i.test(navigator.userAgent) ? 'android' : 'web' };
     // По QR-коду: ни код, ни ключ доступа по сети не идут открытым текстом — только доказательство

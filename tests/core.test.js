@@ -162,6 +162,7 @@ test('у текущей версии есть запись в истории и�
   assert.deepEqual(between('1.12.4', '1.12.5').map((v) => v.version), ['1.12.5']);
   assert.deepEqual(between('1.12.5', '1.12.6').map((v) => v.version), ['1.12.6']);
   assert.deepEqual(between('1.12.6', '1.12.7').map((v) => v.version), ['1.12.7']);
+  assert.deepEqual(between('1.12.7', '1.12.8').map((v) => v.version), ['1.12.8']);
   const { fixOnly, isFix, display } = require('../src/shared/changelog');
   assert.equal(fixOnly('1.12.0', '1.12.1'), true);
   assert.equal(fixOnly('1.12.1', '1.12.3'), true);

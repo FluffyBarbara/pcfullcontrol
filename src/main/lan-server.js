@@ -519,6 +519,7 @@ class LanServer {
       return { app: 'pc-full-control', version: ctx.version, pcName: known ? ctx.pcName : null, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
     if (p === '/api/pair' && m === 'POST') {
+      if (req.headers['x-pcfc-enc'] === '1') throw new HttpError(400, 'Обновите страницу на телефоне и отсканируйте QR-код ещё раз');
       return this.pair(await readJson(req), ip);
     }
 

@@ -198,3 +198,13 @@ test('F-18: системные программы — по полному пут
     assert.equal(sysPath('ls'), 'ls');
   }
 });
+
+test('привязка: запрос, зашифрованный старым ключом, — понятная ошибка, а не «Неверный JSON»', async () => {
+  const { lan, base } = await setup();
+  try {
+    const sg = Sig.signed('старый-ключ', 'POST', '/api/pair', Date.now(), true);
+    const r = await fetch(base + '/api/pair', { method: 'POST', headers: { 'X-PCFC-Auth': sg.header, 'X-PCFC-Enc': '1' }, body: Buffer.from(Sig.encrypt(sg.key, 'req', sg.nonce, '{"code":"1"}')) });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /отсканируйте QR-код/);
+  } finally { lan.stop(); }
+});
