@@ -116,7 +116,7 @@
   // ---------------- шифрование содержимого (ChaCha20 + HMAC-SHA256) ----------------
   // Все данные между телефоном и ПК шифруются ключом телефона: подслушавший Wi-Fi видит только шум,
   // а подменить ответ (например, данные для трансляции экрана) нельзя — проверяется код HMAC.
-  function chacha20(key, nonce, data) {
+  function chacha20(key, nonce, data, counter = 0) {
     const k = new DataView(key.buffer, key.byteOffset, 32);
     const n = new DataView(nonce.buffer, nonce.byteOffset, 12);
     const st = new Uint32Array(16);
@@ -133,7 +133,7 @@
     };
     st[0] = 0x61707865; st[1] = 0x3320646e; st[2] = 0x79622d32; st[3] = 0x6b206574;
     for (let i = 0; i < 8; i++) st[4 + i] = k.getUint32(i * 4, true);
-    st[12] = 0;
+    st[12] = counter >>> 0;
     for (let i = 0; i < 3; i++) st[13 + i] = n.getUint32(i * 4, true);
     for (let off = 0; off < data.length; off += 64) {
       x.set(st);

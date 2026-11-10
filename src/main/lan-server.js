@@ -46,10 +46,15 @@ const hm = (key, msg) => crypto.createHmac('sha256', key).update(msg).digest();
 function encKeys(key, dir, nonce) {
   return { enc: hm(key, 'pcfc-enc'), mac: hm(key, 'pcfc-mac'), iv: hm(key, `iv:${dir}:${nonce}`).subarray(0, 12), head: Buffer.from(`${dir}:${nonce}:`) };
 }
-function encryptBody(key, dir, nonce, data) {
+// ChaCha20 — своя реализация (src/shared/sig.js): в Electron (BoringSSL) этого шифра нет
+const CHUNK = 1024 * 1024; // кратно 64 байтам — блоку ChaCha20
+async function encryptBody(key, dir, nonce, data) {
   const k = encKeys(key, dir, nonce);
-  const c = crypto.createCipheriv('chacha20', k.enc, Buffer.concat([Buffer.alloc(4), k.iv]));
-  const ct = Buffer.concat([c.update(data), c.final()]);
+  const ct = Buffer.alloc(data.length);
+  for (let off = 0; off < data.length; off += CHUNK) {
+    ct.set(Sig.chacha20(k.enc, k.iv, data.subarray(off, off + CHUNK), off / 64), off);
+    if (off + CHUNK < data.length) await new Promise((r) => setImmediate(r)); // большой файл — не замораживаем программу
+  }
   return Buffer.concat([ct, crypto.createHmac('sha256', k.mac).update(k.head).update(ct).digest()]);
 }
 function decryptBody(key, dir, nonce, box) {
@@ -58,8 +63,7 @@ function decryptBody(key, dir, nonce, box) {
   const ct = box.subarray(0, box.length - 32);
   const want = crypto.createHmac('sha256', k.mac).update(k.head).update(ct).digest();
   if (!crypto.timingSafeEqual(want, box.subarray(box.length - 32))) throw new HttpError(400, 'Данные подменены или повреждены');
-  const d = crypto.createDecipheriv('chacha20', k.enc, Buffer.concat([Buffer.alloc(4), k.iv]));
-  return Buffer.concat([d.update(ct), d.final()]);
+  return Buffer.from(Sig.chacha20(k.enc, k.iv, ct));
 }
 
 /**
@@ -75,14 +79,17 @@ class EncResponse extends Writable {
   getHeader(k) { return this.hdrs[String(k).toLowerCase()]; }
   writeHead(status, h = {}) { this.statusCode = status; for (const [k, v] of Object.entries(h || {})) this.setHeader(k, v); this.headersSent = true; return this; }
   _write(chunk, enc, cb) { this.chunks.push(Buffer.from(chunk, enc)); cb(); }
-  _final(cb) {
+  _final(cb) { this.finish().then(() => cb(), (e) => cb(e)); }
+
+  async finish() {
     const plain = Buffer.concat(this.chunks);
+    this.chunks = [];
     const a = this.req.pcfc;
     const h = { ...this.hdrs };
     delete h['content-length'];
     let body = plain;
     if (a && a.enc) {
-      body = encryptBody(a.key, 'res', a.nonce, plain);
+      body = await encryptBody(a.key, 'res', a.nonce, plain);
       h['x-pcfc-type'] = h['content-type'] || 'application/octet-stream';
       h['content-type'] = 'application/octet-stream';
       h['x-pcfc-enc'] = '1';
@@ -90,7 +97,6 @@ class EncResponse extends Writable {
     }
     h['content-length'] = body.length;
     try { this.res.writeHead(this.statusCode, h); this.res.end(body); } catch (e) { /* соединение закрыто */ }
-    cb();
   }
   _destroy(err, cb) { try { this.res.destroy(); } catch (e) { /* ignore */ } cb(err); }
 }

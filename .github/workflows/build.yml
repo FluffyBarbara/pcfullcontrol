@@ -33,6 +33,19 @@ jobs:
         run: npm test
         timeout-minutes: 10
 
+      - name: Тесты внутри Electron (тот же Node и криптография, что у программы)
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: |
+          $fail = 0
+          foreach ($f in Get-ChildItem tests -Filter *.test.js) {
+            & node_modules\electron\dist\electron.exe $f.FullName | Select-String '^# (pass|fail)|^not ok' | ForEach-Object { Write-Host "$($f.Name): $_" }
+            if ($LASTEXITCODE -ne 0) { $fail++ }
+          }
+          if ($fail) { throw "Тесты в Electron не прошли: $fail" }
+
       - name: Проверка зависимостей на уязвимости (npm audit)
         run: npm audit --audit-level=moderate
         continue-on-error: true

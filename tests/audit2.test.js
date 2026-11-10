@@ -144,8 +144,11 @@ test('F-10: слишком большой запрос — ответ 413, а н
 
 test('подпись и шифрование: X25519 и ChaCha20 совпадают с эталоном Node', () => {
   const key = crypto.randomBytes(32); const nonce = crypto.randomBytes(12); const data = crypto.randomBytes(777);
-  const ref = crypto.createCipheriv('chacha20', key, Buffer.concat([Buffer.alloc(4), nonce])).update(data);
-  assert.ok(Buffer.from(Sig.chacha20(new Uint8Array(key), new Uint8Array(nonce), new Uint8Array(data))).equals(ref));
+  // В Electron (BoringSSL) эталонного шифра нет — сверяем там, где он есть (обычный Node)
+  if (crypto.getCiphers().includes('chacha20')) {
+    const ref = crypto.createCipheriv('chacha20', key, Buffer.concat([Buffer.alloc(4), nonce])).update(data);
+    assert.ok(Buffer.from(Sig.chacha20(new Uint8Array(key), new Uint8Array(nonce), new Uint8Array(data))).equals(ref));
+  }
   const a = Sig.x25519Keys();
   const nk = crypto.generateKeyPairSync('x25519');
   const npub = nk.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
