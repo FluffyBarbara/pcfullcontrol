@@ -68,7 +68,6 @@ class NetGuard {
     const remote = ip4(remoteAddress);
     if (isLoopback(remote)) return { ok: true, reason: 'этот компьютер' };
     const net = this.nets.find((n) => n.address === local);
-    if (net && this.publicNets.has(net.iface)) return { ok: false, reason: 'сеть отмечена в Windows как общественная — в программе на ПК можно сделать её домашней', iface: net.iface, publicNet: true };
     if (net && this.openWifi.has(net.iface)) return { ok: false, reason: 'открытая сеть Wi-Fi без пароля — в ней любой может подслушать связь', iface: net.iface };
     if (!net) return { ok: false, reason: isPrivate(local) ? 'подключение через VPN или виртуальный адаптер' : 'подключение не из домашней сети' };
     if (!isPrivate(remote) || !sameSubnet(remote, net.address, net.netmask)) return { ok: false, reason: 'адрес не из вашей домашней сети', iface: net.iface };

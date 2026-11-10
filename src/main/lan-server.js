@@ -166,11 +166,6 @@ class LanServer {
     const v = this.guard.check(sock.localAddress, sock.remoteAddress);
     if (v.ok) return;
     sock.destroy();
-    if (v.publicNet && !this.publicWarned) {
-      this.publicWarned = true;
-      this.ctx.notifier.notify(`🛡 <b>Телефон не может подключиться</b>: сеть «${E(v.iface)}» отмечена в Windows как общественная, а в таких сетях программа никого не пускает. Если это ваша домашняя сеть — откройте PC Full Control → «Телефон» → «Сделать сеть домашней».`, { category: 'security', level: 'warning' });
-      return;
-    }
     const ip = String(sock.remoteAddress || '').replace(/^::ffff:/, '');
     const last = this.blocked.get(ip) || 0;
     if (Date.now() - last < 3600e3) return;

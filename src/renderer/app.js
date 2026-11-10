@@ -524,7 +524,7 @@ async function loadMobile() {
   if (pub.length) {
     $('#m-public').replaceChildren(el('div', { class: 'row' }, ic('shield', 20),
       el('div', { class: 'grow' }, el('b', { text: `Сеть «${pub.map((x) => x.name || x.alias).join('», «')}» отмечена как общественная` }),
-        el('div', { class: 'muted small', text: 'В общественных сетях (кафе, гостиница) телефон к ПК не подключится — так безопаснее. Если это ваша домашняя сеть, сделайте её домашней.' })),
+        el('div', { class: 'muted small', text: 'Телефон подключится и так. Но если это ваша домашняя сеть, лучше отметить её как домашнюю: Windows точнее настроит защиту. В кафе и гостиницах не открывайте раздел «Телефон» без нужды.' })),
       el('button', { class: 'btn primary', onclick: async () => {
         try { await api('net-make-private', { aliases: pub.map((x) => x.alias) }); toast('Сеть отмечена как домашняя'); loadMobile(); } catch (e) { toast(e.message, 'err'); }
       } }, 'Сделать сеть домашней')));

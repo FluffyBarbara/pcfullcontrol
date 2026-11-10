@@ -221,13 +221,14 @@ async function onQr(text) {
   setTimeout(() => { lastQr = ''; }, 3000);
   let u;
   try { u = new URL(text); } catch (e) { toast('Это не QR-код PC Full Control'); return false; }
-  const m = u.hash.match(/#\/pair\/(\d{6})/);
+  const m = u.hash.match(/#\/pair\/(\d{6})(\/[0-9a-f]{32})?/);
   if (!/^https?:$/.test(u.protocol) || !m) { toast('Это не QR-код PC Full Control'); return false; }
   if (navigator.vibrate) navigator.vibrate(30);
   stopScan();
   const base = normalizeAddress(u.origin);
   toast('Подключаюсь…');
-  await addPc(base, `#/pair/${m[1]}`);
+  // Вместе с секретом из QR-кода: с ним ключ доступа приходит зашифрованным
+  await addPc(base, `#/pair/${m[1]}${m[2] || ''}`);
   return true;
 }
 

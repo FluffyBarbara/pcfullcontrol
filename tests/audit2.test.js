@@ -181,14 +181,12 @@ test('F-05: скрытые файлы в папке пользователя з�
   assert.doesNotThrow(() => fm.check(path.join(home, 'Documents', 'report.docx')));
 });
 
-test('F-21: в сети, которую Windows считает общественной, подключения не принимаются', () => {
+test('F-21: общественная сеть Windows не мешает подключению из домашней подсети (только подсказка)', () => {
   const { NetGuard } = require('../src/main/net-guard');
   const g = new NetGuard({ interfaces: () => ({ 'Wi-Fi': [{ address: '192.168.1.5', netmask: '255.255.255.0', family: 'IPv4', internal: false }] }) });
+  g.publicNets = new Set(['Wi-Fi']); // Windows часто так помечает домашний Wi-Fi
   assert.equal(g.check('192.168.1.5', '192.168.1.9').ok, true);
-  g.publicNets = new Set(['Wi-Fi']);
-  const v = g.check('192.168.1.5', '192.168.1.9');
-  assert.equal(v.ok, false);
-  assert.equal(v.publicNet, true);
+  assert.equal(g.check('192.168.1.5', '85.1.2.3').ok, false, 'чужие по-прежнему не проходят');
 });
 
 test('F-18: системные программы — по полному пути; на других системах путь не меняется', () => {
