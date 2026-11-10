@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { IS_WIN, IS_MAC, run, powershell, spawnDetached, psQuote } = require('./exec');
+const { IS_WIN, IS_MAC, run, powershell, spawnDetached, psQuote, CMD_EXE } = require('./exec');
 
 const electron = () => require('electron');
 
@@ -16,10 +16,18 @@ async function openUrl(arg) {
   return `Открываю ${url}`;
 }
 
-async function launch(arg) {
+async function launch(arg, { source = 'app', files = null, apps = [] } = {}) {
   const target = String(arg || '').trim().replace(/^"(.*)"$/, '$1');
   if (!target) throw new Error('Укажите программу или путь');
   if (/^https?:\/\//i.test(target)) return openUrl(target);
+  // Программы из списка «Мои программы» владелец добавил сам — их можно запускать откуда угодно
+  const own = (apps || []).some((a) => a && String(a.cmd || '').trim().replace(/^"(.*)"$/, '$1') === target);
+  const remote = source !== 'app' && source !== 'local';
+  if (fs.existsSync(target) && remote && !own && files) {
+    // С телефона или из Telegram — по тем же правилам, что и файлы: по умолчанию только ваша папка
+    // пользователя (без AppData), данные программы — никогда; системные программы — только по имени
+    files.check(target, 'exec');
+  }
   if (fs.existsSync(target)) {
     const err = await electron().shell.openPath(target);
     if (err) throw new Error(err);
@@ -28,7 +36,7 @@ async function launch(arg) {
     throw new Error('Укажите имя программы (например, notepad) или путь к файлу. Для команд включите «Выполнение команд» в настройках.');
   } else if (IS_WIN) {
     // Имя программы (notepad, chrome) — через start, как в окне «Выполнить»
-    spawnDetached('cmd.exe', ['/d', '/s', '/c', `start "" ${target}`], { windowsVerbatimArguments: true });
+    spawnDetached(CMD_EXE, ['/d', '/s', '/c', `start "" ${target}`], { windowsVerbatimArguments: true });
   } else if (IS_MAC) {
     spawnDetached('open', ['-a', target]);
   } else {

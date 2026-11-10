@@ -2,7 +2,7 @@
 // Учёт времени в программах: раз в минуту — какая программа на переднем плане и был ли человек за компьютером.
 // Время простоя (больше 5 минут без мыши и клавиатуры) не засчитывается. Всё хранится только локально.
 const { spawn } = require('child_process');
-const { IS_WIN } = require('./system/exec');
+const { IS_WIN, PS_EXE } = require('./system/exec');
 
 const AGENT = `
 Add-Type -TypeDefinition @'
@@ -107,7 +107,7 @@ class ActivityTracker {
       return;
     }
     const encoded = Buffer.from("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n" + AGENT, 'utf16le').toString('base64');
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     this.proc = p;
     let buf = '';
     p.stdout.on('data', (d) => {

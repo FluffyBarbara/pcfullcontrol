@@ -14,6 +14,8 @@
 
   function utf8(s) {
     if (s instanceof Uint8Array) return s;
+    if (s instanceof ArrayBuffer) return new Uint8Array(s);
+    if (ArrayBuffer.isView(s)) return new Uint8Array(s.buffer, s.byteOffset, s.byteLength);
     return new TextEncoder().encode(String(s));
   }
 
@@ -111,7 +113,138 @@
     return hex(out);
   };
 
-  const api = { sha256, hmac, hex, fromHex, signKey, deviceId, message, authHeader, seal, unseal };
+  // ---------------- шифрование содержимого (ChaCha20 + HMAC-SHA256) ----------------
+  // Все данные между телефоном и ПК шифруются ключом телефона: подслушавший Wi-Fi видит только шум,
+  // а подменить ответ (например, данные для трансляции экрана) нельзя — проверяется код HMAC.
+  function chacha20(key, nonce, data) {
+    const k = new DataView(key.buffer, key.byteOffset, 32);
+    const n = new DataView(nonce.buffer, nonce.byteOffset, 12);
+    const st = new Uint32Array(16);
+    const x = new Uint32Array(16);
+    const out = new Uint8Array(data.length);
+    const blk = new Uint8Array(64);
+    const bv = new DataView(blk.buffer);
+    const rot = (v, c) => (v << c) | (v >>> (32 - c));
+    const qr = (a, b, c, d) => {
+      x[a] = (x[a] + x[b]) >>> 0; x[d] = rot(x[d] ^ x[a], 16);
+      x[c] = (x[c] + x[d]) >>> 0; x[b] = rot(x[b] ^ x[c], 12);
+      x[a] = (x[a] + x[b]) >>> 0; x[d] = rot(x[d] ^ x[a], 8);
+      x[c] = (x[c] + x[d]) >>> 0; x[b] = rot(x[b] ^ x[c], 7);
+    };
+    st[0] = 0x61707865; st[1] = 0x3320646e; st[2] = 0x79622d32; st[3] = 0x6b206574;
+    for (let i = 0; i < 8; i++) st[4 + i] = k.getUint32(i * 4, true);
+    st[12] = 0;
+    for (let i = 0; i < 3; i++) st[13 + i] = n.getUint32(i * 4, true);
+    for (let off = 0; off < data.length; off += 64) {
+      x.set(st);
+      for (let i = 0; i < 10; i++) {
+        qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15);
+        qr(0, 5, 10, 15); qr(1, 6, 11, 12); qr(2, 7, 8, 13); qr(3, 4, 9, 14);
+      }
+      for (let i = 0; i < 16; i++) bv.setUint32(i * 4, (x[i] + st[i]) >>> 0, true);
+      const lim = Math.min(64, data.length - off);
+      for (let i = 0; i < lim; i++) out[off + i] = data[off + i] ^ blk[i];
+      st[12] = (st[12] + 1) >>> 0;
+    }
+    return out;
+  }
+
+  function concat(...parts) {
+    const len = parts.reduce((s, p) => s + p.length, 0);
+    const out = new Uint8Array(len);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  function keys(key, dir, nonce) {
+    return { enc: hmac(key, 'pcfc-enc'), mac: hmac(key, 'pcfc-mac'), iv: hmac(key, `iv:${dir}:${nonce}`).slice(0, 12), head: utf8(`${dir}:${nonce}:`) };
+  }
+  /** Шифрует данные запроса (dir='req') или ответа (dir='res'); к результату дописан код проверки (32 байта). */
+  function encrypt(key, dir, nonce, data) {
+    const kk = keys(key, dir, nonce);
+    const ct = chacha20(kk.enc, kk.iv, utf8(data));
+    return concat(ct, hmac(kk.mac, concat(kk.head, ct)));
+  }
+  /** Расшифровка; при подмене данных — ошибка. */
+  function decrypt(key, dir, nonce, box) {
+    const b = utf8(box);
+    if (b.length < 32) throw new Error('повреждённые данные');
+    const kk = keys(key, dir, nonce);
+    const ct = b.subarray(0, b.length - 32);
+    const want = hmac(kk.mac, concat(kk.head, ct));
+    let diff = 0;
+    for (let i = 0; i < 32; i++) diff |= want[i] ^ b[b.length - 32 + i];
+    if (diff) throw new Error('данные подменены или повреждены');
+    return chacha20(kk.enc, kk.iv, ct);
+  }
+
+  /** Подписанный запрос с шифрованием: { header, key, nonce } (флаг шифрования входит в подпись). */
+  function signed(token, method, url, now = Date.now(), enc = true) {
+    const key = signKey(token);
+    const n = hex(randomBytes(12));
+    const msg = message(method, url, now, n) + (enc ? '\nE' : '');
+    return { header: `${deviceId(key)}.${now}.${n}.${hex(hmac(key, msg))}`, key, nonce: n };
+  }
+
+  // ---------------- X25519 (обмен ключами при привязке по коду) ----------------
+  // По мотивам TweetNaCl (общественное достояние): общий секрет вычисляют телефон и ПК, по сети он не идёт.
+  const gf = (init) => { const r = new Float64Array(16); if (init) for (let i = 0; i < init.length; i++) r[i] = init[i]; return r; };
+  const _121665 = gf([0xdb41, 1]);
+  function car25519(o) { for (let i = 0; i < 16; i++) { o[i] += 65536; const c = Math.floor(o[i] / 65536); o[(i + 1) * (i < 15 ? 1 : 0)] += c - 1 + 37 * (c - 1) * (i === 15 ? 1 : 0); o[i] -= c * 65536; } }
+  function sel25519(p, q, b) { const c = ~(b - 1); for (let i = 0; i < 16; i++) { const t = c & (p[i] ^ q[i]); p[i] ^= t; q[i] ^= t; } }
+  function pack25519(o, n) {
+    const m = gf(); const t = gf();
+    for (let i = 0; i < 16; i++) t[i] = n[i];
+    car25519(t); car25519(t); car25519(t);
+    for (let j = 0; j < 2; j++) {
+      m[0] = t[0] - 0xffed;
+      for (let i = 1; i < 15; i++) { m[i] = t[i] - 0xffff - ((m[i - 1] >> 16) & 1); m[i - 1] &= 0xffff; }
+      m[15] = t[15] - 0x7fff - ((m[14] >> 16) & 1);
+      const b = (m[15] >> 16) & 1;
+      m[14] &= 0xffff;
+      sel25519(t, m, 1 - b);
+    }
+    for (let i = 0; i < 16; i++) { o[2 * i] = t[i] & 0xff; o[2 * i + 1] = t[i] >> 8; }
+  }
+  function unpack25519(o, n) { for (let i = 0; i < 16; i++) o[i] = n[2 * i] + (n[2 * i + 1] << 8); o[15] &= 0x7fff; }
+  const A = (o, a, b) => { for (let i = 0; i < 16; i++) o[i] = a[i] + b[i]; };
+  const Z = (o, a, b) => { for (let i = 0; i < 16; i++) o[i] = a[i] - b[i]; };
+  function M(o, a, b) {
+    const t = new Float64Array(31);
+    for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) t[i + j] += a[i] * b[j];
+    for (let i = 0; i < 15; i++) t[i] += 38 * t[i + 16];
+    for (let i = 0; i < 16; i++) o[i] = t[i];
+    car25519(o); car25519(o);
+  }
+  const S = (o, a) => M(o, a, a);
+  function inv25519(o, i) { const c = gf(); for (let a = 0; a < 16; a++) c[a] = i[a]; for (let a = 253; a >= 0; a--) { S(c, c); if (a !== 2 && a !== 4) M(c, c, i); } for (let a = 0; a < 16; a++) o[a] = c[a]; }
+  function scalarmult(n, p) {
+    const z = new Uint8Array(32); const x = new Float64Array(80);
+    const a = gf(); const b = gf(); const c = gf(); const d = gf(); const e = gf(); const f = gf();
+    for (let i = 0; i < 31; i++) z[i] = n[i];
+    z[31] = (n[31] & 127) | 64; z[0] &= 248;
+    unpack25519(x, p);
+    for (let i = 0; i < 16; i++) { b[i] = x[i]; d[i] = a[i] = c[i] = 0; }
+    a[0] = d[0] = 1;
+    for (let i = 254; i >= 0; --i) {
+      const r = (z[i >>> 3] >>> (i & 7)) & 1;
+      sel25519(a, b, r); sel25519(c, d, r);
+      A(e, a, c); Z(a, a, c); A(c, b, d); Z(b, b, d); S(d, e); S(f, a); M(a, c, a); M(c, b, e);
+      A(e, a, c); Z(a, a, c); S(b, a); Z(c, d, f); M(a, c, _121665); A(a, a, d); M(c, c, a); M(a, d, f); M(d, b, x); S(b, e);
+      sel25519(a, b, r); sel25519(c, d, r);
+    }
+    for (let i = 0; i < 16; i++) { x[i + 16] = a[i]; x[i + 32] = c[i]; x[i + 48] = b[i]; x[i + 64] = d[i]; }
+    const x32 = x.subarray(32); const x16 = x.subarray(16);
+    inv25519(x32, x32); M(x16, x16, x32);
+    const q = new Uint8Array(32); pack25519(q, x16);
+    return q;
+  }
+  const BASE = new Uint8Array(32); BASE[0] = 9;
+  /** Новая пара ключей: { priv, pub } (по 32 байта). */
+  function x25519Keys() { const priv = randomBytes(32); return { priv, pub: scalarmult(priv, BASE) }; }
+  const x25519 = (priv, pub) => scalarmult(priv, pub);
+
+  const api = { sha256, hmac, hex, fromHex, signKey, deviceId, message, authHeader, seal, unseal, chacha20, encrypt, decrypt, signed, x25519Keys, x25519, randomBytes };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PcfcSig = api;
 }(typeof self !== 'undefined' ? self : this));

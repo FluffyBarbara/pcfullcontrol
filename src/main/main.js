@@ -277,6 +277,11 @@ let fixTimer = null;
 function installFixWhenIdle() {
   clearTimeout(fixTimer);
   if (['downloading', 'downloaded', 'installing'].includes(ctx.appUpdater.state.status)) return;
+  // Тихо ставим только исправление, вышедшее больше 6 часов назад: если релиз окажется подменённым,
+  // его успеют отозвать раньше, чем он сам установится у всех (вручную можно поставить сразу)
+  const age = Date.now() - Date.parse((ctx.updateInfo && ctx.updateInfo.releaseDate) || 0);
+  const COOL = 6 * 3600 * 1000;
+  if (!(age >= COOL)) { fixTimer = setTimeout(installFixWhenIdle, Math.min(3600e3, Math.max(60e3, COOL - (Number.isFinite(age) ? age : 0)))); return; }
   const busy = (ctx.stream && ctx.stream.sessions && ctx.stream.sessions.size > 0) || (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused());
   if (busy) { fixTimer = setTimeout(installFixWhenIdle, 5 * 60 * 1000); return; }
   ctx.appUpdater.log('info', 'исправление ошибок — устанавливаю тихо');
@@ -610,6 +615,16 @@ function registerIpc() {
     return { ...i, qr, devices: ctx.db.listDevices(), enabled: !!ctx.config.mobile.enabled };
   });
   handle('mobile-regen', () => { ctx.lan.pairCode(true); return true; });
+  // Только по нажатию владельца в окне программы: отметить сеть как частную (домашнюю)
+  handle('net-make-private', async ({ aliases }) => {
+    const { powershell, psQuote } = require('./system/exec');
+    for (const a of (Array.isArray(aliases) ? aliases : []).slice(0, 8)) {
+      const r = await powershell(`Set-NetConnectionProfile -InterfaceAlias ${psQuote(String(a))} -NetworkCategory Private -ErrorAction Stop; 'ok'`, 30000);
+      if (!/ok/.test(r.out)) throw new Error('Не удалось изменить тип сети: ' + (r.out || '').slice(0, 200));
+    }
+    await ctx.lan.refreshGuard(true);
+    return true;
+  });
   handle('remove-device', ({ id }) => {
     ctx.db.removeDevice(id);
     ctx.db.addEvent('warning', 'security', `Телефон с приложением отвязан (#${id})`);

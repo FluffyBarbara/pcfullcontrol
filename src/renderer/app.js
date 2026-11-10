@@ -101,7 +101,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#mod
 
 function confirmModal(title, text, yes = 'Да', danger = true) {
   return openModal([
-    el('h3', { text: title }), el('p', { text }),
+    el('h3', { text: title }), el('p', { text, class: 'pre-line' }),
     el('div', { class: 'row end' },
       el('button', { class: 'btn', 'data-tip': 'Закрыть окно, ничего не меняя', onclick: () => closeModal(false) }, 'Отмена'),
       el('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), 'data-tip': text, onclick: () => closeModal(true) }, yes)),
@@ -518,6 +518,17 @@ async function loadMobile() {
   }
   const left = Math.max(0, Math.round((m.expires - Date.now()) / 1000));
   $('#m-code-meta').textContent = `Код действует ещё ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  // Сеть отмечена в Windows как общественная — программа никого не пускает; если она домашняя, это исправляется одной кнопкой
+  const pub = m.publicNets || [];
+  $('#m-public').classList.toggle('hidden', !pub.length);
+  if (pub.length) {
+    $('#m-public').replaceChildren(el('div', { class: 'row' }, ic('shield', 20),
+      el('div', { class: 'grow' }, el('b', { text: `Сеть «${pub.map((x) => x.name || x.alias).join('», «')}» отмечена как общественная` }),
+        el('div', { class: 'muted small', text: 'В общественных сетях (кафе, гостиница) телефон к ПК не подключится — так безопаснее. Если это ваша домашняя сеть, сделайте её домашней.' })),
+      el('button', { class: 'btn primary', onclick: async () => {
+        try { await api('net-make-private', { aliases: pub.map((x) => x.alias) }); toast('Сеть отмечена как домашняя'); loadMobile(); } catch (e) { toast(e.message, 'err'); }
+      } }, 'Сделать сеть домашней')));
+  }
   $('#m-addrs').replaceChildren(...(m.addresses.length ? m.addresses : ['нет сети']).map((a) => el('div', { class: 'addr' }, ic('wifi', 16), el('code', {}, secret(a.replace(/^http:\/\//, ''), 'ip')))));
   $('#m-step3').classList.toggle('done', m.devices.length > 0);
   const box = $('#m-devices');
@@ -755,7 +766,11 @@ $('#al-enable').addEventListener('click', async () => {
   $('#al-error').textContent = '';
   const pw = $('#al-password').value;
   if (!pw) { $('#al-error').textContent = 'Введите пароль'; return; }
-  if (!(await confirmModal('Включить вход без пароля?', 'Если компьютер включат с телефона, Windows войдёт сама. Если включат кнопкой — программа сразу заблокирует экран, но рабочий стол может мелькнуть на 1–3 секунды.', 'Включить', false))) return;
+  if (!(await confirmModal('Включить вход без пароля?', 'Если компьютер включат с телефона, Windows войдёт сама. Учтите риски:\n'
+    + '1) Если ПК включат кнопкой, программа сразу заблокирует экран, но рабочий стол может мелькнуть на 1–3 секунды.\n'
+    + '2) Если программа не запустится (сбой, антивирус), Windows останется открытой без пароля.\n'
+    + '3) Пароль хранится в защищённом хранилище Windows (LSA), но администратор этого ПК или вредоносная программа с правами администратора могут его достать.\n'
+    + 'Не включайте на ноутбуке, который выносите из дома.', 'Включить', false))) return;
   $('#al-enable').disabled = true;
   try { await api('autologon-enable', { password: pw }); $('#al-password').value = ''; toast('Вход без пароля включён'); }
   catch (e) { $('#al-error').textContent = e.message; }

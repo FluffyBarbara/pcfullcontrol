@@ -7,7 +7,19 @@ const M2 = (() => {
   const fmtSz = (b) => (b >= 1e12 ? `${(b / 1e12).toFixed(2)} ТБ` : b >= 1e9 ? `${(b / 1e9).toFixed(1)} ГБ` : b >= 1e6 ? `${(b / 1e6).toFixed(0)} МБ` : `${Math.max(1, Math.round(b / 1e3))} КБ`);
   const when = (ts) => new Date(ts * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   let paneTimer = null;
-  const cover = (k) => (k ? `/api/music/cover?k=${encodeURIComponent(k)}` : null);
+  // Обложки загружаются зашифрованным запросом (а не открытой ссылкой <img src>)
+  const coverCache = new Map();
+  const cover = (k) => (k ? k : null);
+  function coverImg(k, onUrl = null) {
+    const img = el('img', { alt: '' });
+    const done = (u) => { img.src = u; if (onUrl) onUrl(u); };
+    if (coverCache.has(k)) { const c = coverCache.get(k); if (typeof c === 'string') done(c); else c.then(done, () => {}); return img; }
+    const pr = api(`/api/music/cover?k=${encodeURIComponent(k)}`, { raw: true }).then((r) => r.blob()).then((b) => { const u = URL.createObjectURL(b); coverCache.set(k, u); return u; });
+    coverCache.set(k, pr);
+    pr.then(done, () => coverCache.delete(k));
+    if (coverCache.size > 40) { const [first] = coverCache.keys(); const v = coverCache.get(first); if (typeof v === 'string') URL.revokeObjectURL(v); coverCache.delete(first); }
+    return img;
+  }
   function stopPaneTimer() { clearInterval(paneTimer); paneTimer = null; }
   function openPane(p) { switchTab('more'); morePane = p; loadMore(); }
 
@@ -30,7 +42,7 @@ const M2 = (() => {
     if (!s || !s.title) { box.replaceChildren(); return; }
     const art = cover(s.cover);
     box.replaceChildren(el('div', { class: 'm-nowcard', onclick: (e) => { if (!e.target.closest('button')) openPane('music'); } },
-      el('div', { class: 'm-now-art' }, art ? el('img', { src: art, alt: '' }) : ic('music', 22)),
+      el('div', { class: 'm-now-art' }, art ? coverImg(art) : ic('music', 22)),
       el('div', { class: 'm-now-text' }, el('b', { text: s.title }), el('small', { text: [s.artist, s.appName].filter(Boolean).join(' · ') })),
       el('button', { class: 'round-btn', 'aria-label': 'Пауза', onclick: () => control(s.app, 'toggle') }, ic(s.playing ? 'pause' : 'play', 20)),
       s.can.next ? el('button', { class: 'round-btn', 'aria-label': 'Следующий', onclick: () => control(s.app, 'next') }, ic('next', 20)) : null));
@@ -58,7 +70,7 @@ const M2 = (() => {
       if (s.can.seek) bar.addEventListener('click', (e) => { const r = bar.getBoundingClientRect(); control(s.app, 'seek', Math.round(((e.clientX - r.left) / r.width) * s.duration)); });
       const card = el('div', { class: 'card m-player' + (s.playing ? ' playing' : '') },
         el('div', { class: 'm-pbg' }),
-        el('div', { class: 'm-part' }, art ? el('img', { src: art, alt: '' }) : ic('music', 60)),
+        el('div', { class: 'm-part' }, art ? coverImg(art) : ic('music', 60)),
         el('div', { class: 'm-papp' }, s.icon ? el('img', { src: s.icon, alt: '' }) : ic('music', 14), el('b', { text: s.appName }), el('span', { class: 'pill ' + (s.playing ? 'ok' : ''), text: s.statusText })),
         el('h2', { class: 'm-ptitle', text: s.title || 'Без названия' }),
         el('div', { class: 'm-partist', text: s.artist || s.subtitle || '' }),
@@ -72,7 +84,7 @@ const M2 = (() => {
           el('button', { class: 'round-btn accent big', onclick: () => control(s.app, 'toggle') }, ic(s.playing ? 'pause' : 'play', 28)),
           el('button', { class: 'round-btn', disabled: !s.can.next, onclick: () => control(s.app, 'next') }, ic('next', 22)),
           s.can.repeat ? el('button', { class: 'round-btn' + (s.repeat && s.repeat !== 'None' ? ' on' : ''), onclick: () => control(s.app, 'repeat', s.repeat === 'None' ? 2 : s.repeat === 'List' ? 1 : 0) }, ic('repeat', 20)) : null));
-      if (art) card.style.setProperty('--cover', `url("${art}")`);
+      if (art) coverImg(art, (u) => card.style.setProperty('--cover', `url("${u}")`));
       box.replaceChildren(card);
       const base = { pos: s.position, at: Date.now(), dur: s.duration, playing: s.playing };
       clearInterval(tick);
@@ -350,7 +362,7 @@ const M2 = (() => {
         el('p', { class: 'muted small', text: 'Виджет на главном экране: загрузка и температуры компьютера, что играет, и кнопки — блокировка, пауза, сон, выключение (с подтверждением).' }),
         el('button', { class: 'btn primary big', onclick: async () => {
           let k;
-          try { k = await api('/api/widget/key', { json: {} }); } catch (e) { toast(e.message, 'err'); return; }
+          try { k = await api('/api/widget/key', { json: { kind: 'android' } }); } catch (e) { toast(e.message, 'err'); return; }
           location.href = `http://localhost/#widget=${encodeURIComponent(JSON.stringify({ url: location.origin, key: k.key, name: k.pcName }))}`;
         } }, ic('plus', 18), 'Добавить виджет на экран')));
       return;
@@ -370,15 +382,16 @@ const M2 = (() => {
       el('ol', { class: 'm-steps' }, steps.map((s) => el('li', { text: s }))),
       el('button', { class: 'btn primary big', onclick: async () => {
         let k;
-        try { k = await api('/api/widget/key', { json: {} }); } catch (e) { toast(e.message, 'err'); return; }
+        try { k = await api('/api/widget/key', { json: { kind: 'shortcuts' } }); } catch (e) { toast(e.message, 'err'); return; }
         const q = `k=${encodeURIComponent(k.key)}`;
         const field = (label, url, note) => { const inp = el('input', { class: 'input mono small', readonly: true, value: url }); inp.addEventListener('focus', () => inp.select()); return el('div', { class: 'm-wurl' }, el('b', { text: label }), note ? el('small', { class: 'muted', text: note }) : null, inp); };
         urls.replaceChildren(
           field('Состояние', `${location.origin}/api/widget/text?${q}`, 'метод GET (по умолчанию)'),
           field('Заблокировать', `${location.origin}/api/widget/action?${q}&action=lock`, 'метод POST'),
           field('Пауза / играть', `${location.origin}/api/widget/action?${q}&action=play_pause`, 'метод POST'),
-          field('Выключить', `${location.origin}/api/widget/action?${q}&action=shutdown`, 'метод POST — добавьте «Запросить подтверждение» перед ним'),
-          el('p', { class: 'muted small', text: 'Нажмите на поле → «Скопировать». Ссылки работают в домашнем Wi-Fi. Новые ссылки отключают старые.' }));
+          field('Выключить', `${location.origin}/api/widget/action?${q}&action=shutdown&confirm=1`, 'метод POST — добавьте «Запросить подтверждение» перед ним'),
+          el('p', { class: 'muted small', text: 'Нажмите на поле → «Скопировать». Ссылки работают в домашнем Wi-Fi. Новые ссылки отключают старые.' }),
+          el('p', { class: 'muted small', text: '⚠️ «Команды» iPhone не умеют шифровать запросы: ключ в этих ссылках виден другим устройствам вашей сети Wi-Fi. Не делитесь ссылками; если ключ мог утечь — нажмите «Создать ссылки» заново, старые перестанут работать.' }));
       } }, ic('link', 18), 'Создать ссылки'), urls));
   }
 

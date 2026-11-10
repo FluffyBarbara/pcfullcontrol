@@ -14,7 +14,7 @@ const media = require('./system/media');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { E } = require('./telegram-api');
 const { ScreenStream } = require('./stream');
-const { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, openWifiNames } = require('./net-guard');
+const { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, PROFILES_PS, openWifiNames } = require('./net-guard');
 const Sig = require('../shared/sig');
 const { IS_WIN, powershell } = require('./system/exec');
 
@@ -23,7 +23,8 @@ const SHARED_DIR = path.join(__dirname, '..', 'shared');
 const CODE_TTL_MS = 10 * 60 * 1000;
 // Привязка открыта, только пока на ПК открыт раздел «Телефон» (и 3 минуты после); иначе код не принимается
 const PAIR_WINDOW_MS = 3 * 60 * 1000;
-const PAIR_GLOBAL_FAILS = 10; // столько неверных кодов от кого угодно за 10 минут — привязка закрывается
+const PAIR_GLOBAL_FAILS = 10;
+const X25519_SPKI = Buffer.from('302a300506032b656e032100', 'hex'); // столько неверных кодов от кого угодно за 10 минут — привязка закрывается
 const MAX_JSON = 1024 * 1024;
 const MAX_UPLOAD = 4 * 1024 * 1024 * 1024;
 
@@ -38,6 +39,61 @@ const MIME = {
 };
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const { Writable } = require('stream');
+
+// ---- Шифрование содержимого (то же, что src/shared/sig.js, но средствами Node) ----
+const hm = (key, msg) => crypto.createHmac('sha256', key).update(msg).digest();
+function encKeys(key, dir, nonce) {
+  return { enc: hm(key, 'pcfc-enc'), mac: hm(key, 'pcfc-mac'), iv: hm(key, `iv:${dir}:${nonce}`).subarray(0, 12), head: Buffer.from(`${dir}:${nonce}:`) };
+}
+function encryptBody(key, dir, nonce, data) {
+  const k = encKeys(key, dir, nonce);
+  const c = crypto.createCipheriv('chacha20', k.enc, Buffer.concat([Buffer.alloc(4), k.iv]));
+  const ct = Buffer.concat([c.update(data), c.final()]);
+  return Buffer.concat([ct, crypto.createHmac('sha256', k.mac).update(k.head).update(ct).digest()]);
+}
+function decryptBody(key, dir, nonce, box) {
+  if (box.length < 32) throw new HttpError(400, 'Повреждённые данные');
+  const k = encKeys(key, dir, nonce);
+  const ct = box.subarray(0, box.length - 32);
+  const want = crypto.createHmac('sha256', k.mac).update(k.head).update(ct).digest();
+  if (!crypto.timingSafeEqual(want, box.subarray(box.length - 32))) throw new HttpError(400, 'Данные подменены или повреждены');
+  const d = crypto.createDecipheriv('chacha20', k.enc, Buffer.concat([Buffer.alloc(4), k.iv]));
+  return Buffer.concat([d.update(ct), d.final()]);
+}
+
+/**
+ * Ответ, который шифруется целиком перед отправкой (ключом телефона и одноразовым числом его запроса).
+ * Ведёт себя как обычный ответ: writeHead / setHeader / end / pipe.
+ */
+class EncResponse extends Writable {
+  constructor(res, req) {
+    super();
+    this.res = res; this.req = req; this.chunks = []; this.statusCode = 200; this.hdrs = {}; this.headersSent = false;
+  }
+  setHeader(k, v) { this.hdrs[String(k).toLowerCase()] = v; }
+  getHeader(k) { return this.hdrs[String(k).toLowerCase()]; }
+  writeHead(status, h = {}) { this.statusCode = status; for (const [k, v] of Object.entries(h || {})) this.setHeader(k, v); this.headersSent = true; return this; }
+  _write(chunk, enc, cb) { this.chunks.push(Buffer.from(chunk, enc)); cb(); }
+  _final(cb) {
+    const plain = Buffer.concat(this.chunks);
+    const a = this.req.pcfc;
+    const h = { ...this.hdrs };
+    delete h['content-length'];
+    let body = plain;
+    if (a && a.enc) {
+      body = encryptBody(a.key, 'res', a.nonce, plain);
+      h['x-pcfc-type'] = h['content-type'] || 'application/octet-stream';
+      h['content-type'] = 'application/octet-stream';
+      h['x-pcfc-enc'] = '1';
+      delete h['content-disposition'];
+    }
+    h['content-length'] = body.length;
+    try { this.res.writeHead(this.statusCode, h); this.res.end(body); } catch (e) { /* соединение закрыто */ }
+    cb();
+  }
+  _destroy(err, cb) { try { this.res.destroy(); } catch (e) { /* ignore */ } cb(err); }
+}
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -75,6 +131,7 @@ class LanServer {
     this.guardTimer = null;
     this.nonces = new Map();   // одноразовые числа подписанных запросов: id|nonce -> время
     this.rate = new Map();     // ограничение частоты: устройство|запрос -> { start, count }
+    this.widgetFails = new Map(); // ip -> время неверных ключей виджета
   }
 
   // ---------------- кто может подключаться ----------------
@@ -83,6 +140,12 @@ class LanServer {
     this.guardTicks = (this.guardTicks || 0) + 1;
     if (IS_WIN && (changed || force || this.guardTicks % 10 === 0)) {
       try { this.guard.openWifi = new Set(openWifiNames((await powershell(OPEN_WIFI_PS, 20000)).out)); } catch (e) { /* без проверки Wi-Fi */ }
+      try {
+        let list = JSON.parse((await powershell(PROFILES_PS, 20000)).out || '[]');
+        list = Array.isArray(list) ? list : [list];
+        this.profiles = list.filter(Boolean);
+        this.guard.publicNets = new Set(this.profiles.filter((x) => x.category === 'Public').map((x) => x.alias));
+      } catch (e) { /* без проверки типа сети */ }
     }
     if (!IS_WIN || (!changed && this.guard.physical)) return;
     try {
@@ -97,6 +160,11 @@ class LanServer {
     const v = this.guard.check(sock.localAddress, sock.remoteAddress);
     if (v.ok) return;
     sock.destroy();
+    if (v.publicNet && !this.publicWarned) {
+      this.publicWarned = true;
+      this.ctx.notifier.notify(`🛡 <b>Телефон не может подключиться</b>: сеть «${E(v.iface)}» отмечена в Windows как общественная, а в таких сетях программа никого не пускает. Если это ваша домашняя сеть — откройте PC Full Control → «Телефон» → «Сделать сеть домашней».`, { category: 'security', level: 'warning' });
+      return;
+    }
     const ip = String(sock.remoteAddress || '').replace(/^::ffff:/, '');
     const last = this.blocked.get(ip) || 0;
     if (Date.now() - last < 3600e3) return;
@@ -176,7 +244,9 @@ class LanServer {
     const allowed = new Set(this.guard.nets.map((n) => n.address));
     const ips = lanAddresses().filter((ip) => allowed.has(ip));
     const urls = ips.map((ip) => `http://${ip}:${this.port}`);
+    const publicNets = (this.profiles || []).filter((x) => x.category === 'Public').map((x) => ({ alias: x.alias, name: x.name }));
     return {
+      publicNets,
       status: this.status, error: this.error, port: this.port, code, expires, addresses: urls,
       pairUrl: urls[0] ? `${urls[0]}/#/pair/${code}/${this.pairSecret || ''}` : null,
     };
@@ -195,14 +265,25 @@ class LanServer {
     if (this.globalFails.length >= PAIR_GLOBAL_FAILS) throw new HttpError(429, 'Привязка временно закрыта из-за подбора кода.');
     const { code } = this.pairCode();
     const salt = /^[0-9a-f]{16,64}$/.test(String(body.salt || '')) ? String(body.salt) : null;
+    const epub = /^[0-9a-f]{64}$/.test(String(body.epub || '')) ? String(body.epub) : null;
+    const eq = (hexStr, want) => { const got = Buffer.from(String(hexStr || ''), 'hex'); return got.length === want.length && crypto.timingSafeEqual(got, want); };
     let ok;
-    if (body.proof && salt && this.pairSecret) {
-      const want = crypto.createHmac('sha256', this.pairSecret).update('pair:' + salt).digest();
-      const got = Buffer.from(String(body.proof), 'hex');
-      ok = got.length === want.length && crypto.timingSafeEqual(got, want);
-    } else {
+    let mode;
+    if (body.proof && salt && epub) {
+      // Код введён вручную: телефон доказывает знание кода, не пересылая его, и вместе с ПК
+      // вырабатывает общий ключ (X25519) — подслушавший сеть не узнает ни код, ни ключ доступа
+      mode = 'ecdh';
+      ok = eq(body.proof, crypto.createHmac('sha256', code).update(`pair:${salt}:${epub}`).digest());
+    } else if (body.proof && salt && this.pairSecret) {
+      mode = 'qr';
+      ok = eq(body.proof, crypto.createHmac('sha256', this.pairSecret).update('pair:' + salt).digest());
+    } else if (process.env.PCFC_TEST_HOOKS) {
+      // Только для автоматических проверок: код и ключ открытым текстом
+      mode = 'plain';
       const given = Buffer.from(String(body.code || '').trim());
       ok = given.length === code.length && crypto.timingSafeEqual(given, Buffer.from(code));
+    } else {
+      throw new HttpError(400, 'Обновите страницу приложения на телефоне и привяжите его заново');
     }
     if (!ok) {
       this.failed.get(ip).push(Date.now());
@@ -223,26 +304,67 @@ class LanServer {
     this.pairCode(true);
     this.ctx.notifier.notify(`📱 Привязан телефон с приложением: <b>${E(name)}</b> (${E(ip)})`, { category: 'security', level: 'warning' });
     this.ctx.emit('event');
-    // По QR-коду ключ уходит зашифрованным секретом из QR — подслушавший Wi-Fi его не получит
-    if (body.proof && salt && secret) return { sealed: Sig.seal(secret, salt, token), pcName: this.ctx.pcName, version: this.ctx.version };
+    // По QR-коду ключ уходит зашифрованным секретом из QR, по коду — общим ключом X25519
+    if (mode === 'qr') return { sealed: Sig.seal(secret, salt, token), pcName: this.ctx.pcName, version: this.ctx.version };
+    if (mode === 'ecdh') {
+      const kp = crypto.generateKeyPairSync('x25519');
+      const peer = crypto.createPublicKey({ key: Buffer.concat([X25519_SPKI, Buffer.from(epub, 'hex')]), format: 'der', type: 'spki' });
+      const shared = crypto.diffieHellman({ privateKey: kp.privateKey, publicKey: peer });
+      const sealKey = crypto.createHmac('sha256', shared).update('seal:' + code).digest('hex');
+      const spub = kp.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
+      return { spub, sealed: Sig.seal(sealKey, salt, token), pcName: this.ctx.pcName, version: this.ctx.version };
+    }
     return { token, pcName: this.ctx.pcName, version: this.ctx.version };
   }
 
-  /** Ключ виджета для телефона (один на телефон; новый заменяет старый). */
-  widgetKey(device) {
+  /**
+   * Ключ виджета: «android» — для виджета Android-приложения (подписывает запросы, ключ по сети не идёт),
+   * «shortcuts» — для «Команд» iPhone (они умеют только простые ссылки; ключ виден в домашней сети).
+   * На каждый телефон — по одному ключу каждого вида; новый заменяет старый.
+   */
+  widgetKey(device, kind = 'android') {
+    const k = kind === 'shortcuts' ? 'shortcuts' : 'android';
     const key = crypto.randomBytes(24).toString('base64url');
-    const list = (this.ctx.db.getSetting('widgetKeys') || []).filter((w) => w.deviceId !== device.id);
-    list.push({ hash: sha256(key), deviceId: device.id, created: Date.now() / 1000 });
+    const list = (this.ctx.db.getSetting('widgetKeys') || []).filter((w) => !(w.deviceId === device.id && (w.kind || 'android') === k));
+    list.push({ hash: sha256(key), deviceId: device.id, kind: k, created: Date.now() / 1000 });
     this.ctx.db.setSetting('widgetKeys', list);
     return { key, pcName: this.ctx.pcName };
   }
 
-  widgetDevice(key) {
-    if (!key) throw new HttpError(401, 'Нужен ключ виджета');
-    const h = sha256(String(key));
-    const w = (this.ctx.db.getSetting('widgetKeys') || []).find((x) => x.hash === h);
-    const dev = w && this.ctx.db.listDevices().find((d) => d.id === w.deviceId);
-    if (!dev) throw new HttpError(401, 'Виджет отключён — добавьте его заново в приложении');
+  widgetDevice(req, res, ip, queryKey) {
+    // Подбор ключей с одного адреса ограничен (ключ — 192 бита, но и шум в журнале не нужен)
+    this.rateLimit({ id: 'wip' + ip }, 'widget-auth', 120);
+    const fails = (this.widgetFails.get(ip) || []).filter((t) => Date.now() - t < 10 * 60 * 1000);
+    if (fails.length >= 10) throw new HttpError(429, 'Слишком много неверных ключей — подождите 10 минут');
+    const fail = (msg) => { fails.push(Date.now()); this.widgetFails.set(ip, fails); if (this.widgetFails.size > 1000) this.widgetFails.clear(); return new HttpError(401, msg); };
+    const list = this.ctx.db.getSetting('widgetKeys') || [];
+    let w;
+    const signed = req.headers['x-widget-auth'];
+    if (signed) {
+      const [id, tsS, nonce, sig] = String(signed).split('.');
+      const ts = Number(tsS);
+      if (!/^[0-9a-f]{16}$/.test(id || '') || !/^[0-9a-f]{16,64}$/.test(nonce || '') || !/^[0-9a-f]{64}$/.test(sig || '')) throw fail('Неверная подпись виджета');
+      if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > 5 * 60 * 1000) { res.setHeader('X-PCFC-Time', String(Date.now())); throw new HttpError(401, 'Часы телефона и компьютера расходятся'); }
+      w = list.find((x) => Sig.deviceId(x.hash) === id);
+      if (!w) throw fail('Виджет отключён — добавьте его заново в приложении');
+      const want = crypto.createHmac('sha256', w.hash).update(Sig.message(req.method, req.url, ts, nonce)).digest();
+      const got = Buffer.from(sig, 'hex');
+      if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) throw fail('Неверная подпись виджета');
+      const nk = `w${id}|${nonce}`;
+      if (this.nonces.has(nk)) throw new HttpError(401, 'Повтор запроса отклонён');
+      this.nonces.set(nk, Date.now());
+      if (!w.signs) { w.signs = true; this.ctx.db.setSetting('widgetKeys', list); }
+    } else {
+      const key = req.headers['x-widget-key'] || queryKey;
+      if (!key) throw fail('Нужен ключ виджета');
+      const h = sha256(String(key));
+      w = list.find((x) => x.hash === h);
+      if (!w) throw fail('Виджет отключён — добавьте его заново в приложении');
+      // Виджет, который уже подписывает запросы, ключ открытым текстом не шлёт — значит, ключ перехвачен
+      if (w.signs) throw fail('Запрос виджета без подписи отклонён');
+    }
+    const dev = this.ctx.db.listDevices().find((d) => d.id === w.deviceId);
+    if (!dev) throw fail('Виджет отключён — добавьте его заново в приложении');
     return dev;
   }
 
@@ -256,6 +378,9 @@ class LanServer {
       if (!token) throw new HttpError(401, 'Требуется привязка');
       dev = this.ctx.db.deviceByToken(sha256(token));
       if (!dev) throw new HttpError(401, 'Телефон отвязан от этого компьютера');
+      // Ключ открытым текстом по сети больше не принимается — только у голосового помощника старых
+      // Android-приложений (и в автоматических проверках)
+      if (!process.env.PCFC_TEST_HOOKS && !/^\/api\/assistant(\/|$)/.test(pathname)) throw new HttpError(401, 'Обновите приложение на телефоне: запросы без подписи не принимаются');
       // Телефон, который уже подписывает запросы, ключ открытым текстом не шлёт: такой запрос — подделка
       // (исключение — голосовой помощник старой версии Android-приложения)
       if (this.signedIds().includes(dev.id) && !/^\/api\/assistant\//.test(pathname)) throw new HttpError(401, 'Запрос без подписи отклонён');
@@ -278,7 +403,9 @@ class LanServer {
     const rows = this.ctx.db.all('SELECT * FROM devices');
     const dev = rows.find((d) => Sig.deviceId(d.token_hash) === id);
     if (!dev) throw new HttpError(401, 'Телефон отвязан от этого компьютера');
-    const want = crypto.createHmac('sha256', dev.token_hash).update(Sig.message(req.method, req.url, ts, nonce)).digest();
+    // Флаг шифрования входит в подпись: убрать его по дороге, чтобы получить открытый ответ, нельзя
+    const enc = req.headers['x-pcfc-enc'] === '1';
+    const want = crypto.createHmac('sha256', dev.token_hash).update(Sig.message(req.method, req.url, ts, nonce) + (enc ? '\nE' : '')).digest();
     const got = Buffer.from(sig, 'hex');
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) throw new HttpError(401, 'Неверная подпись');
     // Повтор перехваченного запроса не пройдёт: каждое одноразовое число принимается один раз
@@ -289,6 +416,7 @@ class LanServer {
     this.nonces.set(key, now);
     const ids = this.signedIds();
     if (!ids.includes(dev.id)) this.ctx.db.setSetting('signedDevices', [...ids, dev.id]);
+    req.pcfc = { key: dev.token_hash, nonce, enc };
     return dev;
   }
 
@@ -299,11 +427,13 @@ class LanServer {
     let r = this.rate.get(key);
     if (!r || now - r.start > windowMs) { r = { start: now, count: 0 }; this.rate.set(key, r); }
     if (++r.count > max) throw new HttpError(429, 'Слишком часто — подождите немного');
-    if (this.rate.size > 5000) this.rate.clear();
+    // Старые записи убираем по времени (а не все разом — иначе лимиты можно было бы обнулить)
+    if (this.rate.size > 5000) for (const [k, v] of this.rate) if (now - v.start > 10 * 60 * 1000) this.rate.delete(k);
   }
 
   // ---------------- обработка запросов ----------------
-  async handle(req, res) {
+  async handle(req, rawRes) {
+    let res = rawRes;
     // Защита от «DNS rebinding»: чужой сайт в браузере не сможет обратиться к программе под своим именем
     const host = String(req.headers.host || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
     if (!/^(\d{1,3}(\.\d{1,3}){3}|localhost|::1)$/.test(host)) { res.writeHead(421); res.end(); return undefined; }
@@ -316,11 +446,13 @@ class LanServer {
       // Android-приложение: голосовой ассистент записывает звук на своей странице (http://localhost)
       if (/^https?:\/\/localhost(:\d+)?$/.test(req.headers.origin || '') && /^\/api\/(assistant|widget)/.test(url.pathname)) {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-PCFC-Auth, X-Widget-Key');
-        res.setHeader('Access-Control-Expose-Headers', 'X-PCFC-Time');
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-PCFC-Auth, X-PCFC-Enc, X-PCFC-Type, X-Widget-Key, X-Widget-Auth');
+        res.setHeader('Access-Control-Expose-Headers', 'X-PCFC-Time, X-PCFC-Enc, X-PCFC-Type');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return undefined; }
       }
+      // Подписанный запрос с шифрованием — ответ тоже шифруется
+      if (req.headers['x-pcfc-auth'] && req.headers['x-pcfc-enc'] === '1') res = new EncResponse(res, req);
       const result = await this.route(req, res, url);
       if (result === undefined || res.headersSent) return undefined;
       return sendJson(res, 200, result);
@@ -379,24 +511,19 @@ class LanServer {
       const appOrigin = /^(https?|capacitor):\/\/localhost(:\d+)?$/.test(origin);
       if (origin && !appOrigin) return { app: 'pc-full-control' };
       if (appOrigin) res.setHeader('Access-Control-Allow-Origin', origin);
-      const nic = poweron.primaryInterface();
-      return { app: 'pc-full-control', pcName: ctx.pcName, version: ctx.version, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
+      // MAC-адрес и адрес рассылки (для включения ПК с телефона) — только привязанным телефонам:
+      // запрос пришёл с адреса, с которого уже работает привязанный телефон
+      const known = ctx.db.listDevices().some((d) => d.ip && d.ip === ip);
+      const nic = known ? poweron.primaryInterface() : null;
+      return { app: 'pc-full-control', version: ctx.version, pcName: known ? ctx.pcName : null, mac: nic ? nic.mac : null, broadcast: nic ? nic.broadcast : null };
     }
     if (p === '/api/pair' && m === 'POST') {
       return this.pair(await readJson(req), ip);
     }
 
-    // Обложка трека (ключ — отпечаток трека, выдаётся вместе с данными о музыке)
-    if (p === '/api/music/cover') {
-      const c = ctx.media.cover(q('k'));
-      if (!c) throw new HttpError(404, 'Нет обложки');
-      res.writeHead(200, { 'Content-Type': c.type, 'Content-Length': c.buf.length, 'Cache-Control': 'private, max-age=3600' });
-      res.end(c.buf);
-      return undefined;
-    }
     // Виджет на главном экране телефона: доступ по отдельному ключу виджета (его можно отозвать)
     if (p.startsWith('/api/widget') && p !== '/api/widget/key') {
-      const wdev = this.widgetDevice(req.headers['x-widget-key'] || q('k'));
+      const wdev = this.widgetDevice(req, res, ip, q('k'));
       if (p === '/api/widget') return ctx.widgetData();
       if (p === '/api/widget/text') {
         const w = await ctx.widgetData();
@@ -412,7 +539,7 @@ class LanServer {
         const action = allowed[String(b.action || q('action'))];
         if (!action) throw new HttpError(400, 'Неизвестное действие');
         // Выключение, перезагрузка и сон — только после подтверждения на телефоне
-        if (['shutdown', 'reboot', 'sleep'].includes(action) && b.confirm !== true) throw new HttpError(428, 'Нужно подтверждение — обновите приложение на телефоне');
+        if (['shutdown', 'reboot', 'sleep'].includes(action) && b.confirm !== true && q('confirm') !== '1') throw new HttpError(428, 'Нужно подтверждение — обновите приложение на телефоне');
         this.rateLimit({ id: 'w' + wdev.id }, 'widget', 30);
         return ctx.actions.run(action, '', 'mobile', `${wdev.name} (виджет)`);
       }
@@ -462,6 +589,14 @@ class LanServer {
       try { ctx.db.logCommand('mobile', device.name, 'net_fix', b.action, true, ''); return await map[b.action](); } catch (e) { throw new HttpError(400, e.message); }
     }
     if (p === '/api/music') return ctx.media.state();
+    // Обложка трека — только привязанному телефону (запрос подписан, ответ зашифрован)
+    if (p === '/api/music/cover') {
+      const c = ctx.media.cover(q('k'));
+      if (!c) throw new HttpError(404, 'Нет обложки');
+      res.writeHead(200, { 'Content-Type': c.type, 'Content-Length': c.buf.length });
+      res.end(c.buf);
+      return undefined;
+    }
     if (p === '/api/music/control' && m === 'POST') { const b = await readJson(req); try { return await ctx.media.control(b.app, String(b.action), b.value); } catch (e) { throw new HttpError(400, e.message); } }
     if (p === '/api/mixer') return ctx.media.mixer();
     if (p === '/api/mixer/peaks') return ctx.media.peaks().catch(() => ({}));
@@ -491,7 +626,7 @@ class LanServer {
       try { return await ctx.assistant.handleAudio(buf, { source: 'mobile', user: device.name, confirm: q('confirm') === '1' }); } catch (e) { throw new HttpError(400, e.message); }
     }
     // --- виджет: ключ для этого телефона ---
-    if (p === '/api/widget/key' && m === 'POST') return this.widgetKey(device);
+    if (p === '/api/widget/key' && m === 'POST') return this.widgetKey(device, (await readJson(req)).kind);
     if (p === '/api/update/state') return ctx.appUpdater.state;
     if (p === '/api/update/check') {
       let u = ctx.updateInfo;
@@ -820,33 +955,31 @@ function sendBinary(res, buf, type) {
   return undefined;
 }
 
-function readRaw(req, max) {
+/** Тело запроса (расшифрованное, если телефон его зашифровал). Слишком большое — чистый ответ 413. */
+function readBody(req, max, tooBig) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     req.on('data', (c) => {
+      if (over) return; // дочитываем молча, чтобы клиент получил ответ 413, а не обрыв связи
       size += c.length;
-      if (size > max) { req.destroy(); reject(new HttpError(413, 'Слишком большая запись')); } else chunks.push(c);
+      if (size > max + 64) { over = true; chunks.length = 0; reject(new HttpError(413, tooBig)); } else chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => {
+      if (over) return;
+      let buf = Buffer.concat(chunks);
+      try { if (req.pcfc && req.pcfc.enc && buf.length) buf = decryptBody(req.pcfc.key, 'req', req.pcfc.nonce, buf); } catch (e) { reject(e); return; }
+      resolve(buf);
+    });
     req.on('error', reject);
   });
 }
-
-function readJson(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on('data', (c) => {
-      size += c.length;
-      if (size > MAX_JSON) { req.destroy(); reject(new HttpError(413, 'Слишком большой запрос')); } else chunks.push(c);
-    });
-    req.on('end', () => {
-      if (!chunks.length) return resolve({});
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (e) { reject(new HttpError(400, 'Неверный JSON')); }
-    });
-    req.on('error', reject);
-  });
+const readRaw = (req, max) => readBody(req, max, 'Слишком большая запись');
+async function readJson(req) {
+  const buf = await readBody(req, MAX_JSON, 'Слишком большой запрос');
+  if (!buf.length) return {};
+  try { return JSON.parse(buf.toString('utf8')); } catch (e) { throw new HttpError(400, 'Неверный JSON'); }
 }
 
 module.exports = { LanServer, lanAddresses, HttpError };

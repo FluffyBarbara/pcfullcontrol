@@ -62,6 +62,13 @@ Write-Host "Курсор: $($pos.X),$($pos.Y), ожидалось около $ex
 if ([math]::Abs($pos.X - $ex) -gt 20 -or [math]::Abs($pos.Y - $ey) -gt 20) { throw 'Курсор не переместился туда, куда указал телефон' }
 Invoke-RestMethod 'http://127.0.0.1:8765/api/remote/input' -Method Post -Headers $H -ContentType 'application/json' -Body '{"type":"key","keys":"shift"}' | Out-Null
 Write-Host 'Удалённое управление работает'
+# Помощник ввода (DLL) хранится рядом с программой в Program Files — обычные пользователи туда писать не могут
+$cache = Join-Path (Split-Path $exe) 'cache'
+$dlls = @(Get-ChildItem $cache -Filter 'PccInput-*.dll' -ErrorAction SilentlyContinue)
+Write-Host "Папка помощников: $cache, DLL: $($dlls.Count)"
+if (-not $dlls.Count) { throw 'Помощник ввода не в защищённой папке программы' }
+$acl = (Get-Acl $cache).Access | Where-Object { $_.IdentityReference -match 'Users|Пользователи' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
+if ($acl) { throw 'Обычные пользователи могут писать в папку помощников' }
 
 Write-Host '=== 2в. Видео по WebRTC (до 120 кадр/с) и курсор через канал данных ==='
 $pw = Join-Path $env:RUNNER_TEMP 'pw'

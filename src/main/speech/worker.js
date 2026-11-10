@@ -10,6 +10,9 @@ function getPipe(cacheDir, onProgress) {
       env.cacheDir = cacheDir;
       env.allowLocalModels = true;
       return pipeline('automatic-speech-recognition', 'onnx-community/whisper-small', {
+        // Закреплённая версия модели (коммит на HuggingFace): обновление или подмена модели в репозитории
+        // не приведёт к тихой загрузке других файлов
+        revision: '36050c46d777d46dc4b5f43f6d90574fc38f8732',
         dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
         progress_callback: (p) => { if (p && p.status === 'progress' && p.total > 1e6) onProgress({ file: p.file, loaded: p.loaded, total: p.total }); },
       });

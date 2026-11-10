@@ -1,4 +1,6 @@
 'use strict';
+// Старые способы входа (код и ключ открытым текстом) включены только для автоматических проверок
+process.env.PCFC_TEST_HOOKS = process.env.PCFC_TEST_HOOKS || '1';
 const { Database } = require('../src/main/db');
 const { AppContext } = require('../src/main/context');
 

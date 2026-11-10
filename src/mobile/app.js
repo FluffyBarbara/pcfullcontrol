@@ -74,13 +74,41 @@ function authHeaders(method, path) {
   const u = new URL(path, location.origin);
   return { 'X-PCFC-Auth': PcfcSig.authHeader(token, method || 'GET', u.pathname + u.search, Date.now() + clockOffset) };
 }
-/** fetch с подписью; если часы телефона и ПК расходятся — подстраивается и повторяет один раз. */
+/**
+ * fetch с подписью и шифрованием: запрос и ответ зашифрованы ключом телефона (ChaCha20 + HMAC),
+ * подменённый по дороге ответ не принимается. Если часы телефона и ПК расходятся — подстраивается
+ * и повторяет один раз. Возвращает обычный Response с уже расшифрованным содержимым.
+ */
 async function signedFetch(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
-  const go = () => fetch(path, { ...opts, headers: { ...(opts.headers || {}), ...authHeaders(method, path) } });
-  let r = await go();
+  const u = new URL(path, location.origin);
+  const url = u.pathname + u.search;
+  let raw = null;
+  if (opts.body != null) raw = typeof opts.body === 'string' ? opts.body : new Uint8Array(await new Response(opts.body).arrayBuffer());
+  const go = async () => {
+    const sg = PcfcSig.signed(token, method, url, Date.now() + clockOffset, true);
+    const headers = { ...(opts.headers || {}), 'X-PCFC-Auth': sg.header, 'X-PCFC-Enc': '1' };
+    let body;
+    if (raw != null) {
+      if (headers['Content-Type']) headers['X-PCFC-Type'] = headers['Content-Type'];
+      headers['Content-Type'] = 'application/octet-stream';
+      body = PcfcSig.encrypt(sg.key, 'req', sg.nonce, raw);
+    }
+    return { r: await fetch(path, { ...opts, headers, body }), sg };
+  };
+  let { r, sg } = await go();
   const st = r.headers.get('X-PCFC-Time');
-  if (r.status === 401 && st) { clockOffset = Number(st) - Date.now(); r = await go(); }
+  if (r.status === 401 && st) { clockOffset = Number(st) - Date.now(); ({ r, sg } = await go()); }
+  if (r.headers.get('X-PCFC-Enc') === '1') {
+    let plain;
+    try { plain = PcfcSig.decrypt(sg.key, 'res', sg.nonce, new Uint8Array(await r.arrayBuffer())); } catch (e) {
+      throw new ApiError('Ответ компьютера повреждён или подменён в сети', 0);
+    }
+    const empty = r.status === 204 || r.status === 304;
+    return new Response(empty ? null : plain, { status: r.status, headers: { 'Content-Type': r.headers.get('X-PCFC-Type') || 'application/octet-stream' } });
+  }
+  // Открытый (незашифрованный) ответ принимается только как ошибка — успешный ответ без шифрования мог подсунуть посредник
+  if (r.ok) throw new ApiError('Ответ компьютера пришёл без защиты — возможно, кто-то вмешивается в сеть Wi-Fi', 0);
   return r;
 }
 
@@ -88,8 +116,10 @@ async function api(path, { method, json, body, raw, headers = {} } = {}) {
   if (json !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
   let r;
   try {
-    r = await signedFetch(path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers, body });
+    r = token ? await signedFetch(path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers, body })
+      : await fetch(path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers, body });
   } catch (e) {
+    if (e instanceof ApiError) throw e;
     setOnline(false);
     throw new ApiError('Нет связи с компьютером. Он включён и в той же сети Wi-Fi?', 0);
   }
@@ -187,10 +217,19 @@ async function doPair(code, secret = '') {
     // По QR-коду: ни код, ни ключ доступа по сети не идут открытым текстом — только доказательство
     // знания секрета из QR и зашифрованный этим секретом ключ в ответ
     const salt = PcfcSig.hex(crypto.getRandomValues(new Uint8Array(16)));
-    const res = await api('/api/pair', {
-      json: secret ? { ...dev, salt, proof: PcfcSig.hex(PcfcSig.hmac(secret, 'pair:' + salt)) } : { ...dev, code },
-    });
-    token = res.sealed ? PcfcSig.unseal(secret, salt, res.sealed) : res.token;
+    let res;
+    if (secret) {
+      res = await api('/api/pair', { json: { ...dev, salt, proof: PcfcSig.hex(PcfcSig.hmac(secret, 'pair:' + salt)) } });
+      token = PcfcSig.unseal(secret, salt, res.sealed);
+    } else {
+      // Код введён вручную: по сети идёт не код, а доказательство его знания; ключ доступа
+      // шифруется общим ключом X25519, который телефон и ПК вычисляют сами
+      const kp = PcfcSig.x25519Keys();
+      const epub = PcfcSig.hex(kp.pub);
+      res = await api('/api/pair', { json: { ...dev, salt, epub, proof: PcfcSig.hex(PcfcSig.hmac(code, `pair:${salt}:${epub}`)) } });
+      const shared = PcfcSig.x25519(kp.priv, PcfcSig.fromHex(res.spub));
+      token = PcfcSig.unseal(PcfcSig.hex(PcfcSig.hmac(shared, 'seal:' + code)), salt, res.sealed);
+    }
     store.set(TOKEN_KEY, token);
     history.replaceState(null, '', location.pathname + location.search);
     haptic(20);

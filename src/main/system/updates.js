@@ -2,7 +2,7 @@
 // Обновление программ и Windows.
 // Windows: winget, Chocolatey, Scoop, Windows Update (COM API, нужны права администратора).
 // Linux/macOS: apt, dnf, pacman, flatpak, snap, Homebrew (упрощённо).
-const { IS_WIN, IS_MAC, run, powershell, which } = require('./exec');
+const { IS_WIN, IS_MAC, run, powershell, which, CMD_EXE } = require('./exec');
 
 function section(title, r) {
   const status = r.code === 0 || r.code === 100 ? '' : ` (код ${r.code})`;
@@ -24,7 +24,7 @@ async function checkUpdates() {
   const parts = [];
   if (m.winget) parts.push(section('winget', await run('winget', ['upgrade', '--accept-source-agreements', '--disable-interactivity'], { timeout: 300e3 })));
   if (m.choco) parts.push(section('Chocolatey', await run(m.choco, ['outdated', '-r'], { timeout: 300e3 })));
-  if (m.scoop) parts.push(section('Scoop', await run('cmd.exe', ['/c', 'scoop', 'status'], { timeout: 300e3 })));
+  if (m.scoop) parts.push(section('Scoop', await run(CMD_EXE, ['/c', 'scoop', 'status'], { timeout: 300e3 })));
   if (m.brew) {
     await run('brew', ['update'], { timeout: 600e3 });
     parts.push(section('Homebrew', await run('brew', ['outdated'], { timeout: 300e3 })));
@@ -46,7 +46,7 @@ async function upgradeAll() {
       '--accept-source-agreements', '--disable-interactivity'], { timeout: 3600e3 })));
   }
   if (m.choco) parts.push(section('Chocolatey', await run(m.choco, ['upgrade', 'all', '-y'], { timeout: 3600e3 })));
-  if (m.scoop) parts.push(section('Scoop', await run('cmd.exe', ['/c', 'scoop', 'update', '*'], { timeout: 3600e3 })));
+  if (m.scoop) parts.push(section('Scoop', await run(CMD_EXE, ['/c', 'scoop', 'update', '*'], { timeout: 3600e3 })));
   if (m.brew) parts.push(section('Homebrew', await run('brew', ['upgrade'], { timeout: 3600e3 })));
   const sudo = (args) => run('sudo', ['-n', ...args], { timeout: 3600e3 });
   if (m['apt-get']) {

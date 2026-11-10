@@ -33,6 +33,7 @@ class NetGuard {
     this.interfaces = interfaces;
     this.physical = physical;
     this.openWifi = new Set(); // открытые сети Wi-Fi без пароля — там трафик видят все вокруг
+    this.publicNets = new Set(); // сети, которые Windows считает общественными (кафе, гостиница)
     this.nets = [];
     this.stamp = '';
     this.refresh();
@@ -67,6 +68,7 @@ class NetGuard {
     const remote = ip4(remoteAddress);
     if (isLoopback(remote)) return { ok: true, reason: 'этот компьютер' };
     const net = this.nets.find((n) => n.address === local);
+    if (net && this.publicNets.has(net.iface)) return { ok: false, reason: 'сеть отмечена в Windows как общественная — в программе на ПК можно сделать её домашней', iface: net.iface, publicNet: true };
     if (net && this.openWifi.has(net.iface)) return { ok: false, reason: 'открытая сеть Wi-Fi без пароля — в ней любой может подслушать связь', iface: net.iface };
     if (!net) return { ok: false, reason: isPrivate(local) ? 'подключение через VPN или виртуальный адаптер' : 'подключение не из домашней сети' };
     if (!isPrivate(remote) || !sameSubnet(remote, net.address, net.netmask)) return { ok: false, reason: 'адрес не из вашей домашней сети', iface: net.iface };
@@ -90,4 +92,7 @@ function openWifiNames(out) {
   return names;
 }
 
-module.exports = { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, openWifiNames, isPrivate, sameSubnet, VIRTUAL };
+/** Сети с типом «Общественная» (Public) по мнению Windows. */
+const PROFILES_PS = "@(Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { [ordered]@{ alias = [string]$_.InterfaceAlias; category = [string]$_.NetworkCategory; name = [string]$_.Name } }) | ConvertTo-Json -Compress";
+
+module.exports = { NetGuard, PHYSICAL_PS, OPEN_WIFI_PS, PROFILES_PS, openWifiNames, isPrivate, sameSubnet, VIRTUAL };

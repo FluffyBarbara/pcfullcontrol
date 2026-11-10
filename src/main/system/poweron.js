@@ -2,7 +2,7 @@
 // Включение ПК с телефона (Wake-on-LAN) и автовход без пароля, если ПК включили с телефона.
 const os = require('os');
 const { spawn } = require('child_process');
-const { IS_WIN, powershell } = require('./exec');
+const { IS_WIN, powershell, PS_EXE } = require('./exec');
 
 /** Основной сетевой адаптер: MAC и широковещательный адрес домашней сети. */
 function primaryInterface() {
@@ -69,10 +69,17 @@ public static class PccLsa {
     var oa = new LSA_OBJECT_ATTRIBUTES(); oa.Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES));
     IntPtr h; uint st = LsaOpenPolicy(IntPtr.Zero, ref oa, 0x000F0FFF, out h);
     if (st != 0) return LsaNtStatusToWinError(st);
-    var k = Str(key); IntPtr data = IntPtr.Zero;
-    if (value != null) { var v = Str(value); data = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_UNICODE_STRING))); Marshal.StructureToPtr(v, data, false); }
-    st = LsaStorePrivateData(h, ref k, data);
-    LsaClose(h);
+    var k = Str(key); IntPtr data = IntPtr.Zero; var v = new LSA_UNICODE_STRING();
+    try {
+      if (value != null) { v = Str(value); data = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_UNICODE_STRING))); Marshal.StructureToPtr(v, data, false); }
+      st = LsaStorePrivateData(h, ref k, data);
+    } finally {
+      LsaClose(h);
+      Marshal.FreeHGlobal(k.Buffer);
+      // Пароль в памяти затираем нулями до освобождения
+      if (v.Buffer != IntPtr.Zero) { Marshal.Copy(new byte[v.MaximumLength], 0, v.Buffer, v.MaximumLength); Marshal.FreeHGlobal(v.Buffer); }
+      if (data != IntPtr.Zero) Marshal.FreeHGlobal(data);
+    }
     return LsaNtStatusToWinError(st);
   }
   public static bool Check(string user, string domain, string password) {
@@ -90,7 +97,7 @@ function powershellWithInput(script, input, timeout = 60000) {
   return new Promise((resolve) => {
     const full = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ' + script;
     const encoded = Buffer.from(full, 'utf16le').toString('base64');
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true });
+    const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true });
     let out = '';
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { out += d; });

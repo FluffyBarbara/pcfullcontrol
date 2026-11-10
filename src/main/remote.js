@@ -3,7 +3,7 @@
 // Windows: постоянный помощник ввода (PowerShell + user32 SendInput), чтобы клики шли без задержек.
 // Linux: через xdotool (если установлен).
 const { spawn } = require('child_process');
-const { IS_WIN, run, which } = require('./system/exec');
+const { IS_WIN, run, which, PS_EXE, secureBinDir } = require('./system/exec');
 
 const electron = () => require('electron');
 
@@ -171,8 +171,8 @@ class RemoteControl {
     const crypto = require('crypto');
     const path = require('path');
     const tag = crypto.createHash('sha1').update(AGENT_CS).digest('hex').slice(0, 10);
-    const dll = this.ctx.dataDir ? path.join(this.ctx.dataDir, 'bin', `PccInput-${tag}.dll`) : '';
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
+    const dll = this.ctx.dataDir ? path.join(secureBinDir(this.ctx.dataDir), `PccInput-${tag}.dll`) : '';
+    const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PCFC_AGENT_DLL: dll },
     });
     this.agent = p;

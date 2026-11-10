@@ -17,6 +17,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -48,6 +52,43 @@ public class PcWidgetProvider extends AppWidgetProvider {
         ctx.sendBroadcast(i);
     }
 
+    // ---- Подпись запросов виджета: сам ключ по сети не передаётся (как в src/shared/sig.js) ----
+    static long clockOffset = 0;
+
+    static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
+    static String sha256Hex(String s) throws Exception {
+        return hex(MessageDigest.getInstance("SHA-256").digest(s.getBytes("UTF-8")));
+    }
+
+    static String hmacHex(String key, String msg) throws Exception {
+        Mac m = Mac.getInstance("HmacSHA256");
+        m.init(new SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA256"));
+        return hex(m.doFinal(msg.getBytes("UTF-8")));
+    }
+
+    /** Заголовок X-Widget-Auth: «номер.время.одноразовое.подпись». */
+    static String authHeader(String key, String method, String path) throws Exception {
+        String k = sha256Hex(key);
+        String id = sha256Hex("id:" + k).substring(0, 16);
+        long ts = System.currentTimeMillis() + clockOffset;
+        byte[] n = new byte[12];
+        new SecureRandom().nextBytes(n);
+        String nonce = hex(n);
+        return id + "." + ts + "." + nonce + "." + hmacHex(k, method + "\n" + path + "\n" + ts + "\n" + nonce);
+    }
+
+    /** Часы телефона расходятся с ПК — запоминаем разницу (ПК сообщает своё время). */
+    static boolean syncClock(HttpURLConnection c) {
+        String t = c.getHeaderField("X-PCFC-Time");
+        if (t == null) return false;
+        try { clockOffset = Long.parseLong(t) - System.currentTimeMillis(); return true; } catch (Exception e) { return false; }
+    }
+
     static void refreshNow(Context ctx) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String base = p.getString("url", "");
@@ -58,12 +99,16 @@ public class PcWidgetProvider extends AppWidgetProvider {
         }
         HttpURLConnection c = null;
         try {
-            URL u = new URL(base + "/api/widget");
-            c = (HttpURLConnection) u.openConnection();
-            c.setRequestProperty("X-Widget-Key", key);
-            c.setConnectTimeout(4000);
-            c.setReadTimeout(6000);
-            int code = c.getResponseCode();
+            int code = 0;
+            for (int attempt = 0; attempt < 2; attempt++) {
+                if (c != null) c.disconnect();
+                c = (HttpURLConnection) new URL(base + "/api/widget").openConnection();
+                c.setRequestProperty("X-Widget-Auth", authHeader(key, "GET", "/api/widget"));
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(6000);
+                code = c.getResponseCode();
+                if (!(code == 401 && syncClock(c))) break;
+            }
             if (code == 401) { render(ctx, null, "Виджет отключён — добавьте его заново"); return; }
             if (code != 200) { render(ctx, null, "ПК ответил ошибкой " + code); return; }
             StringBuilder sb = new StringBuilder();

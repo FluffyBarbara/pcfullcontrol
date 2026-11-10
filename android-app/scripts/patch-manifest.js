@@ -18,5 +18,9 @@ if (!s.includes('PcWidgetProvider')) {
             android:taskAffinity="" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     </application>`);
 }
+// Данные приложения (адрес ПК, ключ доступа в хранилище WebView) не попадают в облачные копии
+// и при переносе на другой телефон
+s = s.replace(/\s*android:allowBackup="[^"]*"/, '').replace(/\s*android:fullBackupContent="[^"]*"/, '').replace(/\s*android:dataExtractionRules="[^"]*"/, '');
+s = s.replace('<application', '<application android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"');
 fs.writeFileSync(file, s);
 console.log('Манифест: виджет и микрофон добавлены');

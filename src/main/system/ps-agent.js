@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { PS_EXE, secureBinDir } = require('./exec');
 
 class PsAgent {
   /**
@@ -54,16 +55,18 @@ ${this.ps}`;
   start() {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.ready;
     const tag = crypto.createHash('sha1').update(this.cs || this.name).digest('hex').slice(0, 10);
-    const dll = this.cs && this.dataDir ? path.join(this.dataDir, 'bin', `${this.name}-${tag}.dll`) : '';
+    const dir = this.dataDir ? secureBinDir(this.dataDir) : os.tmpdir();
+    const dll = this.cs && this.dataDir ? path.join(dir, `${this.name}-${tag}.dll`) : '';
     // Скрипт с C#-кодом длиннее предела командной строки Windows (32 767 символов) — запускаем из файла
     const script = this.script(dll);
-    const dir = this.dataDir ? path.join(this.dataDir, 'bin') : os.tmpdir();
     const file = path.join(dir, `${this.name}-${crypto.createHash('sha1').update(script).digest('hex').slice(0, 10)}.ps1`);
     try {
       fs.mkdirSync(dir, { recursive: true });
-      if (!fs.existsSync(file)) fs.writeFileSync(file, '\ufeff' + script, 'utf8'); // UTF-8 с BOM — иначе Windows PowerShell 5.1 исказит кириллицу
+      // Каждый раз записываем заново (UTF-8 с BOM — иначе Windows PowerShell 5.1 исказит кириллицу):
+      // подменённый кем-то файл со старым именем не запустится
+      fs.writeFileSync(file, '\ufeff' + script, 'utf8');
     } catch (e) { /* ниже — понятная ошибка запуска */ }
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = p;
     let buf = '';
     let errText = '';

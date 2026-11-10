@@ -2,7 +2,14 @@
 // Голосовой ассистент Android-приложения: запись с микрофона (эта страница — локальная, поэтому микрофон
 // доступен), распознавание и выполнение — на ПК, ответ — на экране и голосом.
 const $ = (s) => document.querySelector(s);
-const params = new URLSearchParams(location.hash.slice(1));
+// Адрес ПК и ключ приходят во фрагменте адреса (по сети он не передаётся). Сразу убираем их из адресной
+// строки и истории — ключ остаётся только в памяти этой страницы (и в sessionStorage до закрытия).
+let boot = location.hash.slice(1);
+try {
+  if (boot) sessionStorage.setItem('pcfc_voice', boot); else boot = sessionStorage.getItem('pcfc_voice') || '';
+} catch (e) { /* без sessionStorage */ }
+history.replaceState(null, '', location.pathname);
+const params = new URLSearchParams(boot);
 const PC = params.get('pc') || '';
 const TOKEN = params.get('t') || '';
 const BACK = params.get('back') || PC;
@@ -23,9 +30,19 @@ function bubble(id, text) { const b = $(id); b.textContent = text; b.classList.t
 // Запрос подписывается ключом телефона — сам ключ по Wi-Fi не передаётся (sig.js)
 let clockOffset = 0;
 async function post(path, body, type) {
-  const go = () => fetch(PC + path, { method: 'POST', headers: { 'X-PCFC-Auth': PcfcSig.authHeader(TOKEN, 'POST', path, Date.now() + clockOffset), 'Content-Type': type || 'application/json' }, body });
-  let r = await go();
-  if (r.status === 401 && r.headers.get('X-PCFC-Time')) { clockOffset = Number(r.headers.get('X-PCFC-Time')) - Date.now(); r = await go(); }
+  // Запрос и ответ зашифрованы ключом телефона (как в основном приложении)
+  const raw = typeof body === 'string' ? body : new Uint8Array(await new Response(body).arrayBuffer());
+  const go = async () => {
+    const sg = PcfcSig.signed(TOKEN, 'POST', path, Date.now() + clockOffset, true);
+    const r = await fetch(PC + path, { method: 'POST', headers: { 'X-PCFC-Auth': sg.header, 'X-PCFC-Enc': '1', 'X-PCFC-Type': type || 'application/json', 'Content-Type': 'application/octet-stream' }, body: PcfcSig.encrypt(sg.key, 'req', sg.nonce, raw) });
+    return { r, sg };
+  };
+  let { r, sg } = await go();
+  if (r.status === 401 && r.headers.get('X-PCFC-Time')) { clockOffset = Number(r.headers.get('X-PCFC-Time')) - Date.now(); ({ r, sg } = await go()); }
+  if (r.headers.get('X-PCFC-Enc') === '1') {
+    const plain = PcfcSig.decrypt(sg.key, 'res', sg.nonce, new Uint8Array(await r.arrayBuffer()));
+    r = new Response(plain, { status: r.status, headers: { 'Content-Type': 'application/json' } });
+  } else if (r.ok) throw new Error('Ответ компьютера пришёл без защиты');
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'Ошибка ' + r.status);
   return j;

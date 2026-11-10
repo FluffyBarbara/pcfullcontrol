@@ -73,7 +73,7 @@ class ScreenStream {
     const win = new BrowserWindow({
       show: false, width: 320, height: 240, skipTaskbar: true, focusable: false,
       webPreferences: {
-        preload: path.join(__dirname, 'stream-preload.js'), contextIsolation: true, sandbox: false,
+        preload: path.join(__dirname, 'stream-preload.js'), contextIsolation: true, sandbox: true, // песочница Chromium: окно без прав, даже если программа — администратор
         backgroundThrottling: false,
       },
     });

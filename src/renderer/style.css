@@ -900,3 +900,4 @@ html[data-theme="light"] .mp-bg { opacity: .35; }
 .nd-chip { padding: 8px 11px; border-radius: 11px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nd-chip span { color: var(--muted); }
 .nd-chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pre-line { white-space: pre-line; }

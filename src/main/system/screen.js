@@ -43,7 +43,7 @@ async function webcamPhoto() {
   const { BrowserWindow, ipcMain } = electron();
   const win = new BrowserWindow({
     show: false, width: 640, height: 480,
-    webPreferences: { preload: path.join(__dirname, '..', 'capture-preload.js'), contextIsolation: true, sandbox: false },
+    webPreferences: { preload: path.join(__dirname, '..', 'capture-preload.js'), contextIsolation: true, sandbox: true },
   });
   try {
     const result = await new Promise((resolve, reject) => {

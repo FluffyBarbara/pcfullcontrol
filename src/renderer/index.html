@@ -116,6 +116,7 @@
 
       <!-- приложение -->
       <div id="phone-app">
+        <div class="card mb16 hidden" id="m-public"></div>
         <div class="card">
           <div class="pair-grid">
             <div class="qr-col">
@@ -517,7 +518,7 @@
         <div class="grid g2 gap-cols">
           <div class="set-row"><span class="set-ic"><i data-ic="camera" data-size="17"></i></span><span class="set-text"><b>Фото при неверном пароле</b><small id="cam-note">Веб-камера снимает того, кто ошибся паролем на экране входа, фото приходит в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="security.photoOnFailedLogin"><span></span></label></div>
           <div class="set-row"><span class="set-ic"><i data-ic="camera" data-size="17"></i></span><span class="set-text"><b>Фото при каждой разблокировке</b><small>Кто бы ни разблокировал компьютер — фото придёт в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="security.photoOnUnlock"><span></span></label></div>
-          <div class="set-row"><span class="set-ic"><i data-ic="music" data-size="17"></i></span><span class="set-text"><b>Обложки из интернета</b><small>Если плеер (например, браузер) не передал обложку — найти её в каталогах Deezer и iTunes по исполнителю и названию</small></span><label class="switch"><input type="checkbox" data-cfg="media.onlineCovers"><span></span></label></div>
+          <div class="set-row"><span class="set-ic"><i data-ic="music" data-size="17"></i></span><span class="set-text"><b>Обложки из интернета</b><small>Если плеер (например, браузер) не передал обложку — найти её в каталогах Deezer и iTunes. Для этого им отправляются исполнитель и название трека</small></span><label class="switch"><input type="checkbox" data-cfg="media.onlineCovers"><span></span></label></div>
           <div class="set-row"><span class="set-ic"><i data-ic="mic" data-size="17"></i></span><span class="set-text"><b>Голосовые команды в Telegram</b><small>Речь распознаётся на этом компьютере, без облака</small></span><label class="switch"><input type="checkbox" data-cfg="voice.enabled"><span></span></label></div>
           <div class="set-row"><span class="set-ic"><i data-ic="calendar" data-size="17"></i></span><span class="set-text"><b>Отчёт за неделю</b><small>По воскресеньям в 20:00 в Telegram</small></span><label class="switch"><input type="checkbox" data-cfg="reports.weekly"><span></span></label></div>
           <div class="set-row"><span class="set-ic"><i data-ic="globe" data-size="17"></i></span><span class="set-text"><b>Следить за интернетом</b><small>Сообщение, когда связь вернётся после обрыва</small></span><label class="switch"><input type="checkbox" data-cfg="network.watchInternet"><span></span></label></div>
@@ -597,6 +598,18 @@
           <div class="bar"><i id="upd-bar"></i></div>
           <div class="row muted small mt6"><span id="upd-text"></span><span class="spacer"></span><span id="upd-pct"></span></div>
         </div>
+        <details class="mt">
+          <summary class="muted small">Куда программа обращается в интернете</summary>
+          <ul class="muted small mt6">
+            <li><b>api.telegram.org</b> — Telegram-бот (если подключён)</li>
+            <li><b>github.com</b> — проверка и загрузка обновлений программы</li>
+            <li><b>api.deezer.com, itunes.apple.com</b> — обложки треков, если включены «Обложки из интернета» (исполнитель и название)</li>
+            <li><b>api.ipify.org, ifconfig.me, icanhazip.com</b> — внешний IP-адрес, только когда вы его запрашиваете</li>
+            <li><b>speed.cloudflare.com</b> — замер скорости интернета, только по вашей кнопке</li>
+            <li><b>huggingface.co</b> — один раз: модель распознавания голоса (закреплённая версия)</li>
+          </ul>
+          <p class="muted small">Связь телефона с компьютером идёт напрямую по вашей сети Wi-Fi и шифруется. Файлы, история и настройки хранятся только на этом компьютере.</p>
+        </details>
       </div>
       <div class="card">
         <h3 class="card-title mb18"><i data-ic="sparkles" data-size="18"></i>История изменений</h3>

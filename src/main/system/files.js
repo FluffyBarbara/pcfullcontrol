@@ -65,6 +65,18 @@ class FileManager {
     return list.filter(Boolean).map((x) => path.resolve(x));
   }
 
+  /**
+   * Скрытые файлы и папки в корне папки пользователя (.netrc, .git-credentials, .npmrc, .bash_history,
+   * .putty, .mozilla…) — там пароли, токены и история команд. Закрыты целиком, а не по списку.
+   * Также файлы реестра пользователя (NTUSER.DAT).
+   */
+  isHiddenSecret(p) {
+    const home = os.homedir();
+    if (!inside(p, home) || norm(p) === norm(home)) return false;
+    const first = path.relative(home, p).split(/[\\/]/)[0] || '';
+    return first.startsWith('.') || /^ntuser\.(dat|ini|pol)/i.test(first) || /^(_netrc|_vimrc|_viminfo)$/i.test(first);
+  }
+
   /** Куда нельзя писать даже в режиме «весь диск»: автозагрузка, система, программы, данные программ. */
   writeForbidden() {
     const env = (k) => process.env[k];
@@ -93,6 +105,7 @@ class FileManager {
     for (const x of [resolved, real]) {
       const dd = this.dataDir();
       if (dd && inside(x, path.resolve(dd))) { this.onAlarm(x, op); throw new FileAccessError('Данные программы недоступны с телефона'); }
+      if (!chosen.some((c) => inside(x, c)) && this.isHiddenSecret(x)) throw new FileAccessError('Эта папка закрыта: в ней пароли и данные программ');
       if (!chosen.some((c) => inside(x, c)) && this.sensitive().some((s) => inside(x, s))) throw new FileAccessError('Эта папка закрыта: в ней пароли и данные программ');
     }
     const roots = this.allowedRoots;
@@ -146,6 +159,7 @@ class FileManager {
     const items = [];
     for (const e of entries) {
       const full = path.join(dir, e.name);
+      if (this.isHiddenSecret(full) && ![...this.allowedRoots, path.resolve(this.uploadDir)].some((c) => inside(full, c))) continue; // закрытое не показываем
       try {
         const isDir = e.isDirectory();
         const st = isDir ? null : fs.statSync(full);

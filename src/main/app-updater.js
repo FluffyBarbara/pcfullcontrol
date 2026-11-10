@@ -112,7 +112,7 @@ class AppUpdater {
     this.lastUpdateInfo = (r && r.updateInfo) || null;
     const latest = r && r.updateInfo ? r.updateInfo.version : null;
     const hasUpdate = !!latest && cmpVersions(latest, current) > 0;
-    const info = { current, latest, hasUpdate, notes: parseNotes(r && r.updateInfo && r.updateInfo.releaseNotes), checkedAt: Date.now() };
+    const info = { current, latest, hasUpdate, notes: parseNotes(r && r.updateInfo && r.updateInfo.releaseNotes), checkedAt: Date.now(), releaseDate: (r && r.updateInfo && r.updateInfo.releaseDate) || null };
     this.ctx.updateInfo = info;
     if (!busy) this.setState({ status: hasUpdate ? 'available' : 'latest', latest });
     return info;

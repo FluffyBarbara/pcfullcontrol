@@ -94,7 +94,7 @@ async function wakePc(pc, statusEl) {
     const sec = Math.round((Date.now() - started) / 1000);
     if (statusEl) statusEl.textContent = `Включаю… ${sec} с`;
     const info = await hello(pc.url, 2500);
-    if (info) { toast(`«${info.pcName}» включён`); openPc(pc.url); return; }
+    if (info) { toast(`«${info.pcName || pc.name}» включён`); openPc(pc.url); return; }
     if (Date.now() - started > 4 * 60 * 1000) {
       if (statusEl) statusEl.textContent = 'не ответил';
       toast('Компьютер не включился. Проверьте Wake-on-LAN в BIOS и подключение по кабелю (подробности — в программе на ПК).');
@@ -123,7 +123,9 @@ async function addPc(base, hash = '') {
     return false;
   }
   const list = loadPcs().filter((p) => p.url !== base);
-  list.unshift({ url: base, name: info.pcName, last: Date.now(), mac: info.mac || null, broadcast: info.broadcast || null });
+  // Имя и MAC-адрес ПК сообщает только привязанному телефону — до привязки показываем адрес
+  const old = loadPcs().find((p) => p.url === base);
+  list.unshift({ url: base, name: info.pcName || (old && old.name) || new URL(base).hostname, last: Date.now(), mac: info.mac || (old && old.mac) || null, broadcast: info.broadcast || (old && old.broadcast) || null });
   savePcs(list);
   openPc(base, hash);
   return true;

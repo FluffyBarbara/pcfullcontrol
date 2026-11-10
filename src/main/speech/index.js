@@ -44,7 +44,7 @@ class SpeechRecognizer {
     this.bind();
     this.win = new BrowserWindow({
       show: false, width: 200, height: 200, skipTaskbar: true, focusable: false,
-      webPreferences: { preload: path.join(__dirname, 'decode-preload.js'), contextIsolation: true, sandbox: false, backgroundThrottling: false },
+      webPreferences: { preload: path.join(__dirname, 'decode-preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
     });
     this.winReady = new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('Модуль аудио не запустился')), 15000);

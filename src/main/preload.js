@@ -6,7 +6,7 @@ const INVOKE = new Set([
   'get-state', 'get-status', 'get-metrics', 'set-token', 'regen-pair', 'remove-user', 'test-notify',
   'save-config', 'set-muted', 'set-autostart', 'run-action', 'get-tasks', 'add-task', 'toggle-task',
   'delete-task', 'get-log', 'check-app-update', 'open-external', 'open-data-dir', 'quit',
-  'mobile-info', 'mobile-regen', 'remove-device', 'get-processes', 'whatsnew-state', 'whatsnew-ack', 'update-state', 'update-start', 'wol-info', 'wol-setup', 'autologon-enable', 'autologon-disable',
+  'mobile-info', 'mobile-regen', 'net-make-private', 'bot-pairing-open', 'remove-device', 'get-processes', 'whatsnew-state', 'whatsnew-ack', 'update-state', 'update-start', 'wol-info', 'wol-setup', 'autologon-enable', 'autologon-disable',
   'clean-analyze', 'clean-run', 'apps-list', 'apps-uninstall', 'apps-job', 'apps-leftovers', 'apps-remove-leftovers', 'cleanup-report',
   'hw-info', 'net-status', 'net-speedtest', 'net-scan', 'net-label', 'startup-list', 'startup-set',
   'weekly-preview', 'weekly-send', 'extras-state',

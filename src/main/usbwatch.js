@@ -3,7 +3,7 @@
 // Windows сообщает о каждом новом устройстве (WMI); одно физическое устройство появляется сразу
 // несколькими записями — собираем их за 3 секунды в одно уведомление с понятным названием.
 const { spawn } = require('child_process');
-const { IS_WIN, powershell } = require('./system/exec');
+const { IS_WIN, powershell, PS_EXE } = require('./system/exec');
 const { E } = require('./telegram-api');
 
 const AGENT = `
@@ -91,7 +91,7 @@ class UsbWatch {
       return;
     }
     const encoded = Buffer.from(AGENT, 'utf16le').toString('base64');
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     this.proc = p;
     let buf = '';
     p.stdout.on('data', (d) => {

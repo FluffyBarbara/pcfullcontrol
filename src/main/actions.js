@@ -61,7 +61,8 @@ class ActionRegistry {
     a('restart_app', 'Перезапустить приложение', 'system', () => this.ctx.restartApp(), { dangerous: true });
     // Разное
     a('open_url', 'Открыть ссылку', 'misc', misc.openUrl, { argHint: 'https://…', argRequired: true });
-    a('launch', 'Запустить программу', 'misc', misc.launch, { argHint: 'программа или путь', argRequired: true });
+    // Запуск по пути с телефона или из Telegram — только в доступных папках (как файлы) и с подтверждением
+    a('launch', 'Запустить программу', 'misc', (arg, o) => misc.launch(arg, { ...o, files: this.ctx.files, apps: this.ctx.config.apps }), { argHint: 'программа или путь', argRequired: true, dangerous: true });
     a('message', 'Сообщение на экран', 'misc', misc.showMessage, { argHint: 'текст', argRequired: true });
     a('say', 'Озвучить текст', 'misc', misc.say, { argHint: 'текст', argRequired: true });
     a('clipboard_get', 'Получить буфер обмена', 'misc', misc.clipboardGet);
@@ -107,7 +108,7 @@ class ActionRegistry {
     let ok = true;
     let result;
     try {
-      result = (await act.fn(arg)) || 'Готово';
+      result = (await act.fn(arg, { source })) || 'Готово';
     } catch (e) {
       ok = false;
       result = `Ошибка: ${e.message}`;

@@ -56,6 +56,8 @@ class Database {
       if (file) fs.copyFileSync(file, file + '.broken-' + Date.now());
       this.db = new SQL.Database();
     }
+    // Удалённые записи (старый журнал команд, отвязанные телефоны) затираются, а не остаются в файле
+    try { this.db.exec('PRAGMA secure_delete = ON'); } catch (e) { /* ignore */ }
     this.db.exec(SCHEMA);
     // Новые столбцы в старых базах
     for (const sql of ['ALTER TABLE outages ADD COLUMN cause TEXT', 'ALTER TABLE outages ADD COLUMN title TEXT', 'ALTER TABLE outages ADD COLUMN fixed INTEGER DEFAULT 0']) {

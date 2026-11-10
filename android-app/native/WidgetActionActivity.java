@@ -40,20 +40,25 @@ public class WidgetActionActivity extends Activity {
             HttpURLConnection c = null;
             try {
                 SharedPreferences p = app.getSharedPreferences(PcWidgetProvider.PREFS, Context.MODE_PRIVATE);
-                // Ключ виджета — в заголовке, а не в адресе (адреса попадают в журналы и историю)
-                URL u = new URL(p.getString("url", "") + "/api/widget/action");
-                c = (HttpURLConnection) u.openConnection();
-                c.setRequestProperty("X-Widget-Key", p.getString("key", ""));
-                c.setConnectTimeout(4000);
-                c.setReadTimeout(15000);
-                c.setRequestMethod("POST");
-                c.setDoOutput(true);
-                c.setRequestProperty("Content-Type", "application/json");
-                OutputStream os = c.getOutputStream();
-                // confirm: выключение, перезагрузку и сон пользователь уже подтвердил в окне выше
-                os.write(("{\"action\":\"" + action + "\",\"confirm\":true}").getBytes("UTF-8"));
-                os.close();
-                int code = c.getResponseCode();
+                int code = 0;
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    if (c != null) c.disconnect();
+                    // Запрос подписан ключом виджета — сам ключ по сети не передаётся
+                    URL u = new URL(p.getString("url", "") + "/api/widget/action");
+                    c = (HttpURLConnection) u.openConnection();
+                    c.setRequestProperty("X-Widget-Auth", PcWidgetProvider.authHeader(p.getString("key", ""), "POST", "/api/widget/action"));
+                    c.setConnectTimeout(4000);
+                    c.setReadTimeout(15000);
+                    c.setRequestMethod("POST");
+                    c.setDoOutput(true);
+                    c.setRequestProperty("Content-Type", "application/json");
+                    OutputStream os = c.getOutputStream();
+                    // confirm: выключение, перезагрузку и сон пользователь уже подтвердил в окне выше
+                    os.write(("{\"action\":\"" + action + "\",\"confirm\":true}").getBytes("UTF-8"));
+                    os.close();
+                    code = c.getResponseCode();
+                    if (!(code == 401 && PcWidgetProvider.syncClock(c))) break;
+                }
                 msg = code == 200 ? "Готово ✓" : (code == 401 ? "Виджет отключён — добавьте его заново в приложении" : "Ошибка " + code);
             } catch (Exception e) {
                 msg = "Компьютер не в сети";
