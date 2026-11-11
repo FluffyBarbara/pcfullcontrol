@@ -49,6 +49,21 @@
   </div>
 </section>
 
+<!-- ================= Код-пароль ================= -->
+<section id="lock" class="pair hidden">
+  <div class="pair-card">
+    <img src="icon-192.png" alt="" class="pair-logo">
+    <h1>Введите код-пароль</h1>
+    <p class="muted">Приложение защищено код-паролем, чтобы с этого телефона никто, кроме вас, не управлял компьютером.</p>
+    <form id="lock-form" class="pair-form">
+      <input id="lock-pin" class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••">
+      <button class="btn primary big" type="submit" id="lock-go">Открыть</button>
+      <p class="error" id="lock-error"></p>
+    </form>
+    <button class="btn big" type="button" id="lock-forgot">Забыли код? Привязать телефон заново</button>
+  </div>
+</section>
+
 <!-- ================= Приложение ================= -->
 <div id="app" class="hidden">
   <header class="top">
@@ -301,6 +316,12 @@
             <span class="set-text"><b>Уведомления в Telegram</b><small>Критические приходят всегда</small></span>
             <span class="switch"><input type="checkbox" id="notif-toggle"><span></span></span>
           </label>
+        </div>
+        <div class="card">
+          <div class="card-title"><i data-ic="lock" data-size="18"></i>Код-пароль на вход</div>
+          <p class="muted" id="pin-text"></p>
+          <button class="btn big" id="pin-btn"></button>
+          <button class="btn big hidden" id="pin-off">Выключить код-пароль</button>
         </div>
         <div class="card update-card hidden" id="update-card">
           <div class="card-title"><i data-ic="sparkles" data-size="18"></i>Доступно обновление</div>

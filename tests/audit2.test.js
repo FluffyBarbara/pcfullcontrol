@@ -208,3 +208,18 @@ test('привязка: запрос, зашифрованный старым к
     assert.match((await r.json()).error, /отсканируйте QR-код/);
   } finally { lan.stop(); }
 });
+
+test('AUD-12: битый адрес — ответ 400, а не сбой; уборка памяти по таймеру', async () => {
+  const { lan } = await setup();
+  try {
+    const status = await new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: lan.port, path: '/%E0%A4%A' }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', reject);
+    });
+    assert.equal(status, 400);
+    lan.nonces.set('old|n', Date.now() - 60 * 60 * 1000);
+    lan.nonces.set('new|n', Date.now());
+    lan.sweep();
+    assert.equal(lan.nonces.has('old|n'), false);
+    assert.equal(lan.nonces.has('new|n'), true);
+  } finally { lan.stop(); }
+});

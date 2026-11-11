@@ -116,6 +116,9 @@
   };
 
   function svg(name, size = 20, cls = '') {
+    // Разметка собирается только из своих констант: размер — число, класс — только безопасные символы
+    size = Math.max(1, Math.min(256, Number(size) || 20));
+    cls = String(cls || '').replace(/[^\w -]/g, '');
     if (FILLED[name]) {
       return `<svg class="ic ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${FILLED[name]}</svg>`;
     }

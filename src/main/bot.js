@@ -11,7 +11,6 @@ const updates = require('./system/updates');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { parseDuration, parseTime, parseWeekdays, nextTimeOfDay } = require('./scheduler');
 const { parseVoiceCommand, EXAMPLES: VOICE_EXAMPLES } = require('./voice-commands');
-const { LEVEL_TEXT } = require('./system/disk-health');
 
 const MAIN_KB = replyKb([
   ['📊 Статус', '📸 Скриншот'],

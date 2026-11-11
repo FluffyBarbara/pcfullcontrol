@@ -195,7 +195,7 @@ class LanServer {
     this.server.on('connection', (sock) => this.onConnection(sock));
     this.refreshGuard(true).catch(() => {});
     clearInterval(this.guardTimer);
-    this.guardTimer = setInterval(() => this.refreshGuard().catch(() => {}), 30000);
+    this.guardTimer = setInterval(() => { this.refreshGuard().catch(() => {}); this.sweep(); }, 30000);
     if (this.guardTimer.unref) this.guardTimer.unref();
     // Туннель Cloudflare держит соединение с программой до 90 с. Если программа закроет его раньше,
     // запрос, пришедший в этот момент, обрывается и Cloudflare показывает «502 Bad gateway».
@@ -216,6 +216,15 @@ class LanServer {
         resolve();
       });
     });
+  }
+
+  /** Уборка памяти: старые одноразовые числа, счётчики частоты, ссылки плеера (раз в 30 секунд, а не по порогу). */
+  sweep(now = Date.now()) {
+    for (const [k, t] of this.nonces) if (now - t > 11 * 60 * 1000) this.nonces.delete(k);
+    for (const [k, v] of this.rate) if (now - v.start > 10 * 60 * 1000) this.rate.delete(k);
+    for (const [k, v] of this.tickets) if (v.expires < now) this.tickets.delete(k);
+    for (const [k, v] of this.widgetFails) if (!v.some((t) => now - t < 10 * 60 * 1000)) this.widgetFails.delete(k);
+    for (const [k, v] of this.failed) if (!v.some((t) => now - t < 10 * 60 * 1000)) this.failed.delete(k);
   }
 
   stop() {
@@ -438,7 +447,8 @@ class LanServer {
     // Защита от «DNS rebinding»: чужой сайт в браузере не сможет обратиться к программе под своим именем
     const host = String(req.headers.host || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
     if (!/^(\d{1,3}(\.\d{1,3}){3}|localhost|::1)$/.test(host)) { res.writeHead(421); res.end(); return undefined; }
-    const url = new URL(req.url, 'http://x');
+    let url;
+    try { url = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400); res.end(); return undefined; }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     try {
@@ -469,7 +479,8 @@ class LanServer {
   }
 
   serveStatic(pathname, req, res) {
-    let rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
+    let rel;
+    try { rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html'; } catch (e) { throw new HttpError(400, 'Неверный адрес'); }
     if (rel.includes('..')) rel = 'index.html';
     let file = rel.startsWith('shared/') ? path.join(SHARED_DIR, rel.slice(7)) : path.join(MOBILE_DIR, rel);
     const inside = (dir) => path.resolve(file).startsWith(path.resolve(dir) + path.sep);

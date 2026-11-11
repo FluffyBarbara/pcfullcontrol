@@ -73,7 +73,7 @@
   }
   function flushRel() {
     rc.relRaf = 0;
-    if (!dcOpen() && !wsOpen() && rc.httpBusy) { rc.relRaf = requestAnimationFrame(flushRel); return; }
+    if (!dcOpen() && rc.httpBusy) { rc.relRaf = requestAnimationFrame(flushRel); return; }
     const ix = Math.trunc(rc.relX);
     const iy = Math.trunc(rc.relY);
     if (!ix && !iy) return;

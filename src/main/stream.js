@@ -168,7 +168,6 @@ class ScreenStream {
   }
 
   onClosed(sid) {
-    const sess = this.sessions.get(sid);
     if (!this.sessions.delete(sid)) return;
     if (!this.sessions.size) {
       this.stopCursor();

@@ -17,6 +17,38 @@ const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platf
 const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
 let token = store.get(TOKEN_KEY);
+
+// ===================== код-пароль =====================
+// Включён — ключ доступа хранится только зашифрованным ключом из код-пароля (PBKDF2-HMAC-SHA256),
+// после 5 неверных попыток стирается; приложение снова запирается, если было свёрнуто больше 5 минут.
+const LOCK_KEY = 'pcfc_lock';
+const LOCK_FAILS = 'pcfc_lock_fails';
+const LOCK_AFTER_MS = 5 * 60 * 1000;
+const lockInfo = () => { try { return JSON.parse(store.get(LOCK_KEY) || 'null'); } catch (e) { return null; } };
+function pinKey(pin, saltHex, iters) {
+  const salt = PcfcSig.fromHex(saltHex);
+  const first = new Uint8Array(salt.length + 4); first.set(salt); first[first.length - 1] = 1;
+  let u = PcfcSig.hmac(pin, first);
+  const t = Uint8Array.from(u);
+  for (let i = 1; i < iters; i++) { u = PcfcSig.hmac(pin, u); for (let j = 0; j < 32; j++) t[j] ^= u[j]; }
+  return PcfcSig.hex(t);
+}
+function enableLock(pin) {
+  const salt = PcfcSig.hex(crypto.getRandomValues(new Uint8Array(16)));
+  const iters = 30000;
+  const box = PcfcSig.hex(PcfcSig.encrypt(pinKey(pin, salt, iters), 'pin', salt, token));
+  store.set(LOCK_KEY, JSON.stringify({ v: 1, salt, iters, box }));
+  store.del(LOCK_FAILS);
+  store.del(TOKEN_KEY); // открытой копии ключа больше нет
+}
+/** → ключ доступа или null (неверный код). */
+function openLock(pin) {
+  const l = lockInfo();
+  if (!l) return null;
+  try { return new TextDecoder().decode(PcfcSig.decrypt(pinKey(pin, l.salt, l.iters), 'pin', l.salt, PcfcSig.fromHex(l.box))); } catch (e) { return null; }
+}
+function wipeLock() { store.del(LOCK_KEY); store.del(LOCK_FAILS); }
+if (lockInfo()) token = null; // до ввода кода ключа в памяти нет
 let INFO = null;
 let ACTIONS = {};
 let tab = 'home';
@@ -29,7 +61,6 @@ function el(tag, attrs = {}, ...kids) {
     if (v === null || v === undefined || v === false) continue;
     if (k === 'class') n.className = v;
     else if (k === 'text') n.textContent = v;
-    else if (k === 'html') n.innerHTML = v;
     else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
     else n.setAttribute(k, v === true ? '' : v);
   }
@@ -127,6 +158,7 @@ async function api(path, { method, json, body, raw, headers = {} } = {}) {
   if (r.status === 401 && token) {
     token = null;
     store.del(TOKEN_KEY);
+    wipeLock();
     showPair();
     throw new ApiError('Телефон не привязан', 401);
   }
@@ -234,6 +266,7 @@ async function doPair(code, secret = '') {
       const shared = PcfcSig.x25519(kp.priv, PcfcSig.fromHex(res.spub));
       token = PcfcSig.unseal(PcfcSig.hex(PcfcSig.hmac(shared, 'seal:' + code)), salt, res.sealed);
     }
+    wipeLock(); // новая привязка — новый ключ; код-пароль можно включить снова в «Ещё» → «Настройки»
     store.set(TOKEN_KEY, token);
     history.replaceState(null, '', location.pathname + location.search);
     haptic(20);
@@ -257,6 +290,7 @@ $('#pair-form').addEventListener('submit', (e) => {
 // ===================== запуск =====================
 async function startApp() {
   INFO = await api('/api/info');
+  renderPin();
   ACTIONS = Object.fromEntries(INFO.actions.map((a) => [a.name, a]));
   $('#pair').classList.add('hidden');
   $('#app').classList.remove('hidden');
@@ -1011,7 +1045,99 @@ $('#unpair').addEventListener('click', async () => {
   try { await api('/api/unpair', { method: 'POST' }); } catch (e) { /* ignore */ }
   token = null;
   store.del(TOKEN_KEY);
+  wipeLock();
   showPair();
+});
+
+// ----- код-пароль: экран входа и настройки -----
+function showLock() {
+  stopTimers();
+  $('#app').classList.add('hidden');
+  $('#pair').classList.add('hidden');
+  $('#lock').classList.remove('hidden');
+  $('#lock-error').textContent = '';
+  $('#lock-pin').value = '';
+  setTimeout(() => $('#lock-pin').focus(), 50);
+}
+$('#lock-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const pin = $('#lock-pin').value.trim();
+  if (!pin) return;
+  $('#lock-go').disabled = true;
+  $('#lock-error').textContent = 'Проверяю…';
+  setTimeout(async () => { // даём экрану обновиться: проверка кода занимает около секунды
+    const t = openLock(pin);
+    $('#lock-go').disabled = false;
+    if (!t) {
+      const fails = (Number(store.get(LOCK_FAILS)) || 0) + 1;
+      store.set(LOCK_FAILS, String(fails));
+      $('#lock-pin').value = '';
+      if (fails >= 5) {
+        wipeLock(); store.del(TOKEN_KEY); token = null;
+        $('#lock').classList.add('hidden');
+        showPair();
+        $('#pair-error').textContent = '5 неверных код-паролей — ключ доступа стёрт. Привяжите телефон заново.';
+        return;
+      }
+      $('#lock-error').textContent = `Неверный код. Осталось попыток: ${5 - fails}`;
+      haptic([30, 60, 30]);
+      return;
+    }
+    store.del(LOCK_FAILS);
+    token = t;
+    $('#lock').classList.add('hidden');
+    try { await startApp(); } catch (err) { if (err.status !== 401) { showPair(); $('#pair-error').textContent = err.message; } }
+  }, 30);
+});
+$('#lock-forgot').addEventListener('click', async () => {
+  if (!(await confirmSheet('Привязать заново?', 'Ключ доступа на этом телефоне будет стёрт. Откройте на компьютере раздел «Телефон» и отсканируйте QR-код.', 'Стереть', true, 'logout'))) return;
+  wipeLock(); store.del(TOKEN_KEY); token = null;
+  $('#lock').classList.add('hidden');
+  showPair();
+});
+function renderPin() {
+  const on = !!lockInfo();
+  $('#pin-text').textContent = on ? 'Включён: без кода-пароля приложение не откроется. После 5 ошибок ключ доступа стирается.' : 'Если телефон попадёт в чужие руки, без кода-пароля управлять компьютером не получится.';
+  $('#pin-btn').replaceChildren(on ? 'Изменить код-пароль' : 'Включить код-пароль');
+  $('#pin-off').classList.toggle('hidden', !on);
+}
+function askPin(title) {
+  const inp = el('input', { class: 'input pin-input', type: 'password', inputmode: 'numeric', maxlength: '8', placeholder: '••••', autocomplete: 'off' });
+  const ok = () => closeSheet(inp.value.trim() || null);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
+  setTimeout(() => inp.focus(), 60);
+  return openSheet(title, [inp, el('div', { class: 'sheet-options' },
+    el('button', { class: 'btn primary', onclick: ok }, ic('lock', 18), 'Готово'),
+    el('button', { class: 'btn', onclick: () => closeSheet(null) }, ic('x', 18), 'Отмена'))]);
+}
+$('#pin-btn').addEventListener('click', async () => {
+  if (lockInfo()) {
+    const old = await askPin('Текущий код-пароль');
+    if (!old) return;
+    if (!openLock(old)) { toast('Неверный код-пароль', 'err'); return; }
+  }
+  const pin = await askPin('Новый код-пароль (4–8 цифр)');
+  if (!pin) return;
+  if (!/^\d{4,8}$/.test(pin)) { toast('Нужно от 4 до 8 цифр', 'err'); return; }
+  const again = await askPin('Повторите код-пароль');
+  if (again !== pin) { toast('Коды не совпали', 'err'); return; }
+  enableLock(pin);
+  renderPin();
+  toast('Код-пароль включён');
+});
+$('#pin-off').addEventListener('click', async () => {
+  const pin = await askPin('Текущий код-пароль');
+  if (!pin) return;
+  if (!openLock(pin)) { toast('Неверный код-пароль', 'err'); return; }
+  wipeLock();
+  store.set(TOKEN_KEY, token);
+  renderPin();
+  toast('Код-пароль выключен');
+});
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (lockInfo() && token && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) { token = null; showLock(); }
 });
 
 $('#switch-pc').addEventListener('click', () => { location.href = 'http://localhost/?list=1'; });
@@ -1207,6 +1333,7 @@ window.addEventListener('hashchange', pairFromHash);
 
 (async () => {
   if (await pairFromHash()) return;
+  if (lockInfo()) { showLock(); return; }
   if (!token) { showPair(); return; }
   try { await startApp(); } catch (e) { if (e.status !== 401) { showPair(); $('#pair-error').textContent = e.message; } }
 })();

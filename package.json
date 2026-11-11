@@ -1,7 +1,7 @@
 {
   "name": "pc-full-control",
   "productName": "PC Full Control",
-  "version": "1.12.8",
+  "version": "1.12.9",
   "description": "Управление компьютером с телефона через Telegram",
   "main": "src/main/main.js",
   "author": "PC Full Control",
@@ -10,18 +10,22 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test \"tests/*.test.js\"",
-    "dist": "electron-builder --win --x64 --publish never"
+    "dist": "electron-builder --win --x64 --publish never",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.2",
     "electron-updater": "6.8.11",
     "qrcode": "1.5.4",
-    "sql.js": "1.15.2",
+    "sql.js": "1.16.0",
     "systeminformation": "5.33.19"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "electron": "44.10.2",
-    "electron-builder": "26.18.0"
+    "electron-builder": "26.18.0",
+    "eslint": "10.14.0",
+    "globals": "17.14.0"
   },
   "build": {
     "appId": "com.pcfullcontrol.app",
@@ -107,6 +111,12 @@
       "minimatch": "^11.0.1"
     },
     "app-builder-lib": {
+      "minimatch": "^11.0.1"
+    },
+    "eslint": {
+      "minimatch": "^11.0.1"
+    },
+    "@eslint/config-array": {
       "minimatch": "^11.0.1"
     }
   }

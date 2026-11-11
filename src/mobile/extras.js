@@ -2,7 +2,6 @@
 // «Ещё» на телефоне: Железо (видеокарта, FPS, диски), Сеть (интернет, скорость, устройства, доступ из интернета), Автозагрузка.
 const MExtras = (() => {
   let gpuTimer = null;
-  const LEVEL = { ok: ['ok', 'Исправен'], warn: ['warn', 'Предупреждения'], bad: ['err', 'Требует внимания'] };
   const clock = (ts) => new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   function meter(label, value, max, text, hot = false) {

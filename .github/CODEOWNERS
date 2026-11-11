@@ -1,0 +1,11 @@
+# Изменения в коде, отвечающем за безопасность, требуют проверки владельца
+*                         @FluffyBarbara
+/src/shared/sig.js        @FluffyBarbara
+/src/main/lan-server.js   @FluffyBarbara
+/src/main/net-guard.js    @FluffyBarbara
+/src/main/system/files.js @FluffyBarbara
+/src/main/system/exec.js  @FluffyBarbara
+/src/main/config.js       @FluffyBarbara
+/build/installer.nsh      @FluffyBarbara
+/.github/                 @FluffyBarbara
+/SECURITY.md              @FluffyBarbara

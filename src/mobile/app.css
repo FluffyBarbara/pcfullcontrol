@@ -82,6 +82,7 @@ textarea.input { padding: 12px 16px; min-height: 90px; resize: vertical; }
 /* ---------- привязка ---------- */
 .pair { position: relative; z-index: 1; min-height: 100vh; display: grid; place-items: center; padding: 24px 18px calc(24px + env(safe-area-inset-bottom)); }
 .pair-card { width: 100%; max-width: 400px; text-align: center; }
+.pin-input { text-align: center; font-size: 28px; letter-spacing: 10px; margin: 14px 0; }
 .pair-logo { width: 84px; height: 84px; border-radius: 24px; box-shadow: 0 16px 40px rgba(109, 124, 255, .45); }
 .pair h1 { font-size: 28px; margin: 18px 0 4px; letter-spacing: -.02em; }
 .pair-form { text-align: left; margin-top: 18px; }
