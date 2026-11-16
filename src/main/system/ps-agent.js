@@ -68,6 +68,9 @@ ${this.ps}`;
     } catch (e) { /* ниже — понятная ошибка запуска */ }
     const p = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = p;
+    // Помощник живёт в фоне и не должен сам по себе удерживать процесс программы (и автотестов) от завершения
+    p.unref();
+    for (const st of [p.stdin, p.stdout, p.stderr]) { try { if (st && st.unref) st.unref(); } catch (e) { /* ignore */ } }
     let buf = '';
     let errText = '';
     this.ready = new Promise((resolve, reject) => {
