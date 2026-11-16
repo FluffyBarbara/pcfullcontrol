@@ -512,6 +512,34 @@ class MediaInfo {
   }
 
   /** Живые уровни звука: { '*': 0.42, chrome: 0.4, … } (0..1). */
+  /**
+   * Громкость для главной страницы — без запуска PowerShell каждый раз: через постоянного помощника
+   * и с кэшем на 10 секунд (старое значение отдаётся сразу, новое — в фоне).
+   */
+  volumeNow() {
+    const c = this._vol;
+    if (!c || Date.now() - c.t > 10000) {
+      if (!this._volP) {
+        this._volP = (async () => {
+          let v = null;
+          if (this.agent) {
+            const r = await this.agent.call('mixer', {}, 8000);
+            v = r && r.master != null ? { level: Math.round(r.master * 100), muted: !!r.masterMuted } : null;
+          } else {
+            v = await require('./media').getVolume();
+          }
+          this._vol = { t: Date.now(), v };
+          return v;
+        })().catch(() => (this._vol ? this._vol.v : null)).finally(() => { this._volP = null; });
+      }
+      if (!c) return Promise.race([this._volP, new Promise((r) => setTimeout(() => r(null), 2500))]);
+    }
+    return Promise.resolve(c.v);
+  }
+
+  /** Громкость поменяли — следующий запрос прочитает свежую. */
+  invalidateVolume() { if (this._vol) this._vol.t = 0; }
+
   async peaks() {
     if (!this.agent) return {};
     const raw = await this.agent.call('peaks', {}, 3000);
@@ -536,6 +564,7 @@ class MediaInfo {
   async setMaster({ level = null, mute = null } = {}) {
     if (!this.agent) throw new Error('Микшер доступен в Windows');
     await this.agent.call('master', { level: level == null ? -1 : Math.max(0, Math.min(100, Number(level))) / 100, mute: mute == null ? -1 : mute ? 1 : 0 });
+    this.invalidateVolume();
     return { ok: true };
   }
 

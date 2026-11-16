@@ -107,7 +107,10 @@ class Database {
 
   _dirty() {
     if (!this.file || this._timer) return;
-    this._timer = setTimeout(() => { this._timer = null; this.save(); }, 3000);
+    // Запись всей базы на диск — не чаще раза в 10 секунд (на слабых ПК с HDD это заметно);
+    // при выходе, обновлении и выключении база сохраняется сразу
+    this._timer = setTimeout(() => { this._timer = null; this.save(); }, 10000);
+    if (this._timer.unref) this._timer.unref();
   }
 
   /** Атомарная запись базы на диск. */

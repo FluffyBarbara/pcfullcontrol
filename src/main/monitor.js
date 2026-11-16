@@ -13,6 +13,17 @@ const POWER_TITLES = {
   sleep: 'переведён в сон по команде', hibernate: 'переведён в гибернацию по команде',
 };
 
+/** Имена запущенных программ (в нижнем регистре, без .exe). */
+async function runningNames() {
+  if (process.platform === 'win32') {
+    const { run } = require('./system/exec');
+    const r = await run('tasklist.exe', ['/fo', 'csv', '/nh'], { timeout: 15000 });
+    return [...new Set((r.out || '').split(/\r?\n/).map((l) => (/^"([^"]+)"/.exec(l) || [])[1]).filter(Boolean).map((n) => n.toLowerCase().replace(/\.exe$/, '')))];
+  }
+  const procs = await si.processes().catch(() => ({ list: [] }));
+  return [...new Set(procs.list.map((p) => (p.name || '').toLowerCase().replace(/\.exe$/, '')))];
+}
+
 class Monitor {
   constructor(ctx) {
     this.ctx = ctx;
@@ -100,7 +111,7 @@ class Monitor {
     const db = this.ctx.db;
     const now = Date.now();
     const load = await si.currentLoad().catch(() => ({ currentLoad: 0 }));
-    const mem = await si.mem().catch(() => ({ total: os.totalmem(), available: os.freemem() }));
+    const mem = info.memNow(); // без PowerShell
     const disks = await info.disks();
     const temp = await info.cpuTemperature();
     const cpu = Math.round(load.currentLoad || 0);
@@ -170,12 +181,9 @@ class Monitor {
     // Отслеживаемые процессы
     const watch = (cfg.watchProcesses || []).map((w) => String(w).toLowerCase().replace(/\.exe$/, '')).filter(Boolean);
     if (watch.length) {
-      const procs = await si.processes().catch(() => ({ list: [] }));
+      // Только имена запущенных программ: tasklist отвечает за доли секунды (а полный список процессов — нагружает ПК)
       const running = new Set();
-      for (const p of procs.list) {
-        const n = (p.name || '').toLowerCase().replace(/\.exe$/, '');
-        if (watch.includes(n)) running.add(n);
-      }
+      for (const n of await runningNames()) if (watch.includes(n)) running.add(n);
       if (this.prevWatched) {
         for (const n of running) if (!this.prevWatched.has(n)) this.ctx.notifier.notify(`▶️ Запущен процесс: <b>${E(n)}</b>`, { category: 'process' });
         for (const n of this.prevWatched) if (!running.has(n)) this.ctx.notifier.notify(`⏹ Закрыт процесс: <b>${E(n)}</b>`, { category: 'process' });

@@ -51,13 +51,52 @@ async function publicIp() {
 
 // --- кэшируемые медленные запросы ---
 const cache = {};
-async function cached(key, ttlMs, fn, fallback) {
+/**
+ * Кэш «без ожидания»: устаревшее значение отдаётся сразу, а новое считается в фоне (один запрос на ключ).
+ * Окно и телефон не ждут PowerShell — на слабых ПК это главное, что убирает подвисания.
+ * Первый раз ждём не дольше firstWaitMs, дальше — что есть (fallback), значение подтянется само.
+ */
+const inflight = {};
+function refresh(key, fn, fallback) {
+  if (!inflight[key]) {
+    inflight[key] = (async () => {
+      let v;
+      try { v = await fn(); } catch (e) { v = cache[key] ? cache[key].v : fallback; }
+      cache[key] = { t: Date.now(), v };
+      return v;
+    })().finally(() => { delete inflight[key]; });
+  }
+  return inflight[key];
+}
+async function cached(key, ttlMs, fn, fallback, firstWaitMs = 2500) {
   const c = cache[key];
   if (c && Date.now() - c.t < ttlMs) return c.v;
-  let v;
-  try { v = await fn(); } catch (e) { v = fallback; }
-  cache[key] = { t: Date.now(), v };
-  return v;
+  const p = refresh(key, fn, fallback);
+  if (c) return c.v; // устарело — отдаём старое, новое придёт в фоне
+  return Promise.race([p, new Promise((r) => { const t = setTimeout(() => r(fallback), firstWaitMs); if (t.unref) t.unref(); })]);
+}
+
+/** Память — напрямую у системы (systeminformation в Windows каждый раз запускает PowerShell). */
+function memNow() {
+  const total = os.totalmem();
+  return { total, available: os.freemem() };
+}
+
+/** Диски Windows — напрямую у системы (statfs), без PowerShell; не отвечающий (сетевой) диск — пропускаем. */
+async function disksFast() {
+  const fs = require('fs');
+  const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const one = (l) => Promise.race([
+    fs.promises.statfs(`${l}:\\`).then((st) => {
+      const total = st.blocks * st.bsize;
+      if (!total) return null;
+      const free = st.bavail * st.bsize;
+      const used = total - st.bfree * st.bsize;
+      return { mount: `${l}:`, fs: '', total, used, free, percent: Math.round((used / total) * 1000) / 10 };
+    }, () => null),
+    new Promise((r) => setTimeout(() => r(null), 1500)),
+  ]);
+  return (await Promise.all(letters.map(one))).filter(Boolean);
 }
 
 async function osDescription() {
@@ -92,6 +131,10 @@ async function gpus() {
 
 async function disks() {
   return cached('disks', 15e3, async () => {
+    if (process.platform === 'win32' && require('fs').promises.statfs) {
+      const fast = await disksFast();
+      if (fast.length) return fast;
+    }
     const list = await si.fsSize();
     return list
       .filter((d) => d.size > 0 && !/^\/(snap|boot|var\/lib\/docker)/.test(d.mount) && !/squashfs|overlay/.test(d.type || ''))
@@ -109,7 +152,7 @@ async function battery() {
 }
 
 async function users() {
-  return cached('users', 55e3, async () => {
+  return cached('users', 5 * 60e3, async () => {
     const u = await si.users();
     return [...new Set(u.map((x) => x.user).filter(Boolean))];
   }, []);
@@ -118,7 +161,7 @@ async function users() {
 async function getStatus() {
   const [load, mem, dsk, bat, temp, osd, gpu, usr] = await Promise.all([
     si.currentLoad().catch(() => ({ currentLoad: 0, cpus: [] })),
-    si.mem().catch(() => ({ total: os.totalmem(), available: os.freemem() })),
+    memNow(),
     disks(), battery(), cpuTemperature(), osDescription(), gpus(), users(),
   ]);
   const cpus = os.cpus();
@@ -181,5 +224,5 @@ function formatStatus(s, pcName = '') {
 
 module.exports = {
   E, fmtBytes, fmtDuration, fmtDate, localIps, publicIp, getStatus, formatStatus,
-  disks, battery, cpuTemperature, users, osDescription,
+  disks, battery, cpuTemperature, users, osDescription, memNow, gpus,
 };

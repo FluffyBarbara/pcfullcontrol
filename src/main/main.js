@@ -15,7 +15,6 @@ const { cleanupAfterUpdate } = require('./system/self-cleanup');
 const { lock: lockScreen } = require('./system/power');
 const info = require('./system/info');
 const processes = require('./system/processes');
-const media = require('./system/media');
 const { between: changesBetween, fixOnly: isFixOnly } = require('../shared/changelog');
 const { E } = require('./telegram-api');
 const { run, IS_WIN } = require('./system/exec');
@@ -71,16 +70,23 @@ app.on('before-quit', () => {
 // перезапускаемся через эту задачу — так права есть, а окна UAC нет.
 const userFile = (name) => path.join(app.getPath('userData'), name);
 
+/** Права администратора? Мгновенно: открыть физический диск на чтение может только администратор. */
+async function isElevated() {
+  try { fs.closeSync(fs.openSync('\\\\.\\PHYSICALDRIVE0', 'r')); return true; } catch (e) {
+    if (e.code === 'EPERM' || e.code === 'EACCES') return false;
+  }
+  return (await run('fltmc.exe', [], { timeout: 10000 })).code === 0; // диска 0 нет — проверяем по-старому
+}
+
 async function relaunchElevated() {
   if (!IS_WIN || !app.isPackaged || process.argv.includes('--no-elevate')) return false;
-  if ((await run('fltmc.exe', [], { timeout: 10000 })).code === 0) return false; // уже администратор
+  if (await isElevated()) return false; // уже администратор
   // Защита от зацикливания: если недавно уже пробовали и не вышло — работаем без прав
   try {
     const last = Number(fs.readFileSync(userFile('elevate-attempt'), 'utf8'));
     if (Date.now() - last < 60000) return false;
   } catch (e) { /* первой попытки ещё не было */ }
-  const q = await run('schtasks.exe', ['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/NH'], { timeout: 10000 });
-  if (q.code !== 0 || /Disabled|Отключено/i.test(q.out)) return false;
+  // Задачу не проверяем отдельно: если её нет или она выключена, /Run просто вернёт ошибку
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
   fs.writeFileSync(userFile('elevate-attempt'), String(Date.now()));
   if (!process.argv.includes('--hidden')) fs.writeFileSync(userFile('show-window.flag'), '1');
@@ -118,25 +124,10 @@ async function init() {
   trackVersion();
   if (process.env.PCFC_TEST_HOOKS) global.__pcfc = ctx; // только для автоматических проверок
   ctx.monitor = new Monitor(ctx);
-  ctx.monitor.start();
-  ctx.scheduler.start();
   ctx.lan = new LanServer(ctx);
-  ctx.lan.start();
-  ctx.net.start();
-  // Фоновые помощники — чуть позже, чтобы не нагружать компьютер в первые секунды после входа
-  setTimeout(() => ctx.activity.start(), 30000);
-  setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
-  setTimeout(() => ctx.usb.start().catch(() => {}), 25000);
-  ctx.crashes.start();
-  startMemoryCare();
-  setTimeout(() => removeInternetAccessLeftovers().catch(() => {}), 15000);
-  startWeeklyReports();
-  startBot();
+  // Сначала — окно и трей (программа открывается сразу), службы запускаются следом
   createTray();
   registerIpc();
-  watchPower();
-  await ensureAutostartOnFirstRun();
-
   ctx.on('event', () => send('refresh'));
   ctx.on('bot-status', () => { send('refresh'); updateTray(); });
   ctx.on('metrics', (m) => send('metrics', m));
@@ -150,6 +141,26 @@ async function init() {
   let showFlag = false;
   try { fs.rmSync(userFile('show-window.flag')); showFlag = true; } catch (e) { /* флага нет */ }
   if (!process.argv.includes('--hidden') || showFlag || ctx.db.getSetting('pendingWhatsNew')) showWindow();
+  // Заранее, но после окна: состояние автозапуска и медленные сведения о системе — чтобы главная страница
+  // сразу показала всё без ожидания
+  setTimeout(() => { getAutostart().catch(() => {}); info.getStatus().catch(() => {}); }, 300);
+
+  // Службы. Сервер для телефона, планировщик и бот — сразу (это быстро); тяжёлое (опросы системы,
+  // помощники PowerShell, журналы Windows) — позже, чтобы окно открылось и работало без подвисаний
+  ctx.scheduler.start();
+  ctx.lan.start();
+  startBot();
+  watchPower();
+  startWeeklyReports();
+  startMemoryCare();
+  setTimeout(() => ctx.monitor.start(), 2000);
+  setTimeout(() => ctx.net.start(), 4000);
+  setTimeout(() => ctx.crashes.start(), 8000);
+  setTimeout(() => ctx.intruder.start().catch(() => {}), 20000);
+  setTimeout(() => ctx.usb.start().catch(() => {}), 25000);
+  setTimeout(() => ctx.activity.start(), 30000);
+  setTimeout(() => removeInternetAccessLeftovers().catch(() => {}), 15000);
+  setTimeout(() => ensureAutostartOnFirstRun().catch(() => {}), 3000);
 
   // Для автоматической проверки обновления в CI: один раз сразу запустить обновление
   if (process.env.PCFC_UPDATE_AUTO && !fs.existsSync(userFile('e2e-auto-update.done'))) {
@@ -359,10 +370,10 @@ function showWindow() {
 }
 
 // ================= Память в фоне =================
-// Окно в трее не нужно держать в памяти: через минуту после закрытия оно выгружается целиком
+// Окно в трее не нужно держать в памяти: через 15 минут после закрытия оно выгружается целиком
 // (≈50–60 МБ) и за долю секунды создаётся заново при открытии. В фоне неиспользуемая память
 // процессов программы возвращается Windows (страницы уходят в резерв и подгружаются, когда нужны).
-const UNLOAD_AFTER = 60 * 1000;
+const UNLOAD_AFTER = 15 * 60 * 1000; // 15 минут в трее — окно открывается мгновенно; дольше — освобождаем память
 let unloadTimer = null;
 let runGc = null;
 try { require('v8').setFlagsFromString('--expose-gc'); runGc = require('vm').runInNewContext('gc'); } catch (e) { /* без сборки мусора по запросу */ }
@@ -460,7 +471,15 @@ function watchPower() {
 // ================= Автозапуск =================
 // Установщик создаёт задачу Планировщика Windows (с правами администратора, при входе в систему).
 // Если её нет (например, запуск без установки), используем обычный автозапуск Electron.
+// Состояние автозапуска окно спрашивает часто — schtasks запускаем не чаще раза в минуту
+let autostartCache = null;
 async function getAutostart() {
+  if (autostartCache && Date.now() - autostartCache.t < 60000) return autostartCache.v;
+  const v = await getAutostartNow();
+  autostartCache = { t: Date.now(), v };
+  return v;
+}
+async function getAutostartNow() {
   if (IS_WIN && app.isPackaged) {
     const r = await run('schtasks.exe', ['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/NH'], { timeout: 15000 });
     if (r.code === 0) return { mode: 'task', enabled: !/Disabled|Отключено/i.test(r.out) };
@@ -470,6 +489,7 @@ async function getAutostart() {
 }
 
 async function setAutostart(on) {
+  autostartCache = null;
   const a = await getAutostart();
   if (a.mode === 'task') {
     const r = await run('schtasks.exe', ['/Change', '/TN', TASK_NAME, on ? '/ENABLE' : '/DISABLE'], { timeout: 15000 });
@@ -477,6 +497,7 @@ async function setAutostart(on) {
   } else {
     app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] });
   }
+  autostartCache = null;
   return getAutostart();
 }
 
@@ -489,13 +510,16 @@ async function ensureAutostartOnFirstRun() {
 }
 
 // ================= Связь с окном (IPC) =================
+let pairQrCache = null;
+let mobileQrCache = null;
 async function pairingInfo() {
   const code = ctx.pairingCode();
   const username = ctx.bot && ctx.bot.username;
   if (!username) return { code, link: null, qr: null };
   const link = `https://t.me/${username}?start=pair_${code}`;
-  const qr = await QRCode.toDataURL(link, { margin: 1, width: 240, color: { dark: '#101318', light: '#ffffff' } });
-  return { code, link, qr };
+  // QR-код рисуем заново, только когда меняется ссылка (окно запрашивает состояние часто)
+  if (!pairQrCache || pairQrCache.link !== link) pairQrCache = { link, qr: await QRCode.toDataURL(link, { margin: 1, width: 240, color: { dark: '#101318', light: '#ffffff' } }) };
+  return { code, link, qr: pairQrCache.qr };
 }
 
 function taskView(t) {
@@ -561,7 +585,7 @@ function registerIpc() {
 
   handle('get-status', async () => {
     const s = await info.getStatus();
-    s.volume = await media.getVolume();
+    s.volume = await ctx.media.volumeNow();
     return s;
   });
   handle('get-processes', ({ sort = 'cpu', query = '' }) => processes.listProcesses({ sort, query, limit: 150 }));
@@ -611,7 +635,9 @@ function registerIpc() {
   handle('mobile-info', async () => {
     ctx.lan.openPairing(); // раздел «Телефон» открыт — привязка разрешена ещё 3 минуты
     const i = ctx.lan.pairInfo();
-    const qr = i.pairUrl ? await QRCode.toDataURL(i.pairUrl, { margin: 1, width: 260, color: { dark: '#0b0d12', light: '#ffffff' } }) : null;
+    // Раздел опрашивается раз в 5 секунд — QR рисуем заново, только когда меняется ссылка
+    if (i.pairUrl && (!mobileQrCache || mobileQrCache.url !== i.pairUrl)) mobileQrCache = { url: i.pairUrl, qr: await QRCode.toDataURL(i.pairUrl, { margin: 1, width: 260, color: { dark: '#0b0d12', light: '#ffffff' } }) };
+    const qr = i.pairUrl ? mobileQrCache.qr : null;
     return { ...i, qr, devices: ctx.db.listDevices(), enabled: !!ctx.config.mobile.enabled };
   });
   handle('mobile-regen', () => { ctx.lan.pairCode(true); return true; });

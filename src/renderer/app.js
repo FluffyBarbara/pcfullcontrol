@@ -796,6 +796,13 @@ function fillSettings() {
   $('#apps').replaceChildren(...STATE.config.apps.map(appRow));
   $('#settings-result').textContent = '';
 }
+// Облегчённый режим применяется сразу, без сохранения настроек (запоминается в этом окне)
+$('#lite-toggle').checked = document.documentElement.classList.contains('lite');
+$('#lite-toggle').addEventListener('change', (e) => {
+  document.documentElement.classList.toggle('lite', e.target.checked);
+  try { localStorage.setItem('pcfc-lite', e.target.checked ? '1' : '0'); } catch (err) { /* ignore */ }
+});
+
 $('#save-settings').addEventListener('click', async () => {
   const patch = {};
   $$('[data-cfg]').forEach((inp) => {

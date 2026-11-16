@@ -109,6 +109,7 @@ class ActionRegistry {
     let result;
     try {
       result = (await act.fn(arg, { source })) || 'Готово';
+      if (act.category === 'media' && this.ctx.media && this.ctx.media.invalidateVolume) this.ctx.media.invalidateVolume();
     } catch (e) {
       ok = false;
       result = `Ошибка: ${e.message}`;

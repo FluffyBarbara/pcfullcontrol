@@ -9,8 +9,17 @@ const PROTECTED = new Set([
   'systemd', 'init', 'kthreadd', 'launchd', 'kernel_task',
 ]);
 
+// Полный список процессов в Windows — тяжёлый запрос: не чаще раза в 3 секунды и никогда два одновременно
+let procCache = null;
+let procInflight = null;
+async function snapshot() {
+  if (procCache && Date.now() - procCache.t < 3000) return procCache.data;
+  if (!procInflight) procInflight = si.processes().then((data) => { procCache = { t: Date.now(), data }; return data; }).finally(() => { procInflight = null; });
+  return procInflight;
+}
+
 async function listProcesses({ sort = 'cpu', limit = 30, query = '' } = {}) {
-  const data = await si.processes();
+  const data = await snapshot();
   const q = String(query || '').toLowerCase().trim();
   let list = (data.list || [])
     .filter((p) => p.pid > 0)

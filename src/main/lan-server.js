@@ -10,7 +10,6 @@ const info = require('./system/info');
 const poweron = require('./system/poweron');
 const processes = require('./system/processes');
 const screen = require('./system/screen');
-const media = require('./system/media');
 const { FileAccessError, TELEGRAM_UPLOAD_LIMIT } = require('./system/files');
 const { E } = require('./telegram-api');
 const { ScreenStream } = require('./stream');
@@ -678,7 +677,7 @@ class LanServer {
     }
     if (p === '/api/status') {
       const s = await info.getStatus();
-      s.volume = await media.getVolume();
+      s.volume = await ctx.media.volumeNow();
       s.muted = ctx.notifier.muted;
       return s;
     }

@@ -19,6 +19,7 @@
   --sunk: rgba(0, 0, 0, .25);
   --titlebar-bg: #0d1017; /* тот же цвет, что у кнопок окна Windows (applyTitleBar) */
   --sidebar-bg: rgba(12, 15, 22, .55);
+  --sidebar-solid: #0c0f16;
   --modal-bg: rgba(3, 5, 9, .55);
   --modal-card: rgba(17, 21, 30, .92);
   --tip-bg: rgba(24, 29, 42, .97);
@@ -588,7 +589,7 @@ body {
 /* Сплошной цвет: справа кнопки окна Windows рисуются сплошной заливкой, полупрозрачность давала «ступеньку».
    Линия снизу — тенью за пределами полосы, чтобы она шла под кнопками без разрыва. */
 .titlebar { background: var(--titlebar-bg); border-bottom: 0; box-shadow: 0 1px 0 var(--line); }
-.sidebar { background: var(--sidebar-bg); backdrop-filter: blur(22px) saturate(1.2); border-right-color: var(--card-border); }
+.sidebar { background: var(--sidebar-solid, var(--bg-2)); border-right-color: var(--card-border); }
 .content { background: transparent; }
 
 /* Стеклянные карточки с тонкой подсветкой сверху */
@@ -672,8 +673,7 @@ body {
 .input { background: var(--sunk); border-color: var(--card-border); transition: border-color .2s, box-shadow .2s; }
 .input:focus { border-color: rgba(var(--a1), .55); box-shadow: 0 0 0 3px rgba(var(--a1), .15); outline: none; }
 .modal { background: var(--modal-bg); backdrop-filter: blur(10px); }
-.modal-card { background: linear-gradient(180deg, rgba(var(--ov), .04), transparent 30%), var(--modal-card); border-color: rgba(var(--ov), .1); backdrop-filter: blur(20px); }
-.toast { backdrop-filter: blur(16px); }
+.modal-card { background: linear-gradient(180deg, rgba(var(--ov), .04), transparent 30%), var(--modal-card); border-color: rgba(var(--ov), .1); }
 .bar { background: rgba(var(--ov), .06); }
 .bar i { box-shadow: 0 0 10px rgba(var(--a1), .35); }
 .nav { overflow-x: hidden; padding-right: 4px; }
@@ -696,7 +696,7 @@ html[data-theme="light"] {
   --line: rgba(15, 23, 42, .08); --line-2: rgba(15, 23, 42, .14);
   --text: #121826; --muted: #5a6377; --dim: #8b93a5;
   --ov: 15, 23, 42; --sunk: rgba(15, 23, 42, .05);
-  --titlebar-bg: #f3f5fa; --sidebar-bg: rgba(255, 255, 255, .7);
+  --titlebar-bg: #f3f5fa; --sidebar-bg: rgba(255, 255, 255, .7); --sidebar-solid: #f7f9fc;
   --modal-bg: rgba(15, 23, 42, .3); --modal-card: rgba(255, 255, 255, .96); --tip-bg: rgba(255, 255, 255, .98);
   --h1-grad: linear-gradient(180deg, #121826 30%, #49526a);
   --glass: rgba(255, 255, 255, .78); --glass-2: rgba(255, 255, 255, .7);
@@ -901,3 +901,13 @@ html[data-theme="light"] .mp-bg { opacity: .35; }
 .nd-chip span { color: var(--muted); }
 .nd-chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pre-line { white-space: pre-line; }
+
+/* ===== Облегчённый режим (слабые ПК): без анимаций, переходов и размытия ===== */
+.lite *, .lite *::before, .lite *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+.lite .spinner, .lite .upd-progress.indeterminate .bar i, .lite .bar.indet i { animation-duration: 1s !important; animation-iteration-count: infinite !important; }
+.lite .modal { backdrop-filter: none; }
+.lite .mp-bg { filter: none; opacity: .18; }
+.lite .modal-card, .lite .toast, .lite .tip { box-shadow: 0 8px 20px rgba(0, 0, 0, .35); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
