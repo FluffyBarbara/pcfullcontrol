@@ -18,13 +18,13 @@
     "electron-updater": "6.8.11",
     "qrcode": "1.5.4",
     "sql.js": "1.16.0",
-    "systeminformation": "5.33.19"
+    "systeminformation": "5.33.23"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "electron": "44.10.2",
+    "electron": "45.3.2",
     "electron-builder": "26.18.0",
-    "eslint": "10.14.0",
+    "eslint": "10.15.0",
     "globals": "17.14.0"
   },
   "build": {
