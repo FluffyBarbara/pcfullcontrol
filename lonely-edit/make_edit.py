@@ -31,9 +31,10 @@ from PIL import Image, ImageDraw, ImageFont
 W, H = 720, 1280          # внутренний рендер; апскейл до 1080x1920 в ffmpeg (зерно станет крупнее — так и надо)
 OUT_W, OUT_H = 1080, 1920
 FPS = 30
-DUR = 15.0
+DUR = 12.0                # 0:40–0:52
 SR = 44100
 DROP_BEAT = 4             # дроп на 5-й доле окна (4 доли интро)
+OUTRO_BEAT = 17.0         # с этой доли — «абонент недоступен»
 
 FONT_BIG = "/usr/share/fonts/opentype/inter/InterDisplay-Black.otf"
 FONT_UI = "/usr/share/fonts/opentype/inter/Inter-Bold.otf"
@@ -290,9 +291,16 @@ def synth_guide(bpm=140.0, seed=7):
     return out.astype(np.float32), bpm
 
 
-def dirty_audio(stereo, drop_t, rng, muffle=True, tapestop=True):
-    """Интро «из-за стены» (лоупасс + винил) → открытие на дропе; tape-stop в конце."""
+def dirty_audio(stereo, drop_t, rng, muffle=True, tapestop=True, clean=False):
+    """Интро «из-за стены» (лоупасс + винил) → открытие на дропе; tape-stop в конце.
+    clean=True — оригинальный звук без обработки (для ролика «под оригинальным звуком»)."""
     n = stereo.shape[0]
+    if clean:
+        out = stereo.copy()
+        fade = int(0.006 * SR)
+        out[:fade] *= np.linspace(0, 1, fade)[:, None]
+        out[-fade:] *= np.linspace(1, 0, fade)[:, None]
+        return out.astype(np.float32)
     t = np.arange(n) / SR
     out = stereo.copy()
     if muffle and drop_t > 0.2:
@@ -686,9 +694,9 @@ def scene_unavail(A, t, b):
     img = Image.new("RGB", (W, H), (8, 8, 10))
     d = ImageDraw.Draw(img)
     d.text((W / 2, 300), "он", font=font(FONT_BIG, 70), fill=(235, 235, 235), anchor="mm")
-    d.text((W / 2, 370), "вызов…" if b < 0.8 else "вызов завершён", font=font(FONT_UI_REG, 30),
+    d.text((W / 2, 370), "вызов…" if b < 0.35 else "вызов завершён", font=font(FONT_UI_REG, 30),
            fill=(140, 140, 145), anchor="mm")
-    if b >= 0.8:
+    if b >= 0.35:
         d.text((W / 2, 520), "Абонент временно", font=font(FONT_UI, 46), fill=(245, 245, 245), anchor="mm")
         d.text((W / 2, 578), "недоступен", font=font(FONT_UI, 46), fill=(245, 245, 245), anchor="mm")
         d.text((W / 2, 640), "или находится вне зоны действия сети", font=font(FONT_UI_REG, 26),
@@ -744,45 +752,42 @@ def scene_type(A, t, b, k, punch=0.0):
 # ═════════════════════════════ LYRICS ═════════════════════════════
 # Тайминг в долях от начала окна (дроп = доля 4). Пустая строка = новый титр.
 DEFAULT_LYRICS = """
-0 НЕ
-0.5 ИЩИ
-1 МЕНЯ,
-2 ДЕТКА
+# окно 0:40–0:52, ~92 BPM; доля 4 = дроп (0:42.6). Каждая строчка заходит затактом за полдоли до такта.
+3.5 НЕ
+4 ИЩИ
+4.5 МЕНЯ,
+5 ДЕТКА
 
-4 Я
-4.5 ДАВНО
-5.25 УЖЕ
-6 НЕ
-6.5 ТВОЙ
+6 Я
+6.33 ДАВНО
+6.75 УЖЕ
+7.1 НЕ
+7.4 ТВОЙ
 
-8 НЕ
-8.5 ИЩИ
-9 МЕНЯ,
+7.5 НЕ
+8 ИЩИ
+8.5 МЕНЯ,
 
-10 ВО
-10.5 МНЕ
-11 ТЕПЕРЬ
-12 ТОЛЬКО
-13 АЛКОГОЛЬ
+9.25 ВО
+9.5 МНЕ
+9.75 ТЕПЕРЬ
+10.25 ТОЛЬКО
+10.75 АЛКОГОЛЬ
 
-15.75 ТЫ
-16 НЕ
-16.5 ИЩИ
-17 МЕНЯ,
-18 ДЕТКА
+11.25 ТЫ
+11.5 НЕ
+12 ИЩИ
+12.5 МЕНЯ,
+13 ДЕТКА
 
-20 Я
-20.5 МЕНЯЮ
-22 РЕГИОН
+14 Я
+14.33 МЕНЯЮ
+15 РЕГИОН
 
-24 НЕ
-24.5 ИЩИ
-25 МЕНЯ,
-26 ДЕТКА
-
-28 НЕ
-28.5 ИЩИ
-29.5 МЕНЯ
+15.5 НЕ
+16 ИЩИ
+16.5 МЕНЯ,
+17 ДЕТКА
 """
 
 
@@ -815,6 +820,12 @@ def caption(img, chunks, b):
         if ch[0][0] - 0.02 <= b < min(nxt, ch[-1][0] + 3):
             cur = ch
     if not cur:
+        if b < 3.5:  # хук до первой строчки
+            img.paste(CAP_BAND, (0, 0), CAP_BAND)
+            l1 = text_rgba("POV: ты пишешь ему", FONT_BIG, 60, (250, 250, 250), 6, (0, 0, 0))
+            l2 = text_rgba("в 3 ночи", FONT_BIG, 60, RED, 6, (0, 0, 0))
+            paste_c(img, l1, W / 2, H * 0.725 - 38)
+            paste_c(img, l2, W / 2, H * 0.725 + 38)
         return img
     shown = [(tb, w) for tb, w in cur if tb - 0.02 <= b]
     size = 84
@@ -868,30 +879,34 @@ class Timeline:
 
 
 def plan(tl, b):
-    """→ (scene, intensity, extra) для позиции b (в долях). Сцены идут за текстом."""
-    D, N = DROP_BEAT, tl.nb
-    if b >= max(N - 3, 30):
+    """→ (scene, intensity, extra) для позиции b (в долях от начала окна). Сцены идут за текстом."""
+    if b >= OUTRO_BEAT:                         # «абонент недоступен» → статика → луп
         return "unavail", 0.3, {}
-    if b < D:                                   # «не ищи меня, детка» — она пишет
+    if b < 3.5:                                 # брейк: она пишет ему в 3 ночи
         return "chat", 0.25, {}
-    if b < D + 1:                               # ДРОП
+    if b < DROP_BEAT:                           # затакт «не ищи…» — разгон
+        return "chat", 0.5, {}
+    if b < 5:                                   # ДРОП «…меня, детка»
         return "type", 1.0, {"flash": True}
-    if b < 8:                                   # «я давно уже не твой»
-        return ["call", "street", "missed"][int(b - 5) % 3], 0.8, {}
-    if b < 9:
-        return "type", 0.9, {"flash": True}
-    if b < 16:                                  # «во мне теперь только алкоголь»
-        seq = ["glass", "glass", "street", "glass", "glass", "missed", "glass"]
-        return seq[int(b - 9) % len(seq)], 0.6, {"drunk": True}
-    if b < 20:                                  # «я меняю регион»
-        return ("road" if b < 18 else "plate"), 0.75, {}
-    if b < 24:
-        seq = ["road", "plate", "type", "road", "plate", "street", "road", "plate"]
-        return seq[int((b - 20) * 2) % len(seq)], 1.0, {"strobe": True}
-    if b < 28:                                  # «не ищи меня, детка»
-        return ["type", "street", "call", "missed"][int(b - 24) % 4], 0.8, {"flash": b < 25}
-    seq = ["street", "plate", "glass", "type", "road", "call", "missed", "street"]
-    return seq[int((b - 28) * 2) % len(seq)], 1.0, {"strobe": True}
+    if b < 7.5:                                 # «я давно уже не твой»
+        seq = ["call", "call", "street", "missed", "missed"]
+        return seq[int((b - 5) * 2) % len(seq)], 0.8, {}
+    if b < 8.5:                                 # «не ищи меня»
+        return "type", 0.9, {"flash": b < 8}
+    if b < 11.25:                               # «во мне теперь только алкоголь»
+        seq = ["glass", "glass", "glass", "street", "glass", "glass"]
+        return seq[int((b - 8.5) * 2) % len(seq)], 0.6, {"drunk": True}
+    if b < 13:                                  # «ты не ищи меня, детка»
+        return "road", 0.75, {}
+    if b < 14:                                  # «я меняю…»
+        return "plate", 0.8, {}
+    if b < 15.5:                                # «…регион» — строб
+        seq = ["road", "plate", "road", "plate", "type", "plate"]
+        return seq[int((b - 14) * 4) % len(seq)], 1.0, {"strobe": True}
+    if b < 16:
+        return "type", 1.0, {"flash": True}
+    seq = ["street", "call", "missed", "street", "glass", "type"]
+    return seq[int((b - 16) * 4) % len(seq)], 1.0, {"strobe": True}
 
 
 # ═════════════════════════════ POST FX (грязь) ═════════════════════════════
@@ -975,7 +990,7 @@ def render(tl, wav_path, out_path, chunks, preview_dir=None):
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     prev = None
     last_scene = None
-    out_beat = max(tl.nb - 3, 30)
+    out_beat = OUTRO_BEAT
     for i in range(nfr):
         t = i / FPS
         b = tl.beat(t)
@@ -1002,7 +1017,7 @@ def render(tl, wav_path, out_path, chunks, preview_dir=None):
         elif sc == "unavail":
             ob = b - out_beat
             img = scene_unavail(A, t, ob)
-            if t > DUR - 0.35:          # хвост уходит в статику → луп в начало
+            if t > DUR - 0.2:           # хвост уходит в статику → луп в начало
                 img = scene_static(A, t, b, 0, text="FLUFFY BARBARA\nНЕ ИЩИ МЕНЯ", size=46)
                 show_caption = False
         elif sc == "call":
@@ -1039,6 +1054,7 @@ def render(tl, wav_path, out_path, chunks, preview_dir=None):
 
 
 def main():
+    global DUR
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--track", help="аудиофайл трека (mp3/wav/m4a…)")
     ap.add_argument("--drop", type=float, help="секунда в треке, где падает дроп (окно начнётся за 4 доли до него)")
@@ -1049,9 +1065,12 @@ def main():
                     help="время в файле текста: доли (по умолчанию) или секунды от начала окна")
     ap.add_argument("--no-muffle", action="store_true", help="без глухого интро")
     ap.add_argument("--no-tapestop", action="store_true", help="без tape-stop в конце")
+    ap.add_argument("--dur", type=float, default=DUR, help="длина ролика, сек")
+    ap.add_argument("--clean-audio", action="store_true", help="оригинальный звук без глухого интро/винила/tape-stop")
     ap.add_argument("--out", default="ne_ishchi_menya_edit.mp4")
     ap.add_argument("--preview", help="папка для превью-кадров")
     a = ap.parse_args()
+    DUR = a.dur
     rng = np.random.default_rng(42)
     work = os.path.dirname(os.path.abspath(a.out))
     wav = os.path.join(work, "_edit_audio.wav")
@@ -1071,8 +1090,16 @@ def main():
                 start = 0.0
         else:
             start = float(a.start or 0.0)
-        y = ffmpeg_load(a.track, start, DUR, 22050, 1)
+        # анализ с запасом по краям — так трекер битов устойчивее
+        ctx0 = max(0.0, start - 8)
+        y = ffmpeg_load(a.track, ctx0, (start - ctx0) + DUR + 4, 22050, 1)
         an = analyze(y, 22050, a.bpm)
+        bts = an["beats"] + ctx0 - start
+        an["beats"] = bts[(bts > -0.05) & (bts < DUR + 0.05)]
+        an["hits"] = an["hits"] + ctx0 - start
+        an["hits"] = an["hits"][(an["hits"] >= 0) & (an["hits"] < DUR)]
+        k0 = int(np.argmin(np.abs(bts)))
+        an["downbeat_phase"] = int((an["downbeat_phase"] - k0) % 4)
         stereo = ffmpeg_load(a.track, start, DUR, SR, 2)
         stereo = np.pad(stereo, ((0, max(0, int(DUR * SR) - len(stereo))), (0, 0)))[: int(DUR * SR)]
         print(f"track window: {start:.2f}s → {start + DUR:.2f}s")
@@ -1089,7 +1116,8 @@ def main():
     if a.lyrics_unit == "sec":
         chunks = [[(tl.beat(tm), w) for tm, w in ch] for ch in chunks]
     drop_t = float(np.interp(DROP_BEAT, tl.bi, tl.bt))
-    audio = dirty_audio(stereo, drop_t, rng, muffle=not a.no_muffle, tapestop=not a.no_tapestop)
+    audio = dirty_audio(stereo, drop_t, rng, muffle=not a.no_muffle, tapestop=not a.no_tapestop,
+                        clean=a.clean_audio)
     write_wav(wav, audio)
     if a.preview:
         os.makedirs(a.preview, exist_ok=True)
