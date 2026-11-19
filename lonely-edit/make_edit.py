@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-FLUFFY BARBARA — LONELY · 15s dirty TikTok edit generator.
+FLUFFY BARBARA — «НЕ ИЩИ МЕНЯ» · 15s dirty TikTok edit generator.
+
+Сюжет идёт за текстом: она пишет и звонит → «во мне только алкоголь» →
+ночная трасса и крутящийся код региона → «абонент недоступен». Караоке-титры по словам.
 
 Весь видеоряд рисуется процедурно (numpy + PIL), монтаж режется по битам.
 
@@ -415,7 +418,7 @@ class Assets:
                 fill, stroke, sf = (240, 240, 240), 0, (0, 0, 0)
             else:
                 fill, stroke, sf = (0, 0, 0), 4, (235, 235, 235)
-            word = text_rgba("LONELY ", FONT_BIG, 170, fill, stroke, sf)
+            word = text_rgba("НЕ ИЩИ МЕНЯ · ", FONT_BIG, 150, fill, stroke, sf)
             strip = Image.new("RGB", (word.width * 4, word.height), (0, 0, 0))
             for j in range(4):
                 strip.paste(word, (j * word.width, 0), word)
@@ -435,51 +438,77 @@ def osd(img, t, rec=True, label="PLAY"):
     d.text((40, 182), "NOV.19.2026", font=font(FONT_MONO, 24), fill=(200, 200, 200))
 
 
-def scene_phone(A, t, b, outro=False):
-    img = Image.new("RGB", (W, H), (9, 9, 11))
-    d = ImageDraw.Draw(img)
-    # шапка чата
+def phone_header(d, name, status, status_col=(130, 130, 136)):
     d.rectangle([0, 0, W, 350], fill=(18, 18, 21))
     d.text((40, 290), "‹", font=font(FONT_UI, 52), fill=(200, 200, 205), anchor="lm")
     d.ellipse([86, 252, 162, 328], fill=(60, 60, 66))
-    d.text((186, 270), "он", font=font(FONT_UI, 40), fill=(240, 240, 240), anchor="lm")
-    d.text((186, 312), "был(а) недавно", font=font(FONT_UI_REG, 26), fill=(130, 130, 136), anchor="lm")
+    d.text((124, 290), name[:1].upper(), font=font(FONT_UI, 38), fill=(200, 200, 205), anchor="mm")
+    d.text((186, 270), name, font=font(FONT_UI, 40), fill=(240, 240, 240), anchor="lm")
+    d.text((186, 312), status, font=font(FONT_UI_REG, 26), fill=status_col, anchor="lm")
 
-    def bubble(txt, y, right=True, col=(46, 46, 52), tcol=(240, 240, 240)):
-        f = font(FONT_UI, 46)
-        l, tp, r, bt = f.getbbox(txt)
-        bw, bh = r - l + 64, 94
-        x0 = W - 40 - bw if right else 40
-        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=38, fill=col)
-        d.text((x0 + 32, y + bh / 2), txt, font=f, fill=tcol, anchor="lm")
-        return y + bh + 14
 
-    y = 420
-    d.text((W / 2, y), "сегодня", font=font(FONT_UI_REG, 26), fill=(110, 110, 115), anchor="mm")
-    y += 50
-    y = bubble("ты тут?", y)
-    if b >= 1 or outro:
-        y = bubble("ответь пж", y)
-    if b >= 2 or outro:
-        d.text((W - 44, y + 4), "Прочитано 03:07", font=font(FONT_UI_REG, 28), fill=(120, 120, 125), anchor="ra")
-        y += 50
-    typing = (not outro) and (2.5 <= b < 3.5)
-    if typing:
+def bubble(d, txt, y, right=False, col=(40, 40, 46), tcol=(240, 240, 240)):
+    f = font(FONT_UI, 40)
+    l, tp, r, bt = f.getbbox(txt)
+    bw, bh = r - l + 60, 80
+    x0 = W - 40 - bw if right else 40
+    d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=38, fill=col)
+    d.text((x0 + 32, y + bh / 2), txt, font=f, fill=tcol, anchor="lm")
+    return y + bh + 14
+
+
+def scene_chat(A, t, b):
+    """Она пишет — он молчит."""
+    img = Image.new("RGB", (W, H), (9, 9, 11))
+    d = ImageDraw.Draw(img)
+    phone_header(d, "детка", "в сети", (90, 160, 255))
+    y = 390
+    d.text((W / 2, y), "сегодня 03:07", font=font(FONT_UI_REG, 26), fill=(110, 110, 115), anchor="mm")
+    y += 40
+    msgs = ["ты где?", "почему не отвечаешь", "ответь мне", "пожалуйста"]
+    for k, m in enumerate(msgs):
+        if b >= k * 0.85:
+            y = bubble(d, m, y)
+    if 2.4 <= b < 3.6:
         d.rounded_rectangle([40, y, 200, y + 84], radius=38, fill=(32, 32, 36))
         for k in range(3):
             on = int(t * 8 + k) % 3 == 0
             d.ellipse([74 + k * 36, y + 32, 94 + k * 36, y + 52], fill=(220, 220, 220) if on else (90, 90, 95))
-    if outro:
-        y += 10
-        y = bubble("мне одиноко", y, col=(110, 12, 20))
-        if b >= 0.5:
-            d.text((W - 44, y + 4), "! не доставлено", font=font(FONT_UI, 30), fill=RED, anchor="ra")
-    # поле ввода
     d.rounded_rectangle([30, H - 380, W - 30, H - 300], radius=40, fill=(22, 22, 25))
     d.text((70, H - 340), "Сообщение", font=font(FONT_UI_REG, 30), fill=(90, 90, 95), anchor="lm")
-    if int(t * 2.5) % 2 == 0:
-        d.rectangle([66, H - 360, 69, H - 320], fill=(200, 200, 200))
     osd(img, t)
+    return img
+
+
+def scene_call(A, t, b, punch=0.0):
+    """Входящий от «детка» — телефон вибрирует, он сбрасывает."""
+    img = Image.new("RGB", (W, H), (12, 12, 14))
+    d = ImageDraw.Draw(img)
+    dx = int(9 * math.sin(t * 95)) if (t * 2) % 1 < 0.7 else 0
+    d.text((W / 2 + dx, 300), "входящий вызов", font=font(FONT_UI_REG, 32), fill=(150, 150, 155), anchor="mm")
+    d.ellipse([W / 2 - 110 + dx, 380, W / 2 + 110 + dx, 600], fill=(48, 48, 54))
+    d.text((W / 2 + dx, 490), "Д", font=font(FONT_BIG, 110), fill=(210, 210, 215), anchor="mm")
+    d.text((W / 2 + dx, 690), "детка", font=font(FONT_BIG, 88), fill=(245, 245, 245), anchor="mm")
+    for cx, col, lab in ((190, RED, "Отклонить"), (530, (40, 170, 80), "Ответить")):
+        r = 72 * (1 + (0.18 * punch if col == RED else 0))
+        d.ellipse([cx - r, 1060 - r, cx + r, 1060 + r], fill=col)
+        d.text((cx, 1160), lab, font=font(FONT_UI_REG, 26), fill=(170, 170, 175), anchor="mm")
+    return img
+
+
+def scene_missed(A, t, b):
+    img = Image.new("RGB", (W, H), (10, 10, 12))
+    d = ImageDraw.Draw(img)
+    n = 17 + int(max(0, b - DROP_BEAT) * 2)
+    d.text((40, 250), "Недавние", font=font(FONT_BIG, 64), fill=(240, 240, 240), anchor="lm")
+    d.text((40, 320), f"пропущенные: {n}", font=font(FONT_UI, 32), fill=RED, anchor="lm")
+    rows = min(10, 3 + int((b * 2) % 8))
+    for k in range(rows):
+        y = 400 + k * 86
+        d.line([(40, y + 80), (W - 40, y + 80)], fill=(30, 30, 34), width=2)
+        d.text((40, y + 26), f"детка ({n - k})", font=font(FONT_UI, 38), fill=RED, anchor="lm")
+        d.text((40, y + 62), "мобильный", font=font(FONT_UI_REG, 24), fill=(110, 110, 115), anchor="lm")
+        d.text((W - 40, y + 40), f"03:{7 - k % 8:02d}", font=font(FONT_UI_REG, 28), fill=(120, 120, 125), anchor="rm")
     return img
 
 
@@ -497,100 +526,179 @@ def scene_street(A, t, b, k):
         d.line([(xx, y), (xx + ln * 0.12, y + ln)], fill=200, width=2)
     rain = np.asarray(rain, np.float32)[..., None] / 255
     f = light + rain * (0.07 + A.street_cone[..., None] * 0.85 * flick) * np.array([1, 0.9, 0.8], np.float32)
-    # отражение в луже
-    refl = f[1100 - (np.arange(H - 1100) + 1)][:, :]
+    refl = f[1100 - (np.arange(H - 1100) + 1)]
     ripple = (np.sin(np.arange(H - 1100) * 0.6 + t * 9) * 6).astype(int)
-    refl = np.stack([np.roll(refl[i], ripple[i], 0) for i in range(len(refl))])
-    f[1100:] = refl * 0.35
+    f[1100:] = np.stack([np.roll(refl[i], ripple[i], 0) for i in range(len(refl))]) * 0.35
     f = f * (1 - A.street_mask)
     img = Image.fromarray((np.clip(f, 0, 1) * 255).astype(np.uint8))
     osd(img, t)
     return img
 
 
-def scene_windows(A, t, b, k):
-    img = Image.new("RGB", (W, H), (6, 6, 8))
-    d = ImageDraw.Draw(img)
-    cw, chh, gx, gy = 86, 104, 26, 30
-    x0 = (W - (A.win_cols * cw + (A.win_cols - 1) * gx)) // 2
-    total_h = A.win_rows * (chh + gy)
-    pan = (t * 38 + b * 6) % (total_h - H + 200)
-    killed = set(A.win_kill[: int(max(0, b - DROP_BEAT) * 3)].tolist())
-    d.rectangle([x0 - 40, 0, W - x0 + 40, H], fill=(14, 14, 17))
-    for r in range(A.win_rows):
-        y = 60 + r * (chh + gy) - pan
-        if y < -chh or y > H:
+_BOKEH = None
+
+
+def bokeh():
+    global _BOKEH
+    if _BOKEH is None:
+        rng = np.random.default_rng(11)
+        f = np.zeros((H, W, 3), np.float32) + 0.02
+        for _ in range(26):
+            cx, cy, r = rng.uniform(0, W), rng.uniform(0, H * 0.75), rng.uniform(30, 110)
+            col = np.array([1.0, 0.65, 0.3] if rng.random() < 0.7 else [1.0, 0.15, 0.2], np.float32)
+            m = np.clip(1.2 - np.sqrt((XX - cx) ** 2 + (YY - cy) ** 2) / r, 0, 1) ** 0.6
+            f += m[..., None] * col * rng.uniform(0.08, 0.25)
+        _BOKEH = (np.clip(f, 0, 1) * 255).astype(np.uint8)
+    return _BOKEH
+
+
+def scene_glass(A, t, b, punch=0.0):
+    """«Во мне теперь только алкоголь»: стакан со льдом, бутылки, бар в расфокусе."""
+    img = Image.fromarray(bokeh())
+    d = ImageDraw.Draw(img, "RGBA")
+    # бутылки
+    for x0, x1, top, sc in ((60, 175, 290, 1.0), (560, 655, 380, 0.85)):
+        cx = (x0 + x1) / 2
+        nw = 22 * sc
+        d.rectangle([cx - nw, top, cx + nw, top + 110 * sc], fill=(26, 26, 30, 255))
+        d.polygon([(cx - nw, top + 110 * sc), (cx + nw, top + 110 * sc), (x1, top + 200 * sc), (x0, top + 200 * sc)],
+                  fill=(26, 26, 30, 255))
+        d.rectangle([x0, top + 200 * sc, x1, 860], fill=(26, 26, 30, 255))
+        d.line([(x0 + 14, top + 220 * sc), (x0 + 14, 840)], fill=(110, 90, 70, 160), width=5)
+        d.rectangle([x0 + 8, top + 380 * sc, x1 - 8, top + 520 * sc], fill=(60, 12, 16, 255))
+    # стакан
+    gt, gb, tl_, tr_, bl_, br_ = 420, 820, 200, 520, 238, 482
+
+    def xl(y):
+        return tl_ + (y - gt) / (gb - gt) * (bl_ - tl_) + 7
+
+    def xr(y):
+        return tr_ - (y - gt) / (gb - gt) * (tr_ - br_) - 7
+
+    y0 = 555 + 8 * math.sin(t * 3)
+    amp = 5 + 26 * punch
+    pts = [(x, y0 + amp * math.sin(x * 0.025 + t * 7)) for x in np.linspace(xl(y0), xr(y0), 30)]
+    d.polygon(pts + [(xr(gb - 6), gb - 6), (xl(gb - 6), gb - 6)], fill=(205, 120, 30, 215))
+    for k, (ix, ph) in enumerate(((268, 0.0), (355, 1.7), (440, 3.1))):
+        cy = y0 - 10 + 10 * math.sin(t * 2.3 + ph) + 14 * punch * (k - 1)
+        a = 0.35 * math.sin(t * 1.6 + ph) + k
+        s = 44
+        sq = [(ix + s * math.cos(a + q * math.pi / 2), cy + s * math.sin(a + q * math.pi / 2)) for q in range(4)]
+        d.polygon(sq, fill=(225, 232, 240, 80), outline=(240, 240, 250, 210))
+    d.line([(tl_, gt), (bl_, gb), (br_, gb), (tr_, gt)], fill=(215, 215, 220, 255), width=6)
+    d.rectangle([bl_ - 4, gb, br_ + 4, gb + 36], fill=(150, 150, 155, 200))
+    d.line([(tl_ + 30, gt + 30), (bl_ + 26, gb - 30)], fill=(255, 255, 255, 70), width=10)
+    d.rectangle([0, 858, W, H], fill=(14, 10, 8, 255))
+    return img
+
+
+def scene_road(A, t, b, punch=0.0):
+    """«Я меняю регион»: ночная трасса от первого лица."""
+    img = Image.new("RGB", (W, H), (6, 6, 9))
+    d = ImageDraw.Draw(img, "RGBA")
+    yh, F = 520, 470
+    vx = W / 2 + 40 * math.sin(t * 0.8)
+    ph = b - math.floor(b)
+    dist = 20 * t + 3.0 * (math.floor(b) + (1 - math.exp(-ph * 5)))
+
+    def P(X, z, h=0.0):
+        return vx + X * F / z, yh + (1 - h) * F / z
+
+    for k in range(24):  # небо — едва заметный градиент
+        d.rectangle([0, yh - 24 * (k + 1), W, yh - 24 * k], fill=(18 - k // 2, 18 - k // 2, 26 - k // 2, 255))
+    d.polygon([P(-1.6, 0.6), P(1.6, 0.6), P(1.6, 80), P(-1.6, 80)], fill=(24, 24, 27, 255))
+    # фары: конус
+    d.polygon([P(-1.3, 0.6), P(1.3, 0.6), P(0.7, 7), P(-0.7, 7)], fill=(255, 240, 210, 26))
+    for X in (-1.5, 1.5):
+        d.line([P(X, 0.6), P(X, 80)], fill=(200, 200, 200, 255), width=5)
+    for k in range(40):
+        z = 2 * k - (dist % 2) + 0.6
+        if z < 0.6:
             continue
-        for c in range(A.win_cols):
-            x = x0 + c * (cw + gx)
-            idn = r * A.win_cols + c
-            if (r, c) == A.red_win:
-                d.rectangle([x, y, x + cw, y + chh], fill=RED)
-                d.ellipse([x + 30, y + 22, x + 56, y + 50], fill=(10, 0, 0))
-                d.rectangle([x + 24, y + 50, x + 62, y + chh], fill=(10, 0, 0))
-                continue
-            on = A.win_on[r, c] and idn not in killed
-            if on:
-                col = (95, 140, 210) if A.win_cold[r, c] else (230, 175, 105)
-                if A.win_cold[r, c] and int(t * 12 + idn) % 5 == 0:
-                    col = (60, 90, 150)
-                d.rectangle([x, y, x + cw, y + chh], fill=col)
-            else:
-                d.rectangle([x, y, x + cw, y + chh], fill=(20, 20, 24))
+        a, c = P(0, z), P(0, z + 1)
+        w1, w2 = 0.05 * F / z, 0.05 * F / (z + 1)
+        d.polygon([(a[0] - w1, a[1]), (a[0] + w1, a[1]), (c[0] + w2, c[1]), (c[0] - w2, c[1])],
+                  fill=(225, 225, 225, 255))
+    for k in range(12):  # фонари вдоль трассы
+        z = 9 * k - (dist % 9) + 0.8
+        if z < 0.8:
+            continue
+        for X in (-3.0, 3.0):
+            g, top = P(X, z), P(X, z, 3.2)
+            d.line([g, top], fill=(70, 70, 75, 255), width=max(1, int(18 / z)))
+            r = max(2, 60 / z)
+            d.ellipse([top[0] - r * 2.5, top[1] - r * 2.5, top[0] + r * 2.5, top[1] + r * 2.5], fill=(255, 190, 110, 40))
+            d.ellipse([top[0] - r, top[1] - r, top[0] + r, top[1] + r], fill=(255, 220, 160, 255))
+    zc = 10 + 2.5 * math.sin(t * 0.7)  # машина впереди — красные стопы
+    for sx in (-0.32, 0.32):
+        cx, cy = P(0.45 + sx, zc, 0.45)
+        r = 0.09 * F / zc
+        d.ellipse([cx - r * 3, cy - r * 3, cx + r * 3, cy + r * 3], fill=(255, 20, 30, 60))
+        d.ellipse([cx - r, cy - r * 0.6, cx + r, cy + r * 0.6], fill=(255, 40, 40, 255))
+    km = 712 + int(t * 7)
+    d.text((40, 120), f"М-4 · {km} км", font=font(FONT_MONO, 34), fill=(230, 230, 230))
+    d.text((40, 166), f"{142 + int(9 * math.sin(t * 2))} км/ч", font=font(FONT_MONO, 26), fill=(170, 170, 170))
+    d.text((W - 40, 120), "геолокация: выкл", font=font(FONT_MONO, 26), fill=RED, anchor="ra")
+    return img
+
+
+REGIONS = ["77", "78", "23", "05", "39", "25", "14", "61", "82", "99", "116", "54"]
+
+
+def scene_plate(A, t, b, punch=0.0):
+    """Номер машины: код региона крутится как барабан."""
+    img = Image.new("RGB", (W, H), (20, 20, 23))
+    d = ImageDraw.Draw(img, "RGBA")
+    for k in range(16):
+        c = 20 + k
+        d.rectangle([0, 160 + k * 30, W, 190 + k * 30], fill=(c, c, c + 3, 255))
+    for cx in (70, W - 70):  # стоп-сигналы
+        for g in range(6, 0, -1):
+            e = g * 18
+            d.rounded_rectangle([cx - 60 - e, 260 - e, cx + 60 + e, 360 + e], radius=20 + e,
+                                fill=(255, 20, 30, int(18 + 10 * punch)))
+        d.rounded_rectangle([cx - 60, 260, cx + 60, 360], radius=18, fill=(230, 25, 35, 255))
+    px, py, pw, ph_ = 40, 560, 640, 150
+    d.rounded_rectangle([px, py, px + pw, py + ph_], radius=14, fill=(236, 236, 230, 255), outline=(15, 15, 15, 255), width=6)
+    d.text((px + 34, py + ph_ / 2 + 8), "А", font=font(FONT_BIG, 92), fill=(15, 15, 15), anchor="lm")
+    d.text((px + 108, py + ph_ / 2 + 2), "777", font=font(FONT_BIG, 118), fill=(15, 15, 15), anchor="lm")
+    d.text((px + 330, py + ph_ / 2 + 8), "МР", font=font(FONT_BIG, 92), fill=(15, 15, 15), anchor="lm")
+    dv = px + 480
+    d.line([(dv, py + 6), (dv, py + ph_ - 6)], fill=(15, 15, 15, 255), width=5)
+    # барабан региона
+    k = int(b * 2)
+    p = (b * 2) % 1
+    s = 1 - math.exp(-p * 14)
+    box = Image.new("RGBA", (px + pw - dv - 12, 100), (236, 236, 230, 255))
+    bd = ImageDraw.Draw(box)
+    for code, off in ((REGIONS[(k - 1) % len(REGIONS)], -s), (REGIONS[k % len(REGIONS)], 1 - s)):
+        bd.text((box.width / 2, 50 + off * 100), code, font=font(FONT_BIG, 76 if len(code) < 3 else 62),
+                fill=(15, 15, 15), anchor="mm")
+    img.paste(box, (dv + 6, py + 6), box)
+    d.text((dv + 30, py + ph_ - 26), "RUS", font=font(FONT_UI, 26), fill=(15, 15, 15), anchor="lm")
+    fx = dv + 100
+    for j, col in enumerate(((245, 245, 245), (30, 70, 200), (215, 30, 40))):
+        d.rectangle([fx, py + ph_ - 38 + j * 8, fx + 34, py + ph_ - 30 + j * 8], fill=col + (255,))
+    return img
+
+
+def scene_unavail(A, t, b):
+    img = Image.new("RGB", (W, H), (8, 8, 10))
+    d = ImageDraw.Draw(img)
+    d.text((W / 2, 300), "он", font=font(FONT_BIG, 70), fill=(235, 235, 235), anchor="mm")
+    d.text((W / 2, 370), "вызов…" if b < 0.8 else "вызов завершён", font=font(FONT_UI_REG, 30),
+           fill=(140, 140, 145), anchor="mm")
+    if b >= 0.8:
+        d.text((W / 2, 520), "Абонент временно", font=font(FONT_UI, 46), fill=(245, 245, 245), anchor="mm")
+        d.text((W / 2, 578), "недоступен", font=font(FONT_UI, 46), fill=(245, 245, 245), anchor="mm")
+        d.text((W / 2, 640), "или находится вне зоны действия сети", font=font(FONT_UI_REG, 26),
+               fill=(130, 130, 135), anchor="mm")
+    d.ellipse([W / 2 - 72, 1000, W / 2 + 72, 1144], fill=RED)
     osd(img, t)
     return img
 
 
-HEART = ["..XXX.XXX..", ".XXXXXXXXX.", "XXXXXXXXXXX", "XXXXXXXXXXX", "XXXXXXXXXXX",
-         ".XXXXXXXXX.", "..XXXXXXX..", "...XXXXX...", "....XXX....", ".....X....."]
-CRACK = [5, 6, 5, 4, 5, 6, 5, 4, 5, 5]
-
-
-def scene_heart(A, t, b, k, sep=0.0, punch=0.0):
-    img = Image.new("RGB", (W, H), (0, 0, 0))
-    d = ImageDraw.Draw(img)
-    cs = int(54 * (1 + 0.12 * punch))
-    hw, hh = len(HEART[0]) * cs, len(HEART) * cs
-    ox, oy = W // 2 - hw // 2, int(H * 0.42) - hh // 2
-    rng = np.random.default_rng(int(t * FPS))
-    for r, row in enumerate(HEART):
-        for c, ch in enumerate(row):
-            if ch != "X":
-                continue
-            left = c < CRACK[r]
-            dx = (-sep if left else sep) * cs + rng.normal(0, 2 + 6 * punch)
-            dy = (sep * 0.4 * (r - 4) if left else -sep * 0.2 * (r - 4)) * cs * 0.3
-            x, y = ox + c * cs + dx, oy + r * cs + dy
-            shade = 1.0 - 0.25 * (r / len(HEART))
-            d.rectangle([x, y, x + cs - 3, y + cs - 3], fill=tuple(int(v * shade) for v in RED))
-            d.rectangle([x + 6, y + 6, x + 16, y + 16], fill=(255, 120, 120))
-    f = to_np(img)
-    glow = np.exp(-(((XX - W / 2) / 360) ** 2 + ((YY - H * 0.42) / 360) ** 2))[..., None]
-    f = np.maximum(f, glow * np.array([0.35, 0.02, 0.04], np.float32) * (0.6 + 0.6 * punch))
-    return Image.fromarray((np.clip(f, 0, 1) * 255).astype(np.uint8))
-
-
-def scene_tunnel(A, t, b, k, punch=0.0):
-    img = Image.new("RGB", (W, H), (0, 0, 0))
-    d = ImageDraw.Draw(img)
-    z = t * 1.3 + b * 0.25
-    ang = math.sin(t * 1.7) * 0.12 + punch * 0.08
-    for j in range(16):
-        s = 1.32 ** (j - (z % 1) * 1 - 6)
-        hwid, hht = W * 0.62 * s, H * 0.62 * s
-        if hwid < 6 or hwid > W * 1.6:
-            continue
-        pts = []
-        for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-            x, y = sx * hwid, sy * hht
-            pts.append((W / 2 + x * math.cos(ang) - y * math.sin(ang), H * 0.45 + x * math.sin(ang) + y * math.cos(ang)))
-        col = RED if (j + int(z)) % 4 == 0 else (230, 230, 230)
-        d.line(pts + [pts[0]], fill=col, width=max(2, int(9 * s)))
-    paste_c(img, text_rgba("lonely", FONT_BIG, 64, RED), W / 2, H * 0.45, 1 + 0.4 * punch)
-    return img
-
-
-def scene_static(A, t, b, k, text="NO SIGNAL"):
+def scene_static(A, t, b, k, text="NO SIGNAL", size=58):
     i = int(t * FPS)
     f = A.static[i % len(A.static)] * 0.85
     f = np.repeat(f, 3, 2)
@@ -600,10 +708,13 @@ def scene_static(A, t, b, k, text="NO SIGNAL"):
         f[lo:hi] = np.clip(f[lo:hi] * 1.5 + 0.2, 0, 1)
     img = Image.fromarray((f * 255).astype(np.uint8))
     if text:
-        txt = text_rgba(text, FONT_MONO, 58, (240, 240, 240))
-        bg = Image.new("RGBA", (txt.width + 40, txt.height + 24), (0, 0, 0, 255))
-        paste_c(img, bg, W / 2, H * 0.42)
-        paste_c(img, txt, W / 2, H * 0.42)
+        lines = text.split("\n")
+        for j, ln in enumerate(lines):
+            y = H * 0.42 + (j - (len(lines) - 1) / 2) * (size * 1.5)
+            txt = text_rgba(ln, FONT_MONO, size, (240, 240, 240) if j == 0 else RED)
+            bg = Image.new("RGBA", (txt.width + 40, txt.height + 24), (0, 0, 0, 255))
+            paste_c(img, bg, W / 2, y)
+            paste_c(img, txt, W / 2, y)
     return img
 
 
@@ -611,7 +722,7 @@ def scene_type(A, t, b, k, punch=0.0):
     f = np.zeros((H, W, 3), np.float32)
     rh = A.rows[0].shape[0]
     gap = 6
-    total = 7 * (rh + gap)
+    total = len(A.rows) * (rh + gap)
     y0 = (H - total) // 2
     for r, strip in enumerate(A.rows):
         sw = strip.shape[1] // 4
@@ -628,6 +739,110 @@ def scene_type(A, t, b, k, punch=0.0):
         src = (np.arange(H) - c) / sq + c
         f = f[np.clip(src.astype(int), 0, H - 1)]
     return Image.fromarray((f * 255).astype(np.uint8))
+
+
+# ═════════════════════════════ LYRICS ═════════════════════════════
+# Тайминг в долях от начала окна (дроп = доля 4). Пустая строка = новый титр.
+DEFAULT_LYRICS = """
+0 НЕ
+0.5 ИЩИ
+1 МЕНЯ,
+2 ДЕТКА
+
+4 Я
+4.5 ДАВНО
+5.25 УЖЕ
+6 НЕ
+6.5 ТВОЙ
+
+8 НЕ
+8.5 ИЩИ
+9 МЕНЯ,
+
+10 ВО
+10.5 МНЕ
+11 ТЕПЕРЬ
+12 ТОЛЬКО
+13 АЛКОГОЛЬ
+
+15.75 ТЫ
+16 НЕ
+16.5 ИЩИ
+17 МЕНЯ,
+18 ДЕТКА
+
+20 Я
+20.5 МЕНЯЮ
+22 РЕГИОН
+
+24 НЕ
+24.5 ИЩИ
+25 МЕНЯ,
+26 ДЕТКА
+
+28 НЕ
+28.5 ИЩИ
+29.5 МЕНЯ
+"""
+
+
+def parse_lyrics(text):
+    chunks, cur = [], []
+    for ln in text.strip("\n").split("\n"):
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            if cur:
+                chunks.append(cur)
+                cur = []
+            continue
+        tm, word = ln.split(None, 1)
+        cur.append((float(tm), word.upper()))
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+_band = np.clip(1 - np.abs(np.arange(H) - H * 0.725) / 190, 0, 1) ** 0.8 * 120
+CAP_BAND = Image.fromarray(np.dstack([np.zeros((H, W, 3), np.uint8),
+                                      np.repeat(_band[:, None], W, 1).astype(np.uint8)]), "RGBA")
+
+
+def caption(img, chunks, b):
+    """Караоке-титр: слова появляются по одному, текущее — красное с «попом»."""
+    cur = None
+    for j, ch in enumerate(chunks):
+        nxt = chunks[j + 1][0][0] if j + 1 < len(chunks) else 1e9
+        if ch[0][0] - 0.02 <= b < min(nxt, ch[-1][0] + 3):
+            cur = ch
+    if not cur:
+        return img
+    shown = [(tb, w) for tb, w in cur if tb - 0.02 <= b]
+    size = 84
+    space = 22
+    imgs = []
+    for k, (tb, w) in enumerate(shown):
+        last = k == len(shown) - 1
+        im = text_rgba(w, FONT_BIG, size, RED if last else (250, 250, 250), 7, (0, 0, 0))
+        sc = 1 + 0.35 * math.exp(-(b - tb) * 9) if last else 1.0
+        imgs.append((im, sc))
+    rows, row, rw = [], [], 0
+    for im, sc in imgs:
+        if row and rw + space + im.width > W - 70:
+            rows.append(row)
+            row, rw = [], 0
+        rw += (space if row else 0) + im.width
+        row.append((im, sc))
+    rows.append(row)
+    lh = size * 1.12
+    img.paste(CAP_BAND, (0, 0), CAP_BAND)
+    y0 = H * 0.725 - (len(rows) - 1) * lh / 2
+    for r, row in enumerate(rows):
+        tw = sum(im.width for im, _ in row) + space * (len(row) - 1)
+        x = W / 2 - tw / 2
+        for im, sc in row:
+            paste_c(img, im, x + im.width / 2, y0 + r * lh, sc)
+            x += im.width + space
+    return img
 
 
 # ═════════════════════════════ TIMELINE ═════════════════════════════
@@ -653,28 +868,30 @@ class Timeline:
 
 
 def plan(tl, b):
-    """→ (scene, intensity, extra) для beat-позиции b."""
+    """→ (scene, intensity, extra) для позиции b (в долях). Сцены идут за текстом."""
     D, N = DROP_BEAT, tl.nb
-    if b < D:
-        return "phone", 0.25, {}
-    if b < D + 1:
+    if b >= max(N - 3, 30):
+        return "unavail", 0.3, {}
+    if b < D:                                   # «не ищи меня, детка» — она пишет
+        return "chat", 0.25, {}
+    if b < D + 1:                               # ДРОП
         return "type", 1.0, {"flash": True}
-    if b < D + 9:
-        seq = ["street", "windows", "heart", "tunnel", "street", "type", "windows", "heart"]
-        words = {D + 1: "FLUFFY", D + 2: "BARBARA", D + 4: "LONELY", D + 7: "LONELY"}
-        return seq[int(b - D - 1) % len(seq)], 0.8, {"word": words.get(int(b))}
-    if b < D + 17:
-        seq = ["street", "type", "windows", "tunnel"]
-        sc = seq[int((b - D - 9) // 2) % len(seq)]
-        if (b % 2) > 1.75:
-            sc = "static"
-        return sc, 0.6, {}
-    if b < N - 6:
-        seq = ["heart", "street", "type", "windows", "tunnel", "static", "street", "heart"]
-        return seq[int((b - D - 17) * 2) % len(seq)], 1.0, {"strobe": True}
-    if b < N - 2:
-        return "heart", 0.45, {"break": (b - (N - 6)) / 4}
-    return "phone_outro", 0.3, {}
+    if b < 8:                                   # «я давно уже не твой»
+        return ["call", "street", "missed"][int(b - 5) % 3], 0.8, {}
+    if b < 9:
+        return "type", 0.9, {"flash": True}
+    if b < 16:                                  # «во мне теперь только алкоголь»
+        seq = ["glass", "glass", "street", "glass", "glass", "missed", "glass"]
+        return seq[int(b - 9) % len(seq)], 0.6, {"drunk": True}
+    if b < 20:                                  # «я меняю регион»
+        return ("road" if b < 18 else "plate"), 0.75, {}
+    if b < 24:
+        seq = ["road", "plate", "type", "road", "plate", "street", "road", "plate"]
+        return seq[int((b - 20) * 2) % len(seq)], 1.0, {"strobe": True}
+    if b < 28:                                  # «не ищи меня, детка»
+        return ["type", "street", "call", "missed"][int(b - 24) % 4], 0.8, {"flash": b < 25}
+    seq = ["street", "plate", "glass", "type", "road", "call", "missed", "street"]
+    return seq[int((b - 28) * 2) % len(seq)], 1.0, {"strobe": True}
 
 
 # ═════════════════════════════ POST FX (грязь) ═════════════════════════════
@@ -699,6 +916,11 @@ def post(A, img, t, i, inten, punch, hit, flash, prev, extra):
         y0 = min(max((H - ch) / 2 + sy, 0), H - ch)
         img = img.resize((W, H), Image.BILINEAR, box=(x0, y0, x0 + cw, y0 + ch))
     f = to_np(img)
+    if extra.get("drunk"):  # «пьяная» волна + двоение
+        ys = np.arange(H)
+        sh = (14 * np.sin(ys * 0.012 + t * 3.1) + 8 * np.sin(ys * 0.031 - t * 5)).astype(int)
+        f = f[ys[:, None], (np.arange(W)[None, :] - sh[:, None]) % W]
+        f = np.maximum(f, np.roll(f, int(18 + 10 * math.sin(t * 2.2)), 1) * 0.55)
     f = grade(f)
     g = max(punch * inten, hit * inten)
     # пикселизация на сильных ударах
@@ -741,72 +963,66 @@ def post(A, img, t, i, inten, punch, hit, flash, prev, extra):
     return f
 
 
-def word_overlay(img, word, phase):
-    if not word:
-        return img
-    s = 1.0 + 0.35 * math.exp(-phase * 9)
-    big = text_rgba(word, FONT_BIG, 150 if len(word) < 7 else 118, (250, 250, 250), 6, (0, 0, 0))
-    paste_c(img, big, W / 2, H * 0.4, s)
-    return img
-
-
 # ═════════════════════════════ RENDER ═════════════════════════════
-def render(tl, wav_path, out_path, preview_dir=None):
+def render(tl, wav_path, out_path, chunks, preview_dir=None):
     A = Assets()
     nfr = int(DUR * FPS)
     vf = f"scale={OUT_W}:{OUT_H}:flags=bicubic,format=yuv420p"
     cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS),
-           "-i", "-", "-i", wav_path, "-vf", vf, "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-maxrate", "28M", "-bufsize", "56M",
-           "-profile:v", "high", "-r", str(FPS), "-c:a", "aac", "-b:a", "256k", "-ar", str(SR),
-           "-shortest", "-movflags", "+faststart", out_path]
+           "-i", "-", "-i", wav_path, "-vf", vf, "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+           "-maxrate", "28M", "-bufsize", "56M", "-profile:v", "high", "-r", str(FPS),
+           "-c:a", "aac", "-b:a", "256k", "-ar", str(SR), "-shortest", "-movflags", "+faststart", out_path]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     prev = None
     last_scene = None
+    out_beat = max(tl.nb - 3, 30)
     for i in range(nfr):
         t = i / FPS
         b = tl.beat(t)
         phase = b - math.floor(b)
         sc, inten, ex = plan(tl, b)
-        punch = math.exp(-phase * 6) if b >= DROP_BEAT else 0.0
-        hit = tl.hit(t) if b >= DROP_BEAT - 0.5 else 0.0
-        # подъём перед дропом: глитч нарастает
-        if DROP_BEAT - 0.5 <= b < DROP_BEAT:
+        punch = math.exp(-phase * 6) if DROP_BEAT <= b < out_beat else 0.0
+        hit = tl.hit(t) if DROP_BEAT - 0.5 <= b < out_beat else 0.0
+        if DROP_BEAT - 0.5 <= b < DROP_BEAT:      # разгон перед дропом
             hit = max(hit, (b - (DROP_BEAT - 0.5)) * 2)
             if b > DROP_BEAT - 0.25:
                 sc = "static"
         flash = 0.0
         is_down = (int(math.floor(b)) - tl.ph) % 4 == 0
-        if b >= DROP_BEAT and (is_down or ex.get("flash")):
+        if DROP_BEAT <= b < out_beat and (is_down or ex.get("flash")):
             flash = math.exp(-phase * 14) * (0.9 if ex.get("flash") else 0.55)
         if ex.get("strobe"):
             flash = max(flash, math.exp(-((b * 2) % 1) * 22) * 0.3)
         if sc != last_scene:
-            prev = None  # жёсткий кат без шлейфа
+            prev = None
 
-        if sc == "phone":
-            img = scene_phone(A, t, b)
-        elif sc == "phone_outro":
-            ob = b - (tl.nb - 2)
-            img = scene_phone(A, t, ob, outro=True)
-            if ob > 1.35:  # в конце — помехи, кадр уходит в статику (луп в начало)
-                img = scene_static(A, t, b, 0, text="FLUFFY BARBARA — LONELY")
+        show_caption = True
+        if sc == "chat":
+            img = scene_chat(A, t, b)
+        elif sc == "unavail":
+            ob = b - out_beat
+            img = scene_unavail(A, t, ob)
+            if t > DUR - 0.35:          # хвост уходит в статику → луп в начало
+                img = scene_static(A, t, b, 0, text="FLUFFY BARBARA\nНЕ ИЩИ МЕНЯ", size=46)
+                show_caption = False
+        elif sc == "call":
+            img = scene_call(A, t, b, punch)
+        elif sc == "missed":
+            img = scene_missed(A, t, b)
         elif sc == "street":
             img = scene_street(A, t, b, 0)
-        elif sc == "windows":
-            img = scene_windows(A, t, b, 0)
-        elif sc == "heart":
-            sep = 0.15 * punch
-            if "break" in ex:
-                sep = 0.2 + 2.2 * ex["break"] ** 1.5
-            img = scene_heart(A, t, b, 0, sep=sep, punch=punch)
-        elif sc == "tunnel":
-            img = scene_tunnel(A, t, b, 0, punch=punch)
+        elif sc == "glass":
+            img = scene_glass(A, t, b, punch)
+        elif sc == "road":
+            img = scene_road(A, t, b, punch)
+        elif sc == "plate":
+            img = scene_plate(A, t, b, punch)
         elif sc == "type":
             img = scene_type(A, t, b, 0, punch=punch)
         else:
             img = scene_static(A, t, b, 0)
-        if ex.get("word"):
-            img = word_overlay(img, ex["word"], phase)
+        if show_caption:
+            img = caption(img, chunks, b)
 
         f = post(A, img, t, i, inten, punch, hit, flash, prev, ex)
         prev = f
@@ -828,9 +1044,12 @@ def main():
     ap.add_argument("--drop", type=float, help="секунда в треке, где падает дроп (окно начнётся за 4 доли до него)")
     ap.add_argument("--start", type=float, help="или: начало 15-секундного окна")
     ap.add_argument("--bpm", type=float, help="принудительно задать темп")
+    ap.add_argument("--lyrics", help="файл тайминга текста: строки «<время> <слово>», пустая строка = новый титр")
+    ap.add_argument("--lyrics-unit", choices=["beat", "sec"], default="beat",
+                    help="время в файле текста: доли (по умолчанию) или секунды от начала окна")
     ap.add_argument("--no-muffle", action="store_true", help="без глухого интро")
     ap.add_argument("--no-tapestop", action="store_true", help="без tape-stop в конце")
-    ap.add_argument("--out", default="lonely_edit.mp4")
+    ap.add_argument("--out", default="ne_ishchi_menya_edit.mp4")
     ap.add_argument("--preview", help="папка для превью-кадров")
     a = ap.parse_args()
     rng = np.random.default_rng(42)
@@ -861,17 +1080,20 @@ def main():
         stereo, bpm = synth_guide()
         an = analyze(stereo.mean(1)[::2].copy(), 22050, None)
         print(f"guide track: true 140 BPM, detected {an['bpm']:.1f} BPM")
-        an["beats"] = np.arange(0, DUR, 60 / bpm)   # для гайда берём точную сетку
+        an["beats"] = np.arange(0, DUR, 60 / bpm)
         an["downbeat_phase"] = 0
 
     print(f"BPM {an['bpm']:.1f} · beats {len(an['beats'])} · downbeat phase {an['downbeat_phase']} · hits {len(an['hits'])}")
     tl = Timeline(an["beats"], an["downbeat_phase"], an["hits"])
+    chunks = parse_lyrics(open(a.lyrics, encoding="utf8").read() if a.lyrics else DEFAULT_LYRICS)
+    if a.lyrics_unit == "sec":
+        chunks = [[(tl.beat(tm), w) for tm, w in ch] for ch in chunks]
     drop_t = float(np.interp(DROP_BEAT, tl.bi, tl.bt))
     audio = dirty_audio(stereo, drop_t, rng, muffle=not a.no_muffle, tapestop=not a.no_tapestop)
     write_wav(wav, audio)
     if a.preview:
         os.makedirs(a.preview, exist_ok=True)
-    render(tl, wav, a.out, a.preview)
+    render(tl, wav, a.out, chunks, a.preview)
     os.remove(wav)
     print("done →", a.out)
 
